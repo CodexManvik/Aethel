@@ -49,6 +49,49 @@ async def test_tool_call_deltas_are_assembled_across_chunks():
         "name": "fs_read", "description": "Read a file", "parameters": SPEC.parameters}}]
 
 
+async def test_index_less_deltas_one_chunk_per_call_stay_separate():
+    def handler(request):
+        body = (
+            _chunk({"tool_calls": [{"id": "call_1", "type": "function",
+                                    "function": {"name": "fs_read", "arguments": '{"path": "a.txt"}'}}]})
+            + _chunk({"tool_calls": [{"id": "call_2", "type": "function",
+                                      "function": {"name": "fs_read", "arguments": '{"path": "b.txt"}'}}]})
+            + _chunk({}, finish="tool_calls")
+            + "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = [e async for e in _provider(handler).stream(
+        [ChatMessage("user", "read files")], temperature=0.2, max_tokens=64, tools=[SPEC])]
+    assert events == [
+        ToolCallsReady([
+            ToolCall(id="call_1", name="fs_read", arguments='{"path": "a.txt"}'),
+            ToolCall(id="call_2", name="fs_read", arguments='{"path": "b.txt"}'),
+        ]),
+        StreamDone("tool_calls"),
+    ]
+
+
+async def test_index_less_deltas_multi_chunk_single_call_are_merged():
+    def handler(request):
+        body = (
+            _chunk({"tool_calls": [{"id": "call_1", "type": "function",
+                                    "function": {"name": "fs_read", "arguments": ""}}]})
+            + _chunk({"tool_calls": [{"function": {"arguments": "{\"path\": "}}]})
+            + _chunk({"tool_calls": [{"function": {"arguments": "\"C:/a.txt\"}"}}]})
+            + _chunk({}, finish="tool_calls")
+            + "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = [e async for e in _provider(handler).stream(
+        [ChatMessage("user", "read a.txt")], temperature=0.2, max_tokens=64, tools=[SPEC])]
+    assert events == [
+        ToolCallsReady([ToolCall(id="call_1", name="fs_read", arguments='{"path": "C:/a.txt"}')]),
+        StreamDone("tool_calls"),
+    ]
+
+
 async def test_tool_history_is_serialised_in_openai_shape():
     seen = {}
 

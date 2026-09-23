@@ -80,6 +80,7 @@ class OpenAICompatProvider:
             stream = await self._client.chat.completions.create(**kwargs)
             finish = None
             pending: dict[int, dict] = {}  # tool calls arrive as deltas keyed by index
+            last_index: int | None = None
             async for chunk in stream:
                 if not chunk.choices:
                     continue
@@ -89,7 +90,20 @@ class OpenAICompatProvider:
                     if delta.content:
                         yield TextDelta(delta.content)
                     for tc in delta.tool_calls or []:
-                        index = tc.index if tc.index is not None else len(pending)
+                        if tc.index is not None:
+                            index = tc.index
+                        else:
+                            starts_new = tc.id is not None or (
+                                tc.function is not None
+                                and tc.function.name
+                                and last_index is not None
+                                and pending.get(last_index, {}).get("name")
+                            )
+                            if starts_new:
+                                index = (max(pending) + 1) if pending else 0
+                            else:
+                                index = last_index if last_index is not None else 0
+                        last_index = index
                         slot = pending.setdefault(index, {"id": "", "name": "", "arguments": ""})
                         if tc.id:
                             slot["id"] = tc.id
