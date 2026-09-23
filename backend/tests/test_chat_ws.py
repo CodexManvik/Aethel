@@ -251,3 +251,19 @@ def test_back_to_back_messages_run_as_ordered_turns():
         ("user", "one"), ("assistant", "rep"), ("user", "two")
     ]
     assert svc.chat._locks == {}  # per-conversation locks don't accumulate
+
+
+def test_websocket_rejects_foreign_origin_but_allows_known_or_missing():
+    from aethel.app import ALLOWED_ORIGINS
+
+    client, _ = _client({"groq:g": FakeProvider()})
+    with client:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/session", headers={"origin": "https://evil.example"}) as ws:
+                ws.send_text("{not json")  # if wrongly accepted, get an answer rather than hang
+                ws.receive_json()
+        assert exc.value.code == 4403
+        for headers in ({"origin": ALLOWED_ORIGINS[0]}, {"origin": "tauri://localhost"}, {}):
+            with client.websocket_connect("/ws/session", headers=headers) as ws:
+                ws.send_text("{not json")
+                assert ws.receive_json()["code"] == "bad_request"  # accepted and serving

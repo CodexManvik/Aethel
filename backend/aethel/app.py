@@ -6,15 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .api import ws
 from .api.routes import conversations, health, keys, providers, settings
+from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
-ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "tauri://localhost",
-    "http://tauri.localhost",
-    "https://tauri.localhost",
-]
+__all__ = ["ALLOWED_ORIGINS", "create_app"]
 
 
 def create_app(services: Services | None = None) -> FastAPI:

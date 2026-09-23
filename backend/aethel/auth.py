@@ -4,6 +4,20 @@ import secrets
 
 log = logging.getLogger("aethel.auth")
 
+# Browser origins allowed to talk to the backend (CORS for REST, Origin check
+# for the WebSocket). Non-browser clients send no Origin and are allowed.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+]
+
+
+def origin_allowed(origin: str | None) -> bool:
+    return origin is None or origin in ALLOWED_ORIGINS
+
 
 class AuthConfig:
     def __init__(self, token: str | None, dev: bool):
