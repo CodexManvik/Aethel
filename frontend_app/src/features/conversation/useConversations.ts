@@ -15,6 +15,15 @@ export async function openConversation(id: string): Promise<void> {
   useSession.getState().setConversation(id, toUiMessages(messages));
 }
 
+/** Re-read the open conversation (after a reply ends or the socket reconnects)
+ * so the view always converges on what the server persisted. */
+export async function refreshOpenConversation(): Promise<void> {
+  const id = useSession.getState().conversationId;
+  if (!id) return;
+  const messages = await api<Message[]>(`/api/conversations/${id}/messages`);
+  useSession.getState().replaceMessages(id, toUiMessages(messages));
+}
+
 export function useDeleteConversation() {
   const qc = useQueryClient();
   return useMutation({

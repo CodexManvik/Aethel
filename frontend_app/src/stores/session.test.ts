@@ -56,6 +56,29 @@ test("provider switches become gentle notices", () => {
   expect(s.notices[0].text).toBe("groq:a was unavailable, so openrouter:b answered instead.");
 });
 
+test("provider_switched for another conversation's message is ignored", () => {
+  const s = applyEvent(base(), {
+    type: "provider_switched", role: "chat", from_provider: "a", to_provider: "b", reason: "429",
+    message_id: "not-here", task_id: null,
+  });
+  expect(s.notices).toEqual([]);
+});
+
+test("an unscoped error fails the pending user message instead of leaving it stuck", () => {
+  const s = applyEvent(base(), { type: "error", code: "bad_request", message: "Conversation not found.", message_id: null });
+  expect(s.messages[0]).toMatchObject({ status: "error", error: "Conversation not found." });
+  expect(s.notices.map((n) => n.text)).toEqual(["Conversation not found."]);
+});
+
+test("replaceMessages keeps local pending messages the server doesn't know yet", async () => {
+  const { useSession } = await import("./session");
+  useSession.setState({ conversationId: "c1", messages: [
+    { id: "pending_k2", role: "user", content: "second", status: "pending", clientId: "k2" },
+  ], streamingId: null, notices: [], socketStatus: "open" });
+  useSession.getState().replaceMessages("c1", [{ id: "u1", role: "user", content: "first", status: "complete" }]);
+  expect(useSession.getState().messages.map((m) => m.content)).toEqual(["first", "second"]);
+});
+
 test("toUiMessages drops system messages", () => {
   expect(
     toUiMessages([

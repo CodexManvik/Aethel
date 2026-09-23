@@ -68,8 +68,15 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
           ),
         };
       }
-      return { ...data, notices: [...data.notices, notice(ev.message)] };
+      return {
+        ...data,
+        messages: data.messages.map((m) =>
+          m.status === "pending" ? { ...m, status: "error" as const, error: ev.message, errorCode: ev.code } : m,
+        ),
+        notices: [...data.notices, notice(ev.message)],
+      };
     case "provider_switched":
+      if (ev.message_id && !has(ev.message_id)) return data;
       return {
         ...data,
         notices: [...data.notices, notice(`${ev.from_provider} was unavailable, so ${ev.to_provider} answered instead.`)],
@@ -85,6 +92,7 @@ interface SessionState extends SessionData {
   apply(ev: ServerEvent): void;
   setSocketStatus(status: SocketStatus): void;
   dismissNotice(id: string): void;
+  replaceMessages(conversationId: string, fetched: UiMessage[]): void;
 }
 
 export const useSession = create<SessionState>()((set) => ({
@@ -106,4 +114,12 @@ export const useSession = create<SessionState>()((set) => ({
   apply: (ev) => set((s) => applyEvent(s, ev)),
   setSocketStatus: (socketStatus) => set({ socketStatus }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
+  replaceMessages: (conversationId, fetched) =>
+    set((s) => {
+      if (s.conversationId !== conversationId) return s;
+      const known = new Set(fetched.map((m) => m.id));
+      const pending = s.messages.filter((m) => m.status === "pending" && !known.has(m.id));
+      const messages = [...fetched, ...pending];
+      return { messages, streamingId: messages.find((m) => m.status === "streaming")?.id ?? null };
+    }),
 }));
