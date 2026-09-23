@@ -182,3 +182,47 @@ async def test_shutdown_times_out_and_cancels_slow_turns():
     stored = services.messages.list(conv.id)
     assert stored[-1].status == "stopped"
     services.close()
+
+
+def test_build_services_reconciles_rows_left_streaming_by_a_crash():
+    first = build_services(local_llm=FakeLocal())
+    conv = first.conversations.create()
+    cut = first.messages.add(conv.id, "assistant", "half a rep", status="streaming")
+    first.close()
+    second = build_services(local_llm=FakeLocal())
+    [stored] = second.messages.list(conv.id)
+    assert (stored.id, stored.status, stored.content) == (cut.id, "stopped", "half a rep")
+    second.close()
+
+
+def test_stop_on_orphaned_streaming_row_ends_it():
+    """A row left "streaming" with no task behind it (e.g. the reply was cut
+    off mid-stream) must not block the conversation: stop marks it stopped and
+    tells the client."""
+    client, svc = _client({"groq:g": FakeProvider()})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        orphan = svc.messages.add(conv["id"], "assistant", "half", status="streaming")
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "stop_generation", "message_id": orphan.id})
+            # Sentinel: always answered, so a missing message_end fails fast instead of hanging.
+            ws.send_json({"type": "user_message", "conversation_id": "missing", "text": "x"})
+            assert ws.receive_json() == {"type": "message_end", "message_id": orphan.id, "status": "stopped"}
+            assert ws.receive_json()["code"] == "bad_request"
+    [stored] = svc.messages.list(conv["id"])
+    assert (stored.status, stored.content) == ("stopped", "half")
+
+
+def test_stop_on_unknown_or_finished_message_emits_nothing():
+    client, svc = _client({"groq:g": FakeProvider(chunks=["ok"])})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        done = svc.messages.add(conv["id"], "assistant", "x", status="complete")
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "stop_generation", "message_id": "missing"})
+            ws.send_json({"type": "stop_generation", "message_id": done.id})
+            # The next thing on the wire is the reply to this, not a stray message_end.
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            assert ws.receive_json()["type"] == "message_start"
+            _receive_until_end(ws)
+    assert svc.messages.list(conv["id"])[0].status == "complete"

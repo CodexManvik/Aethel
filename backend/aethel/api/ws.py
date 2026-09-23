@@ -39,6 +39,6 @@ async def session_socket(websocket: WebSocket) -> None:
             if isinstance(event, UserMessage):
                 services.chat.start_turn(event, emit)
             elif isinstance(event, StopGeneration):
-                services.chat.stop(event.message_id)
+                await services.chat.stop(event.message_id, emit)
     except WebSocketDisconnect:
         state["open"] = False

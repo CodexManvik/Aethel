@@ -34,13 +34,14 @@ class Services:
 
 def build_services(*, provider_factory: ProviderFactory | None = None, local_llm=AUTO) -> Services:
     db = Database(db_path())
+    conversations, messages = ConversationRepo(db), MessageRepo(db)
+    messages.reconcile_interrupted()  # replies cut off by a previous kill/crash
     settings = SettingsService(db)
     settings.import_legacy(LEGACY_SETTINGS_PATH)
     keys = KeyStore()
     local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
     factory = provider_factory or default_provider_factory
     router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory)
-    conversations, messages = ConversationRepo(db), MessageRepo(db)
     return Services(
         db=db,
         settings=settings,

@@ -75,3 +75,28 @@ def test_invalid_role_is_rejected(db):
     conv = ConversationRepo(db).create()
     with pytest.raises(Exception):
         MessageRepo(db).add(conv.id, "robot", "x")
+
+
+def test_reconcile_interrupted_marks_streaming_rows_stopped(db):
+    conv = ConversationRepo(db).create()
+    repo = MessageRepo(db)
+    repo.add(conv.id, "user", "hi")
+    cut = repo.add(conv.id, "assistant", "partial", status="streaming")
+    done = repo.add(conv.id, "assistant", "whole", status="complete")
+    assert repo.reconcile_interrupted() == 1
+    by_id = {m.id: m for m in repo.list(conv.id)}
+    assert by_id[cut.id].status == "stopped" and by_id[cut.id].content == "partial"
+    assert by_id[done.id].status == "complete"
+    assert repo.reconcile_interrupted() == 0
+
+
+def test_mark_stopped_only_touches_streaming_rows(db):
+    conv = ConversationRepo(db).create()
+    repo = MessageRepo(db)
+    streaming = repo.add(conv.id, "assistant", "", status="streaming")
+    complete = repo.add(conv.id, "assistant", "x", status="complete")
+    assert repo.mark_stopped_if_streaming(streaming.id) is True
+    assert repo.mark_stopped_if_streaming(streaming.id) is False
+    assert repo.mark_stopped_if_streaming(complete.id) is False
+    assert repo.mark_stopped_if_streaming("missing") is False
+    assert [m.status for m in repo.list(conv.id)] == ["stopped", "complete"]

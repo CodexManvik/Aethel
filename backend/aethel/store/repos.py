@@ -123,6 +123,19 @@ class MessageRepo:
         if sets:
             self.db.execute(f"UPDATE messages SET {', '.join(sets)} WHERE id = ?", (*params, msg_id))
 
+    def mark_stopped_if_streaming(self, msg_id: str) -> bool:
+        """Atomically end a reply that's still marked streaming. False if it
+        doesn't exist or already finished."""
+        cur = self.db.execute(
+            "UPDATE messages SET status = 'stopped' WHERE id = ? AND status = 'streaming'", (msg_id,)
+        )
+        return cur.rowcount > 0
+
+    def reconcile_interrupted(self) -> int:
+        """At startup no turn is running, so any row still marked streaming was
+        cut off by a kill or crash. Mark those stopped; returns how many."""
+        return self.db.execute("UPDATE messages SET status = 'stopped' WHERE status = 'streaming'").rowcount
+
     def list(self, conversation_id: str, limit: int | None = None) -> list[Message]:
         if limit is None:
             rows = self.db.query(

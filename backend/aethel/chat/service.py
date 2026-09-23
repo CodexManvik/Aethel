@@ -38,12 +38,19 @@ class ChatService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    def stop(self, message_id: str) -> bool:
+    async def stop(self, message_id: str, emit: Emit) -> bool:
+        """Cancel a running reply (its turn persists the partial text and emits
+        message_end). A row still marked streaming with no task behind it (cut
+        off mid-stream) is ended here instead, so the conversation can't stay
+        stuck. Unknown or finished messages: no-op."""
         task = self._active.get(message_id)
-        if task is None:
-            return False
-        task.cancel()
-        return True
+        if task is not None:
+            task.cancel()
+            return True
+        if self.messages.mark_stopped_if_streaming(message_id):
+            await emit(MessageEnd(message_id=message_id, status="stopped"))
+            return True
+        return False
 
     async def wait_idle(self) -> None:
         while self._tasks:
