@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -31,7 +32,16 @@ def create_app(services: Services | None = None) -> FastAPI:
                     finally:
                         svc.close()
 
-    app = FastAPI(title="Aethel", version=__version__, lifespan=lifespan)
+    # Interactive API docs are unauthenticated, so they only exist in dev mode.
+    dev = os.environ.get("AETHEL_DEV") == "1"
+    app = FastAPI(
+        title="Aethel",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if dev else None,
+        redoc_url="/redoc" if dev else None,
+        openapi_url="/openapi.json" if dev else None,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,

@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -55,3 +57,37 @@ def test_keys_route_sets_and_reports_status_without_leaking_values():
         assert "secret-value" not in res.text
         assert client.get("/api/keys/status").json()["groq"] is True
         assert client.post("/api/keys", json={"keys": {"evil": "x"}}).status_code == 422
+
+
+DOCS_PATHS = {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
+
+
+def test_every_http_route_but_health_requires_the_bearer_token(monkeypatch):
+    monkeypatch.setenv("AETHEL_DEV", "0")
+    monkeypatch.setenv("AETHEL_TOKEN", "t")
+    app = create_app()
+    swept = []
+    with TestClient(app) as client:
+        for route in app.routes:
+            methods = getattr(route, "methods", None)
+            if not methods or route.path == "/api/health":
+                continue  # WebSocket routes have their own token test
+            path = re.sub(r"\{[^}]+\}", "x", route.path)
+            for method in sorted(methods - {"HEAD", "OPTIONS"}):
+                res = client.request(method, path)
+                assert res.status_code == 401, f"{method} {route.path} -> {res.status_code}"
+                swept.append(f"{method} {route.path}")
+        assert client.get("/api/health").status_code == 200
+    assert len(swept) >= 11  # keys x2, conversations x5, settings x2, providers x3
+
+
+def test_api_docs_only_exist_in_dev_mode(monkeypatch):
+    monkeypatch.setenv("AETHEL_DEV", "0")
+    monkeypatch.setenv("AETHEL_TOKEN", "t")
+    with TestClient(create_app()) as client:
+        for path in DOCS_PATHS - {"/docs/oauth2-redirect"}:
+            assert client.get(path).status_code == 404, path
+    monkeypatch.setenv("AETHEL_DEV", "1")
+    with TestClient(create_app()) as client:
+        for path in DOCS_PATHS - {"/docs/oauth2-redirect"}:
+            assert client.get(path).status_code == 200, path
