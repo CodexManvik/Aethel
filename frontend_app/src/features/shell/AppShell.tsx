@@ -5,6 +5,7 @@ import { Rail } from "./Rail";
 import { useSessionEvents } from "./useSessionEvents";
 import { resolveMotion, useUi, watchSystemAppearance } from "../../stores/ui";
 import { ConversationView } from "../conversation/ConversationView";
+import { ThreadsPanel } from "../conversation/ThreadsPanel";
 import { SettingsView } from "../settings/SettingsView";
 
 export function AppShell() {
@@ -17,6 +18,7 @@ export function AppShell() {
       <div className="grain flex h-full bg-canvas text-ink">
         <Rail />
         <main className="relative min-w-0 flex-1">
+          <ThreadsPanel />
           {screen === "conversation" ? <ConversationView /> : <SettingsView />}
         </main>
         <Toaster
