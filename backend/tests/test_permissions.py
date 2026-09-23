@@ -89,3 +89,53 @@ def test_protected_reads_are_denied_whatever_the_manifest_says(tmp_path):
     assert p.check_path(str(tmp_path / "proj" / ".env"), "read").verdict == "deny"
     assert p.check_path(str(home / "permissions.yaml"), "read").verdict == "allow"  # reading config is fine
     assert p.check_path(str(project / "README.md"), "read").verdict == "allow"
+
+
+def _shell_perms(tmp_path, monkeypatch, allowed=None):
+    """Default manifest, with the home folder (and so ~/.ssh and the shell's
+    working directory) pointed at tmp."""
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    manifest = default_manifest()
+    if allowed is not None:
+        manifest["shell"]["allowed_commands"] = allowed
+    path = tmp_path / "permissions.yaml"
+    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    return Permissions(path)
+
+
+def test_allowed_command_path_arguments_are_checked(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch)
+    assert p.check_command(r"type %USERPROFILE%\.ssh\id_rsa").verdict == "deny"
+    assert p.check_command(r"type .ssh\id_rsa").verdict == "deny"
+    assert p.check_command(r"type ~\.ssh\id_rsa").verdict == "deny"
+    assert p.check_command(r'type "%USERPROFILE%\.ssh\id_rsa"').verdict == "deny"
+    assert p.check_command(r"dir C:\Windows\System32\config").verdict == "deny"
+    assert p.check_command(r"type C:\somewhere\else.txt").verdict == "ask"   # outside the read folders
+    assert p.check_command(r"dir /s /b").verdict == "allow"                   # cmd switches aren't paths
+    assert p.check_command("git status").verdict == "allow"
+    assert p.check_command("echo hi").verdict == "allow"
+
+
+def test_output_file_options_are_denied(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch)
+    assert p.check_command(r"git log --output=C:\x").verdict == "deny"
+    assert p.check_command("git diff --no-index NUL x --output=y").verdict == "deny"
+    assert p.check_command("git diff --output y").verdict == "deny"
+    assert p.check_command("git log -o y").verdict == "deny"
+    assert p.check_command("git log -oy").verdict == "deny"
+    assert p.check_command("pandoc a.md --output-directory x").verdict == "deny"
+    assert p.check_command("echo hi >> x").verdict == "deny"
+
+
+def test_interpreters_are_never_auto_allowed(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch, allowed=["python", "node", "powershell", "start", "*"])
+    assert p.check_command("python script.py").verdict == "ask"
+    assert p.check_command('"Python.EXE" script.py').verdict == "ask"
+    assert p.check_command("node app.js").verdict == "ask"
+    assert p.check_command("start notepad").verdict == "ask"
+    assert p.check_command("pwsh x.ps1").verdict == "ask"          # allowed only via "*"
+    assert p.check_command('python -c "print(1)"').verdict == "deny"  # forbidden arguments still deny first
+    assert p.check_command("git status").verdict == "allow"

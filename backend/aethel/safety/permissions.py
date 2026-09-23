@@ -60,6 +60,57 @@ def default_manifest() -> dict:
     }
 
 
+# Programs that run arbitrary code or launch other programs: never auto-allowed,
+# even when the manifest lists them.
+INTERPRETERS = frozenset({"python", "python3", "py", "pythonw", "node", "deno", "bun", "powershell", "pwsh", "cmd",
+                          "wscript", "cscript", "mshta", "rundll32", "regsvr32", "bash", "sh", "wsl", "start"})
+# Options that make an allowed command write its output to a file (token or token prefix).
+OUTPUT_FLAGS = ("--output", "-o")
+_SWITCH_RE = re.compile(r"^/[a-z0-9?]{1,2}(:[^\\/]*)?$", re.IGNORECASE)  # cmd switches: /s, /a:h, /?
+
+
+def _split_command(cmd: str) -> list[str]:
+    """Split like cmd.exe does: whitespace separates words except inside double
+    quotes; the quotes and ^ escapes are dropped."""
+    words, current, quoted = [], [], False
+    for ch in cmd:
+        if ch == '"':
+            quoted = not quoted
+        elif ch == "^" and not quoted:
+            continue
+        elif ch.isspace() and not quoted:
+            if current:
+                words.append("".join(current))
+                current = []
+        else:
+            current.append(ch)
+    if current:
+        words.append("".join(current))
+    return words
+
+
+def _program(word: str) -> str:
+    name = re.split(r"[\\/]", re.sub(r"[\"'^`]", "", word).lower())[-1]
+    return name[:-4] if name.endswith(".exe") else name
+
+
+def _matches(low: str, allowed: str) -> bool:
+    return allowed == "*" or low == allowed or low.startswith(allowed + " ")
+
+
+def _looks_like_path(word: str) -> bool:
+    if word.startswith("-") or _SWITCH_RE.match(word):
+        return False
+    return any(c in word for c in "\\/:%") or word.startswith((".", "~"))
+
+
+def _expand_arg(word: str) -> str:
+    """Resolve an argument the way the shell will see it: %VAR% and ~ expanded,
+    relative paths against the shell's working directory (the home folder)."""
+    expanded = os.path.expanduser(os.path.expandvars(word))
+    return expanded if os.path.isabs(expanded) else str(Path.home() / expanded)
+
+
 def _norm(p: str) -> str:
     return os.path.normcase(os.path.realpath(os.path.expanduser(p)))
 
@@ -150,8 +201,22 @@ class Permissions:
                 # Non-flag: substring match on original to catch literal |, backticks, etc.
                 if b in low:
                     return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
-        for allowed in sh.allowed_commands:
-            a = allowed.strip().lower()
-            if a == "*" or low == a or low.startswith(a + " "):
-                return Decision("allow", f"Matches allowed command '{allowed}'.")
-        return Decision("ask", "Not on the list of commands I may run without asking.")
+        if any(t.startswith(flag) for t in tokens for flag in OUTPUT_FLAGS):
+            return Decision("deny", "Options that write output to a file are blocked.")
+        words = _split_command(cmd)
+        matched = next((a for a in sh.allowed_commands if _matches(low, a.strip().lower())), None)
+        # The program itself is never checked as a path; for an allowed command,
+        # neither are the words that matched the allowlist entry.
+        skip = max(1, len(matched.split())) if matched is not None and matched.strip() != "*" else 1
+        path_verdicts = [self.check_path(arg, "read")
+                         for arg in (_expand_arg(w) for w in words[skip:] if _looks_like_path(w))]
+        denied = next((d for d in path_verdicts if d.verdict == "deny"), None)
+        if denied is not None:
+            return denied
+        if matched is None:
+            return Decision("ask", "Not on the list of commands I may run without asking.")
+        if _program(words[0] if words else "") in INTERPRETERS:
+            return Decision("ask", "This starts a program that can run any code, so I check first.")
+        if any(d.verdict == "ask" for d in path_verdicts):
+            return Decision("ask", "It reads outside the folders I'm allowed to read without asking.")
+        return Decision("allow", f"Matches allowed command '{matched}'.")

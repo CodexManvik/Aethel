@@ -83,3 +83,18 @@ async def test_shell_run(env):
     assert tools["shell_run"].assess({"command": "echo hi > x"}).verdict == "deny"
     res = await tools["shell_run"].handler({"command": "echo hello"}, ToolContext(None))
     assert res.ok and "hello" in res.content and res.untrusted
+
+
+async def test_shell_run_does_not_pass_secrets_to_the_command(env, monkeypatch):
+    _, tools, _ = env
+    monkeypatch.setenv("AETHEL_TOKEN", "tok-sekrit-1")
+    monkeypatch.setenv("AETHEL_PARENT_PID", "4242")
+    monkeypatch.setenv("GROQ_API_KEY", "key-sekrit-2")
+    monkeypatch.setenv("SOME_Secret", "sec-sekrit-3")
+    monkeypatch.setenv("AETHEL_TEST_VISIBLE", "visible-4")
+    res = await tools["shell_run"].handler(
+        {"command": "echo %AETHEL_TOKEN% %AETHEL_PARENT_PID% %GROQ_API_KEY% %SOME_Secret% %AETHEL_TEST_VISIBLE%"},
+        ToolContext(None))
+    assert "visible-4" in res.content
+    for secret in ("tok-sekrit-1", "4242", "key-sekrit-2", "sec-sekrit-3"):
+        assert secret not in res.content

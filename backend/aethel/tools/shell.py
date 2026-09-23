@@ -9,6 +9,15 @@ from .base import Assessment, Tool, ToolContext, ToolResult
 
 TIMEOUT_S = 60
 MAX_OUTPUT = 8000
+_SECRET_NAMES = {"AETHEL_TOKEN", "AETHEL_PARENT_PID"}
+_SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
+
+
+def scrubbed_env() -> dict[str, str]:
+    """The backend's environment minus its own token and anything that looks
+    like a credential, so a command can't echo them back to the model."""
+    return {k: v for k, v in os.environ.items()
+            if k.upper() not in _SECRET_NAMES and not k.upper().endswith(_SECRET_SUFFIXES)}
 
 
 def shell_tool(perms: Permissions) -> Tool:
@@ -22,7 +31,7 @@ def shell_tool(perms: Permissions) -> Tool:
         argv = ["cmd", "/c", command] if os.name == "nt" else ["/bin/sh", "-c", command]
 
         def execute() -> subprocess.CompletedProcess:
-            return subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, cwd=str(Path.home()),
+            return subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, cwd=str(Path.home()), env=scrubbed_env(),
                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
 
         try:
