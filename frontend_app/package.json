@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "gen:types": "json2ts -i src/lib/events.schema.json -o src/lib/events.gen.ts --bannerComment \"/* Generated from backend/aethel/api/events.py by pnpm gen:types. Do not edit. */\"",
+    "gen:types": "json2ts -i src/lib/events.schema.json -o src/lib/events.gen.ts --bannerComment \"/* Generated from backend/aethel/protocol.py by pnpm gen:types. Do not edit. */\"",
     "tauri": "tauri"
   },
   "dependencies": {

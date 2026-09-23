@@ -722,3 +722,10 @@ async def test_tool_call_cut_off_by_the_token_limit_is_explained(h):
     answer = next(m for m in provider.calls[2] if m.role == "tool" and m.tool_call_id == "cut1").content
     assert answer == ("Error: your tool call was cut off because it was too long. "
                       "Write the content in smaller parts (use mode 'append').")
+
+
+async def test_start_on_an_unknown_conversation_reports_which_one(h):
+    engine, _ = h.make([])
+    assert await engine.start(conversation_id="conv_missing", goal="x") is None
+    error = next(e for e in h.events if e["type"] == "error")
+    assert (error["code"], error["conversation_id"]) == ("bad_request", "conv_missing")

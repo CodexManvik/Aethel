@@ -21,7 +21,7 @@ export function TaskPanel() {
   const task = useTasks((s) => (taskId ? s.tasks[taskId] : undefined));
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {task && (
         <motion.aside
           key={task.id}

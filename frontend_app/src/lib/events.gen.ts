@@ -1,4 +1,4 @@
-/* Generated from backend/aethel/api/events.py by pnpm gen:types. Do not edit. */
+/* Generated from backend/aethel/protocol.py by pnpm gen:types. Do not edit. */
 
 export type Client = UserMessage | StopGeneration | StartTask | TaskControl | ApprovalDecision;
 export type ClientId = string | null;

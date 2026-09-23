@@ -30,7 +30,7 @@ file a finished task wrote.
 
 **Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
 
-**Changing the WebSocket protocol:** edit `backend/aethel/api/events.py`, then run
+**Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run
 `py -3.11 scripts/gen_event_schema.py` and `cd frontend_app; pnpm gen:types`.
 
 ## Highlights

@@ -77,6 +77,8 @@ class ChatService:
                 await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def _turn(self, event: UserMessage) -> None:
+        """One reply at a time per conversation. The lock is taken BEFORE the user message is persisted, so the DB
+        order stays user1, assistant1, user2, assistant2 and each turn's context includes the previous reply."""
         entry = self._locks.setdefault(event.conversation_id, [asyncio.Lock(), 0])
         entry[1] += 1
         try:

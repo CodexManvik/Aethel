@@ -172,7 +172,8 @@ class TaskEngine:
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
         conv = self.conversations.get(conversation_id)
         if conv is None:
-            await self.hub.publish(ErrorEvent(message="Conversation not found.", code="bad_request"))
+            await self.hub.publish(ErrorEvent(message="Conversation not found.", code="bad_request",
+                                                conversation_id=conversation_id))
             return None
         task = self.tasks.create(conversation_id, goal)
         user_msg = self.messages.add(conversation_id, "user", goal, meta={"task_id": task.id})
