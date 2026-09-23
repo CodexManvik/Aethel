@@ -13,6 +13,14 @@ from ...settings import ProviderId, RouteEntry
 from ..deps import get_services, require_auth
 
 router = APIRouter(prefix="/api/providers", dependencies=[Depends(require_auth)])
+PRIVATE_MODE_DETAIL = "Private mode is on."
+
+
+def _refuse_cloud_in_private_mode(svc: Services, provider_id: str) -> None:
+    """Private mode keeps everything on this machine: no cloud call, not even
+    a model listing or a connection test."""
+    if provider_id != "local" and svc.settings.get().private_mode:
+        raise HTTPException(status_code=409, detail=PRIVATE_MODE_DETAIL)
 
 
 class ProviderInfo(BaseModel):
@@ -50,6 +58,7 @@ def list_providers(svc: Services = Depends(get_services)) -> list[ProviderInfo]:
 async def list_models(provider_id: str, svc: Services = Depends(get_services)) -> dict:
     if provider_id not in PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider")
+    _refuse_cloud_in_private_mode(svc, provider_id)
     if provider_id == "local":
         if svc.local_llm is None or not await anyio.to_thread.run_sync(svc.local_llm.is_up):
             return {"models": []}
@@ -67,6 +76,7 @@ async def list_models(provider_id: str, svc: Services = Depends(get_services)) -
 
 @router.post("/test")
 async def test_provider(body: TestIn, svc: Services = Depends(get_services)) -> TestOut:
+    _refuse_cloud_in_private_mode(svc, body.provider)
     if body.provider == "local":
         try:
             await anyio.to_thread.run_sync(svc.local_llm.ensure_running)

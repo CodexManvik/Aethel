@@ -78,3 +78,20 @@ def test_provider_test_endpoint():
         assert good["ok"] is True and good["reply"] == "ok" and good["latency_ms"] >= 0
         bad = client.post("/api/providers/test", json={"provider": "groq", "model": "bad"}).json()
         assert bad["ok"] is False and "model not found" in bad["error"]
+
+
+def test_private_mode_blocks_cloud_model_listing_and_tests():
+    cloud = FakeProvider(chunks=["ok"], models=["m"])
+    client, svc = _client({"groq:_list": cloud, "groq:m": cloud, "local:local": FakeProvider(chunks=["ok"])},
+                          local=FakeLocal(up=False))
+    svc.keys.set_many({"groq": "k"})
+    svc.settings.update({"private_mode": True})
+    with client:
+        listed = client.get("/api/providers/groq/models")
+        assert listed.status_code == 409 and listed.json()["detail"] == "Private mode is on."
+        tested = client.post("/api/providers/test", json={"provider": "groq", "model": "m"})
+        assert tested.status_code == 409 and tested.json()["detail"] == "Private mode is on."
+        # local stays reachable
+        assert client.get("/api/providers/local/models").json() == {"models": []}
+        assert client.post("/api/providers/test", json={"provider": "local", "model": "local"}).status_code == 200
+    assert [used[0] for used in svc.provider_factory.used] == ["local"]  # no cloud provider was built
