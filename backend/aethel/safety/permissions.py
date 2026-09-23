@@ -107,11 +107,17 @@ class Permissions:
         for pattern in sh.forbidden_patterns:
             if pattern.lower() in low:
                 return Decision("deny", f"Commands containing '{pattern.strip()}' are blocked.")
-        tokens = low.split()
+        tokens = [t.strip("\"'") for t in low.split()]
         for bad in sh.forbidden_arguments or FORBIDDEN_ARGUMENTS:
             b = bad.lower()
-            if (b.startswith("-") and b in tokens) or (not b.startswith("-") and b in low):
-                return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
+            if b.startswith("-"):
+                # Flag-style: match exact token or token prefix
+                if any(t == b or t.startswith(b) for t in tokens):
+                    return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
+            else:
+                # Non-flag: substring match
+                if b in low:
+                    return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
         for allowed in sh.allowed_commands:
             a = allowed.strip().lower()
             if a == "*" or low == a or low.startswith(a + " "):
