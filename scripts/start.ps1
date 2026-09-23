@@ -1,49 +1,24 @@
-# AETHEL — start everything (Windows)
+# AETHEL v2: start the desktop app (Windows)
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\start.ps1 [-BackendOnly]
 #
-# Launches the backend API (which auto-spawns the local LLM engine) and the
-# Tauri desktop app. Ctrl+C in this window stops the frontend; the backend
-# window closes separately.
+# Default: runs the Tauri app, which launches the backend itself and passes it a
+# fresh auth token. -BackendOnly: runs just the API on http://127.0.0.1:8765
+# with auth disabled (AETHEL_DEV=1), for browser development with `pnpm dev`.
 
-param(
-    [switch]$BackendOnly
-)
+param([switch]$BackendOnly)
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-Set-Location $Root
-
-if (-not (Test-Path "$Root\.venv\Scripts\python.exe")) {
-    Write-Host "No virtual environment found. Run scripts\install.ps1 first." -ForegroundColor Red
-    exit 1
-}
-
-$gguf = Get-ChildItem "$Root\models\llm\*.gguf" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch "mmproj" }
-if (-not $gguf) {
-    Write-Host "WARNING: no .gguf model found in models\llm\ — chat will not work until you add one." -ForegroundColor Yellow
-    Write-Host "         See models\README.md for recommendations." -ForegroundColor Yellow
-}
-
-Write-Host "Starting AETHEL backend (http://localhost:8000)..." -ForegroundColor Cyan
-$backend = Start-Process -FilePath "$Root\.venv\Scripts\python.exe" `
-    -ArgumentList "$Root\backend\server.py" `
-    -WorkingDirectory "$Root\backend" `
-    -PassThru
 
 if ($BackendOnly) {
-    Write-Host "Backend running (PID $($backend.Id)). Press Ctrl+C to exit this script (backend keeps running)."
-    Wait-Process -Id $backend.Id
-    exit 0
+    $python = if (Test-Path "$Root\.venv\Scripts\python.exe") { "$Root\.venv\Scripts\python.exe" } else { "py" }
+    $pyArgs = if ($python -eq "py") { @("-3.11", "-m", "aethel") } else { @("-m", "aethel") }
+    $env:AETHEL_DEV = "1"
+    Write-Host "Aethel backend on http://127.0.0.1:8765 (dev mode, auth disabled)" -ForegroundColor Cyan
+    Push-Location "$Root\backend"
+    try { & $python @pyArgs } finally { Pop-Location }
+    exit $LASTEXITCODE
 }
 
-Write-Host "Starting desktop app..." -ForegroundColor Cyan
-try {
-    Push-Location "$Root\frontend_app"
-    pnpm tauri dev
-} finally {
-    Pop-Location
-    if ($backend -and -not $backend.HasExited) {
-        Write-Host "Stopping backend (PID $($backend.Id))..."
-        Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
-    }
-}
+Push-Location "$Root\frontend_app"
+try { pnpm tauri dev } finally { Pop-Location }

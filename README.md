@@ -8,6 +8,25 @@ uses to do better next time (**RSM — Reflective Skill Memory**).
 Nothing leaves your computer unless you explicitly switch on the optional cloud
 backend.
 
+## Running Aethel v2
+
+**Desktop app:** `powershell -ExecutionPolicy Bypass -File scripts\start.ps1`
+The Tauri shell starts the backend automatically (logs: `~/.aethel/logs/backend.log`).
+Add an API key in **Settings → Providers** (Groq is the default conversation model).
+
+**Browser development:**
+1. `scripts\start.ps1 -BackendOnly` (API on http://127.0.0.1:8765, auth disabled)
+2. set a key for the backend process, e.g. `$env:GROQ_API_KEY = "..."` before step 1
+3. `cd frontend_app; pnpm dev` and open http://localhost:5173
+
+**Private mode:** put a `.gguf` model in `models/llm/` (or choose one in Settings → Local model) and install
+llama.cpp (`scripts/install.ps1`). Everything then runs on this computer.
+
+**Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
+
+**Changing the WebSocket protocol:** edit `backend/aethel/api/events.py`, then run
+`py -3.11 scripts/gen_event_schema.py` and `cd frontend_app; pnpm gen:types`.
+
 ## Highlights
 
 - **Local everything** — llama.cpp for chat, Kokoro for speech, Whisper for
