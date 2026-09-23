@@ -32,6 +32,8 @@ class ChatService:
         self.settings = settings
         self._active: dict[str, asyncio.Task] = {}
         self._tasks: set[asyncio.Task] = set()
+        # conversation_id -> [lock, number of turns holding or waiting on it]
+        self._locks: dict[str, list] = {}
 
     def start_turn(self, event: UserMessage, emit: Emit) -> None:
         task = asyncio.create_task(self._turn(event, emit))
@@ -69,6 +71,20 @@ class ChatService:
                 await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def _turn(self, event: UserMessage, emit: Emit) -> None:
+        """One reply at a time per conversation. The lock is taken BEFORE the
+        user message is persisted, so the DB order stays user1, assistant1,
+        user2, assistant2 and each turn's context includes the previous reply."""
+        entry = self._locks.setdefault(event.conversation_id, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                await self._run_turn(event, emit)
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0:
+                self._locks.pop(event.conversation_id, None)
+
+    async def _run_turn(self, event: UserMessage, emit: Emit) -> None:
         conv = self.conversations.get(event.conversation_id)
         if conv is None:
             await emit(ErrorEvent(message="Conversation not found.", code="bad_request"))

@@ -226,3 +226,28 @@ def test_stop_on_unknown_or_finished_message_emits_nothing():
             assert ws.receive_json()["type"] == "message_start"
             _receive_until_end(ws)
     assert svc.messages.list(conv["id"])[0].status == "complete"
+
+
+def test_back_to_back_messages_run_as_ordered_turns():
+    """Two user_messages sent without waiting are serialised: turn 2 starts
+    only after turn 1 ends, sees reply 1 in its context, and the DB keeps
+    user1, assistant1, user2, assistant2."""
+    provider = FakeProvider(chunks=["r", "e", "p"], delay=0.05)
+    client, svc = _client({"groq:g": provider})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "one", "client_id": "c1"})
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "two", "client_id": "c2"})
+            first = _receive_until_end(ws)
+            second = _receive_until_end(ws)
+    assert first[0]["client_id"] == "c1" and second[0]["client_id"] == "c2"
+    assert {e.get("message_id") for e in first if e["type"] in ("token", "message_end")} == {first[0]["message_id"]}
+    assert {e.get("message_id") for e in second if e["type"] in ("token", "message_end")} == {second[0]["message_id"]}
+    assert first[-1]["status"] == second[-1]["status"] == "complete"
+    stored = [(m.role, m.content) for m in svc.messages.list(conv["id"])]
+    assert stored == [("user", "one"), ("assistant", "rep"), ("user", "two"), ("assistant", "rep")]
+    assert [(m.role, m.content) for m in provider.calls[1][1:]] == [
+        ("user", "one"), ("assistant", "rep"), ("user", "two")
+    ]
+    assert svc.chat._locks == {}  # per-conversation locks don't accumulate
