@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable
 
 import anyio
+import httpx
 
 from ..keys import KeyStore
 from ..settings import AppSettings, RouteEntry, SettingsService
@@ -14,13 +15,19 @@ ProviderFactory = Callable[[RouteEntry, str, AppSettings], LLMProvider]
 LOCAL_API_KEY = "sk-local"
 
 
-def default_provider_factory(entry: RouteEntry, api_key: str, settings: AppSettings) -> LLMProvider:
-    return OpenAICompatProvider(
-        provider=entry.provider,
-        base_url=base_url_for(entry.provider, settings),
-        api_key=api_key,
-        model=entry.model,
-    )
+def make_provider_factory(http_client: httpx.AsyncClient) -> ProviderFactory:
+    """The production factory: every provider it builds shares `http_client`
+    (one connection pool for the whole backend)."""
+    def factory(entry: RouteEntry, api_key: str, settings: AppSettings) -> LLMProvider:
+        return OpenAICompatProvider(
+            provider=entry.provider,
+            base_url=base_url_for(entry.provider, settings),
+            api_key=api_key,
+            model=entry.model,
+            http_client=http_client,
+        )
+
+    return factory
 
 
 @dataclass
@@ -36,11 +43,11 @@ class NoProviderAvailable(Exception):
 
 
 class RoleRouter:
-    def __init__(self, *, settings: SettingsService, keys: KeyStore, local, factory: ProviderFactory | None = None):
+    def __init__(self, *, settings: SettingsService, keys: KeyStore, local, factory: ProviderFactory):
         self.settings = settings
         self.keys = keys
         self.local = local
-        self.factory = factory or default_provider_factory
+        self.factory = factory
 
     def chain(self, role: str) -> list[RouteEntry]:
         s = self.settings.get()
