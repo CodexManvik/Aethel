@@ -15,10 +15,10 @@ def db():
 
 
 def test_migrations_are_idempotent(db):
-    assert db.schema_version() == 2
+    assert db.schema_version() == 3
     db.close()
     reopened = Database(db_path())
-    assert reopened.schema_version() == 2
+    assert reopened.schema_version() == 3
     reopened.close()
 
 
