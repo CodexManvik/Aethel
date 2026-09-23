@@ -13,6 +13,7 @@ aiohttp
 rich
 pytz
 pyyaml
+openai>=2.0
 
 # --- Memory / retrieval ---
 numpy
@@ -53,3 +54,6 @@ faster-whisper      # STT voice input (models/stt)
 # ftfy
 # rapidfuzz
 # detoxify
+
+# --- Dev / tests ---
+pytest
