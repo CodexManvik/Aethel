@@ -1,7 +1,12 @@
+import json
+from itertools import count
+
 import anyio
 
-from aethel.providers.base import ProviderError, StreamDone, TextDelta
+from aethel.providers.base import ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady
 from aethel.providers.local_llama import LocalLLMUnavailable
+
+_call_ids = count(1)
 
 
 class FakeProvider:
@@ -18,7 +23,7 @@ class FakeProvider:
         self.models = list(models)
         self.calls = []
 
-    async def stream(self, messages, *, temperature, max_tokens):
+    async def stream(self, messages, *, temperature, max_tokens, tools=None):
         self.calls.append(list(messages))
         if self.error is not None and self.error_at is None:
             raise self.error
@@ -68,3 +73,33 @@ def retryable(msg="rate limited"):
 
 def fatal(msg="bad key"):
     return ProviderError(msg, retryable=False, status=401)
+
+
+def tool_call(name, call_id=None, **args):
+    """One scripted tool call, e.g. tool_call("fs_write", path="C:/x.txt", content="hi")."""
+    return ToolCallsReady([ToolCall(id=call_id or f"c{next(_call_ids)}", name=name, arguments=json.dumps(args))])
+
+
+class ScriptedProvider:
+    """Each stream() call plays the next scripted turn (a list of TextDelta /
+    ToolCallsReady events); StreamDone is appended automatically."""
+
+    def __init__(self, turns, label="scripted:model"):
+        self.turns = [list(t) for t in turns]
+        self.label = label
+        self.calls = []
+        self.tools_seen = []
+
+    async def stream(self, messages, *, temperature, max_tokens, tools=None):
+        self.calls.append(list(messages))
+        self.tools_seen.append([t.name for t in tools or []])
+        if not self.turns:
+            raise AssertionError("ScriptedProvider ran out of scripted turns")
+        turn = self.turns.pop(0)
+        for event in turn:
+            await anyio.sleep(0)
+            yield event
+        yield StreamDone("tool_calls" if any(isinstance(e, ToolCallsReady) for e in turn) else "stop")
+
+    async def list_models(self):
+        return ["scripted"]

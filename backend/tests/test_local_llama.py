@@ -51,7 +51,7 @@ def test_build_command_flags(tmp_path):
     cmd = llama.build_command(Path("llama-server"), Path("m.gguf"), Path("p.gguf"), 8080)
     joined = " ".join(cmd)
     for fragment in ("-m m.gguf", "--port 8080", "-c 4096", "-t 6", "-ngl 20", "--mmproj p.gguf",
-                     "--context-shift", "--cache-reuse 256"):
+                     "--context-shift", "--cache-reuse 256", "--jinja"):
         assert fragment in joined
 
 

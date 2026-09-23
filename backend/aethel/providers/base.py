@@ -3,9 +3,25 @@ from typing import AsyncIterator, Literal, Protocol, Union
 
 
 @dataclass
+class ToolSpec:
+    name: str
+    description: str
+    parameters: dict  # JSON Schema for the arguments object
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: str  # raw JSON text exactly as the model produced it
+
+
+@dataclass
 class ChatMessage:
-    role: Literal["system", "user", "assistant"]
+    role: Literal["system", "user", "assistant", "tool"]
     content: str
+    tool_calls: list[ToolCall] | None = None  # assistant turns that called tools
+    tool_call_id: str | None = None           # tool results: which call this answers
 
 
 @dataclass
@@ -14,11 +30,16 @@ class TextDelta:
 
 
 @dataclass
+class ToolCallsReady:
+    calls: list[ToolCall]
+
+
+@dataclass
 class StreamDone:
     finish_reason: str | None
 
 
-StreamEvent = Union[TextDelta, StreamDone]
+StreamEvent = Union[TextDelta, ToolCallsReady, StreamDone]
 
 
 class ProviderError(Exception):
@@ -32,5 +53,10 @@ class LLMProvider(Protocol):
     label: str
 
     def stream(
-        self, messages: list[ChatMessage], *, temperature: float, max_tokens: int
+        self,
+        messages: list[ChatMessage],
+        *,
+        temperature: float,
+        max_tokens: int,
+        tools: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamEvent]: ...

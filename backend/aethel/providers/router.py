@@ -7,7 +7,7 @@ import httpx
 
 from ..keys import KeyStore
 from ..settings import AppSettings, RouteEntry, SettingsService
-from .base import ChatMessage, LLMProvider, ProviderError, StreamEvent
+from .base import ChatMessage, LLMProvider, ProviderError, StreamEvent, ToolSpec
 from .catalog import base_url_for
 from .openai_compat import OpenAICompatProvider
 
@@ -61,6 +61,7 @@ class RoleRouter:
         role: str,
         messages: list[ChatMessage],
         *,
+        tools: list[ToolSpec] | None = None,
         on_switch: Callable[[ProviderSwitch], Awaitable[None]] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         s = self.settings.get()
@@ -88,7 +89,9 @@ class RoleRouter:
                 await on_switch(ProviderSwitch(role, failed_label, label, errors[-1]))
             started = False
             try:
-                async for event in provider.stream(messages, temperature=s.temperature, max_tokens=s.max_tokens):
+                async for event in provider.stream(
+                    messages, temperature=s.temperature, max_tokens=s.max_tokens, tools=tools
+                ):
                     started = True
                     yield event
                 return
