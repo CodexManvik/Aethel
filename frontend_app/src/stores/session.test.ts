@@ -51,6 +51,7 @@ test("errors attach to their message or become notices", () => {
 test("provider switches become gentle notices", () => {
   const s = applyEvent(base(), {
     type: "provider_switched", role: "chat", from_provider: "groq:a", to_provider: "openrouter:b", reason: "429",
+    message_id: null, task_id: null,
   });
   expect(s.notices[0].text).toBe("groq:a was unavailable, so openrouter:b answered instead.");
 });

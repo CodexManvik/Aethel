@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from pydantic import BaseModel
 
-from ..api.events import ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched, Token, UserMessage
+from ..protocol import ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched, Token, UserMessage
 from ..providers.base import ChatMessage, ProviderError, TextDelta
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..settings import SettingsService
@@ -105,7 +105,8 @@ class ChatService:
 
             async def on_switch(sw: ProviderSwitch) -> None:
                 await emit(ProviderSwitched(role=sw.role, from_provider=sw.from_label,
-                                            to_provider=sw.to_label, reason=sw.reason))
+                                            to_provider=sw.to_label, reason=sw.reason,
+                                            message_id=assistant.id))
 
             async for ev in self.router.stream("chat", self._context(conv.id, assistant.id), on_switch=on_switch):
                 if isinstance(ev, TextDelta):

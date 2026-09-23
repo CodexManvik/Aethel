@@ -160,6 +160,18 @@
           "title": "From Provider",
           "type": "string"
         },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
         "reason": {
           "title": "Reason",
           "type": "string"
@@ -167,6 +179,18 @@
         "role": {
           "title": "Role",
           "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
         },
         "to_provider": {
           "title": "To Provider",
@@ -184,7 +208,9 @@
         "role",
         "from_provider",
         "to_provider",
-        "reason"
+        "reason",
+        "message_id",
+        "task_id"
       ],
       "title": "ProviderSwitched",
       "type": "object"

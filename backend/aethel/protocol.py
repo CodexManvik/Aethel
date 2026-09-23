@@ -1,10 +1,10 @@
-"""The WebSocket protocol. The frontend's TypeScript types are generated from
+"""The WebSocket protocol (single source of truth). The frontend's TypeScript types are generated from
 this file: py -3.11 scripts/gen_event_schema.py && (cd frontend_app && pnpm gen:types)"""
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from ..paths import PROJECT_ROOT
+from .paths import PROJECT_ROOT
 
 SCHEMA_PATH = PROJECT_ROOT / "frontend_app" / "src" / "lib" / "events.schema.json"
 
@@ -41,6 +41,8 @@ class ProviderSwitched(Event):
     from_provider: str
     to_provider: str
     reason: str
+    message_id: str | None = None  # the chat reply this affected, if any
+    task_id: str | None = None     # the task this affected, if any
 
 
 class ConversationUpdated(Event):

@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from aethel.api.events import (
+from aethel.protocol import (
     SCHEMA_PATH, ErrorEvent, MessageStart, StopGeneration, Token, UserMessage,
     client_event_adapter, export_schema, server_event_adapter,
 )

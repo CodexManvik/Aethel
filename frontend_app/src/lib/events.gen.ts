@@ -21,8 +21,10 @@ export type MessageId3 = string;
 export type Status = "complete" | "stopped" | "error";
 export type Type4 = "message_end";
 export type FromProvider = string;
+export type MessageId4 = string | null;
 export type Reason = string;
 export type Role1 = string;
+export type TaskId = string | null;
 export type ToProvider = string;
 export type Type5 = "provider_switched";
 export type ConversationId2 = string;
@@ -30,7 +32,7 @@ export type Title = string;
 export type Type6 = "conversation_updated";
 export type Code = "no_provider" | "provider_error" | "bad_request" | "internal";
 export type Message = string;
-export type MessageId4 = string | null;
+export type MessageId5 = string | null;
 export type Type7 = "error";
 
 export interface AethelProtocol {
@@ -68,8 +70,10 @@ export interface MessageEnd {
 }
 export interface ProviderSwitched {
   from_provider: FromProvider;
+  message_id: MessageId4;
   reason: Reason;
   role: Role1;
+  task_id: TaskId;
   to_provider: ToProvider;
   type: Type5;
 }
@@ -81,6 +85,6 @@ export interface ConversationUpdated {
 export interface ErrorEvent {
   code: Code;
   message: Message;
-  message_id: MessageId4;
+  message_id: MessageId5;
   type: Type7;
 }

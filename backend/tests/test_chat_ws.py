@@ -140,7 +140,7 @@ async def test_exception_before_stream_still_persists_error_and_ends_message():
     async def emit(ev):
         events.append(ev)
 
-    from aethel.api.events import UserMessage
+    from aethel.protocol import UserMessage
     await services.chat._turn(UserMessage(conversation_id=conv.id, text="hi"), emit)
 
     types = [e.type for e in events]
@@ -169,7 +169,7 @@ async def test_shutdown_times_out_and_cancels_slow_turns():
     async def emit(ev):
         events.append(ev)
 
-    from aethel.api.events import UserMessage
+    from aethel.protocol import UserMessage
     services.chat.start_turn(UserMessage(conversation_id=conv.id, text="go"), emit)
     await asyncio.sleep(0.05)  # let the turn register itself in _active/_tasks
 
@@ -267,3 +267,28 @@ def test_websocket_rejects_foreign_origin_but_allows_known_or_missing():
             with client.websocket_connect("/ws/session", headers=headers) as ws:
                 ws.send_text("{not json")
                 assert ws.receive_json()["code"] == "bad_request"  # accepted and serving
+
+
+def test_provider_switch_is_scoped_to_its_message():
+    from tests.fakes import retryable
+
+    services = build_services(
+        provider_factory=factory_from({
+            "groq:g": FakeProvider(label="groq:g", error=retryable()),
+            "openrouter:o": FakeProvider(label="openrouter:o", chunks=["ok"]),
+        }),
+        local_llm=FakeLocal(fail="no local model"),
+    )
+    services.keys.set_many({"groq": "a", "openrouter": "b"})
+    services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"},
+                                                  {"provider": "openrouter", "model": "o"}]}})
+    client = TestClient(create_app(services))
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            events = _receive_until_end(ws)
+    start = next(e for e in events if e["type"] == "message_start")
+    switch = next(e for e in events if e["type"] == "provider_switched")
+    assert switch["message_id"] == start["message_id"]
+    assert switch["task_id"] is None

@@ -4,7 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 
 from ..auth import origin_allowed
-from .events import ErrorEvent, StopGeneration, UserMessage, client_event_adapter
+from ..protocol import ErrorEvent, StopGeneration, UserMessage, client_event_adapter
 
 router = APIRouter()
 
