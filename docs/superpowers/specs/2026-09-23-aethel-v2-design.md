@@ -43,7 +43,7 @@ v2 is a restructuring of the existing `revamp` codebase (FastAPI + Tauri v2/Reac
 | Voice | Hands-free call mode with semantic end-of-turn and barge-in. |
 | Memory | Mem0 (semantic) + turbovec (episodic) + RSM `.md` (procedural). Skills **auto-approve by default**, with manual approval as an option. |
 | System 1 | SemIf (open-source Jev-compatible, formerly OpenJev) locally; hosted Jev optional. |
-| Architecture | **Approach A:** restructure into a proper agent runtime, reusing existing parts, with selective library adoption (LiteLLM, MCP SDK, mem0ai, Windows-MCP, vad-web). |
+| Architecture | **Approach A:** restructure into a proper agent runtime, reusing existing parts, with selective library adoption (openai SDK, MCP SDK, mem0ai, Windows-MCP, vad-web). |
 | UI | Fresh identity: **Paper & Ink** (warm editorial light mode, warm-charcoal dark mode). |
 | Internet | Optional, toggled globally and per conversation, DuckDuckGo-based, citations as footnotes. |
 | Deadline | None. Build the best version, in phases. |
@@ -62,7 +62,7 @@ v2 is a restructuring of the existing `revamp` codebase (FastAPI + Tauri v2/Reac
 │ api/        routers, WS event bus, typed event models (→ TS codegen)      │
 │ runtime/    task engine: plan → act → observe → verify → reflect          │
 │ system1/    SemIf / Jev client: Choice, Noul, Score                       │
-│ providers/  LiteLLM role router + failover + private mode                 │
+│ providers/  OpenAI-compatible role router + failover + private mode      │
 │ tools/      MCP hub · universal Windows layer · accelerators · web · fs   │
 │ memory/     mem0 (semantic) · turbovec (episodic) · rsm (procedural)      │
 │ context/    budgeted context builder                                      │
@@ -120,7 +120,8 @@ Existing data under `~/.aethel/` (skills, permissions, transactions) is migrated
 
 ## 3. Providers and model roles
 
-- **LiteLLM** is the single client for Groq, Gemini, OpenRouter, any OpenAI-compatible endpoint, and the local llama.cpp server (`generation.py`'s process lifecycle, including suspend/resume for VRAM handoff, is kept).
+- **The official `openai` Python SDK** is the single client. Groq, Gemini (through its OpenAI-compatibility endpoint), OpenRouter, custom endpoints and the local llama.cpp server all speak the OpenAI Chat Completions API, so one `OpenAICompatProvider` covers every one of them. `generation.py`'s process lifecycle, including suspend/resume for VRAM handoff, is kept.
+  - *Revised 2026-09-23 during planning:* this replaces LiteLLM. LiteLLM added no provider we need, and its PyPI package was compromised in March 2026 (versions 1.82.7 and 1.82.8 shipped a credential stealer), which is an unnecessary supply-chain risk for an app that holds API keys.
 - **Roles**, each mapped to a model in Settings:
 
 | Role | Purpose | Default (hybrid) | Private mode |
@@ -482,7 +483,7 @@ Each phase gets its own implementation plan (writing-plans) and ends with a work
 
 | Phase | Scope | Demo scenario at the end |
 |---|---|---|
-| **0: Foundation** | package restructure; SQLite store and migrations; LiteLLM role router + failover + private mode; keychain secrets; typed WS events + codegen; local auth token; new frontend shell with Paper & Ink tokens, fonts, rail, conversation, prompt box, settings (providers/models); delete legacy UI | Chat with the Aethel persona via Groq with streamed ink-settling text; switch to private mode and chat locally |
+| **0: Foundation** | package restructure; SQLite store and migrations; OpenAI-compatible role router + failover + private mode; keychain secrets; typed WS events + codegen; local auth token; new frontend shell with Paper & Ink tokens, fonts, rail, conversation, prompt box, settings (providers/models); delete legacy UI | Chat with the Aethel persona via Groq with streamed ink-settling text; switch to private mode and chat locally |
 | **1: Agent** | task engine; MCP hub; Windows-MCP + universal layer (launcher, windows, tree, vision fallback); `aethel_office`; risk tiers, approvals, kill switch; task panel UI | "Open Notepad, write a haiku about rain and save it to Desktop" and the Word essay task, with approval and kill switch working |
 | **2: Learning** | SemIf verification and integration; System 1 uses (§5.2); app notes / skills / macros; compilation, execution, drift, repair; ghost cursor; replay timeline; Memory → Skills and Notes UI | Run "play lofi on YouTube in Firefox" 4 times; watch the time drop and the macro compile; the ghost cursor visible |
 | **3: Memory and web** | Mem0; episodic re-index on SQLite; context builder; Memory → Facts UI; `web.search`/`web.read` with citations | Tell it a fact, then recall it in a new conversation; ask a current-events question and get footnotes |
