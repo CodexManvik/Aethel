@@ -98,3 +98,46 @@ async def test_shell_run_does_not_pass_secrets_to_the_command(env, monkeypatch):
     assert "visible-4" in res.content
     for secret in ("tok-sekrit-1", "4242", "key-sekrit-2", "sec-sekrit-3"):
         assert secret not in res.content
+
+
+def _ping_pids() -> set[str]:
+    import subprocess
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq PING.EXE", "/FO", "CSV", "/NH"],
+                         capture_output=True, text=True).stdout
+    return {line.split('","')[1] for line in out.splitlines() if line.lower().startswith('"ping.exe"')}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="uses cmd.exe and ping")
+async def test_shell_timeout_kills_the_whole_tree(env, monkeypatch):
+    import time
+
+    import aethel.tools.shell as shell
+    _, tools, _ = env
+    monkeypatch.setattr(shell, "TIMEOUT_S", 1)
+    before = _ping_pids()
+    t0 = time.monotonic()
+    res = await tools["shell_run"].handler({"command": "ping -n 30 127.0.0.1"}, ToolContext(None))
+    assert time.monotonic() - t0 < 3.5
+    assert not res.ok and "Timed out" in res.content
+    assert _ping_pids() - before == set()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="uses cmd.exe and ping")
+async def test_shell_cancel_kills_the_command_promptly(env):
+    import asyncio
+    import time
+    _, tools, _ = env
+    before = _ping_pids()
+    task = asyncio.ensure_future(tools["shell_run"].handler({"command": "ping -n 30 127.0.0.1"}, ToolContext(None)))
+    for _ in range(100):  # wait until ping is actually running
+        await asyncio.sleep(0.05)
+        if _ping_pids() - before:
+            break
+    assert _ping_pids() - before, "ping never started"
+    t0 = time.monotonic()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.monotonic() - t0 < 2.0
+    assert _ping_pids() - before == set()
+
