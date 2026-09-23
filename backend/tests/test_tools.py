@@ -141,3 +141,35 @@ async def test_shell_cancel_kills_the_command_promptly(env):
     assert time.monotonic() - t0 < 2.0
     assert _ping_pids() - before == set()
 
+
+
+async def test_fs_tools_resolve_home_and_reject_relative_paths(env, monkeypatch):
+    from aethel.runtime.checks import Check, run_check
+    tmp, tools, changes = env
+    home = tmp / "out" / "home"
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    (tmp / "cwd").mkdir()
+    monkeypatch.chdir(tmp / "cwd")
+    expected = os.path.realpath(home / "poem.txt")
+
+    verdict = tools["fs_write"].assess({"path": "~/poem.txt", "content": "x"})
+    assert (verdict.verdict, verdict.target) == ("allow", expected)
+    res = await tools["fs_write"].handler({"path": "~/poem.txt", "content": "rain"}, ToolContext("t4"))
+    assert res.ok and expected in res.content
+    assert open(expected, encoding="utf-8").read() == "rain"
+    assert not (tmp / "cwd" / "~").exists()
+    assert [c["path"] for c in changes.for_task("t4")] == [expected]
+    assert run_check(Check(kind="file_exists", path="~/poem.txt")).passed
+    assert run_check(Check(kind="file_contains", path="%USERPROFILE%/poem.txt", text="rain")).passed
+
+    read = await tools["fs_read"].handler({"path": "~/poem.txt"}, ToolContext("t4"))
+    assert read.ok and read.content == "rain"
+    listing = await tools["fs_list"].handler({"path": "~"}, ToolContext("t4"))
+    assert "poem.txt" in listing.content
+
+    for name in ("fs_write", "fs_read", "fs_list"):
+        relative = tools[name].assess({"path": "notes.txt", "content": "x"})
+        assert relative.verdict == "deny" and "absolute" in relative.reason
+    assert not (await tools["fs_write"].handler({"path": "notes.txt", "content": "x"}, ToolContext("t4"))).ok
+    assert not (tmp / "cwd" / "notes.txt").exists()

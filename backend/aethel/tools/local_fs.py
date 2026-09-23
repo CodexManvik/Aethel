@@ -1,14 +1,13 @@
-import os
-from pathlib import Path
-
 import anyio
 
 from ..safety.changes import ChangeLog
 from ..safety.permissions import Permissions
 from .base import Assessment, Tool, ToolContext, ToolResult
+from .paths import resolve_user_path
 
 MAX_READ_CHARS = 50_000
 MAX_LIST = 200
+NEED_ABSOLUTE = "Use an absolute path (starting with a drive letter, ~ or %USERPROFILE%)."
 
 
 def _path_arg(args: dict) -> str:
@@ -19,13 +18,18 @@ def _path_arg(args: dict) -> str:
 def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
     def assess(mode):
         def run(args: dict) -> Assessment:
-            path = _path_arg(args)
-            d = perms.check_path(path, mode)
-            return Assessment(d.verdict, d.reason, path or "(no path)")
+            raw = _path_arg(args)
+            resolved = resolve_user_path(raw)
+            if resolved is None:
+                return Assessment("deny", NEED_ABSOLUTE, raw or "(no path)")
+            d = perms.check_path(str(resolved), mode)
+            return Assessment(d.verdict, d.reason, str(resolved))
         return run
 
     async def fs_list(args: dict, ctx: ToolContext) -> ToolResult:
-        p = Path(_path_arg(args))
+        p = resolve_user_path(_path_arg(args))
+        if p is None:
+            return ToolResult(False, NEED_ABSOLUTE)
         if not p.is_dir():
             return ToolResult(False, f"Not a folder: {p}")
         entries = sorted(p.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))[:MAX_LIST]
@@ -34,7 +38,9 @@ def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
         return ToolResult(True, "\n".join(lines) or "(empty folder)", untrusted=True)
 
     async def fs_read(args: dict, ctx: ToolContext) -> ToolResult:
-        p = Path(_path_arg(args))
+        p = resolve_user_path(_path_arg(args))
+        if p is None:
+            return ToolResult(False, NEED_ABSOLUTE)
         if not p.is_file():
             return ToolResult(False, f"No such file: {p}")
         text = await anyio.to_thread.run_sync(lambda: p.read_text(encoding="utf-8", errors="replace"))
@@ -43,12 +49,13 @@ def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
         return ToolResult(True, text, untrusted=True)
 
     async def fs_write(args: dict, ctx: ToolContext) -> ToolResult:
-        path = _path_arg(args)
+        p = resolve_user_path(_path_arg(args))
+        if p is None:
+            return ToolResult(False, NEED_ABSOLUTE)
         content = args.get("content")
         if not isinstance(content, str):
             return ToolResult(False, "content must be a string.")
         append = args.get("mode") == "append"
-        p = Path(path)
 
         def write() -> None:
             changes.record_before_write(str(p), ctx.task_id)

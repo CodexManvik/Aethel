@@ -1,10 +1,11 @@
 """Machine-checkable postconditions (spec §4.1 'verify'). A task only reaches
 'done' when all of its checks pass."""
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, model_validator
+
+from ..tools.paths import resolve_user_path
 
 
 class Check(BaseModel):
@@ -37,8 +38,8 @@ class CheckResult:
 
 
 def _read(path: str) -> str | None:
-    p = Path(path)
-    return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else None
+    p = resolve_user_path(path)  # the same resolution the fs tools use, so ~ and %VAR% match
+    return p.read_text(encoding="utf-8", errors="replace") if p is not None and p.is_file() else None
 
 
 def run_check(check: Check) -> CheckResult:
