@@ -4,9 +4,9 @@ import { getSocket } from "../../lib/session";
 import { useSession } from "../../stores/session";
 import { useTasks } from "../../stores/tasks";
 import { useUi } from "../../stores/ui";
-import { refreshOpenConversation } from "../conversation/useConversations";
+import { hydrateTasks, refreshOpenConversation } from "../conversation/useConversations";
 
-/** Pipes websocket events into the stores; keeps the open conversation fresh. */
+/** Pipes websocket events into the stores; keeps the open conversation and its tasks fresh. */
 export function useSessionEvents() {
   const qc = useQueryClient();
   useEffect(() => {
@@ -29,7 +29,12 @@ export function useSessionEvents() {
       if (s === "closed") wasClosed = true;
       if (s === "open" && wasClosed) {
         wasClosed = false;
+        // Catch up on anything missed while disconnected: replies, and task
+        // progress (hydrate swaps in the server's tasks, so approvals answered
+        // or dropped meanwhile disappear from the panel).
         void refreshOpenConversation().catch(() => {});
+        const conversationId = useSession.getState().conversationId;
+        if (conversationId) void hydrateTasks(conversationId).catch(() => {});
       }
     });
     return () => {
