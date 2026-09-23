@@ -1,0 +1,2 @@
+# Kept for compatibility — the real list lives at the repo root.
+-r ../requirements.txt

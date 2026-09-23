@@ -1,0 +1,43 @@
+:root,
+[data-theme="light"] {
+  --canvas: #f3efe7;
+  --paper: #fbf9f4;
+  --well: #ece6da;
+  --ink: #1d1b17;
+  --ink-2: #2a2620;
+  --muted: #7a746a;
+  --faint: #a39b8e;
+  --hairline: #e2dccf;
+  --accent: #c2553a;
+  --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  --grain-opacity: 0.06;
+  --grain-blend: multiply;
+  --lift: 0 18px 40px -18px rgb(90 50 30 / 0.45);
+  --dur-fast: 160ms;
+  --dur-base: 280ms;
+  --dur-slow: 450ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --canvas: #1a1815;
+  --paper: #211e1a;
+  --well: #2e2a24;
+  --ink: #ece6da;
+  --ink-2: #e4ddcf;
+  --muted: #9a9285;
+  --faint: #7d766b;
+  --hairline: #2c2823;
+  --accent: #e07a5f;
+  --grain-opacity: 0.05;
+  --grain-blend: screen;
+  --lift: 0 18px 40px -18px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+[data-motion="reduced"] {
+  --dur-fast: 0ms;
+  --dur-base: 0ms;
+  --dur-slow: 0ms;
+}

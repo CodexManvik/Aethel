@@ -1,0 +1,59 @@
+# AETHEL backend — single source of truth for Python dependencies.
+# Install:  pip install -r requirements.txt   (the install script does this)
+
+# --- API server ---
+fastapi
+uvicorn
+python-multipart
+pydantic
+python-dotenv
+httpx
+requests
+aiohttp
+rich
+pytz
+pyyaml
+openai>=2.0
+
+# --- Memory / retrieval ---
+numpy
+pandas
+pyarrow
+lancedb
+networkx
+turbovec
+torch
+sentence-transformers
+transformers
+onnxruntime
+
+# --- Agent / web ---
+ddgs                # web search (replaces the deprecated duckduckgo-search)
+trafilatura
+
+# --- Media ---
+opencv-python
+
+# --- Image generation (SD 1.5 + Z-Image Turbo) ---
+# Z-Image Turbo (incl. GGUF) needs a recent diffusers with ZImagePipeline.
+# If ZImagePipeline import fails, upgrade:
+#   pip install -U "diffusers>=0.36"   (or: pip install git+https://github.com/huggingface/diffusers)
+diffusers>=0.36
+compel
+accelerate
+gguf                # GGUF checkpoint loading for Z-Image
+sentencepiece       # Z-Image text encoder tokenizer
+
+# --- Speech ---
+edge-tts            # TTS cloud fallback
+kokoro-onnx         # TTS local engine (models/tts)
+soundfile           # write wav output
+faster-whisper      # STT voice input (models/stt)
+
+# --- Offline dataset tooling only (build_dataset.py) ---
+# ftfy
+# rapidfuzz
+# detoxify
+
+# --- Dev / tests ---
+pytest

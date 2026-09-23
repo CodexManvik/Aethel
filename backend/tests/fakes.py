@@ -1,0 +1,70 @@
+import anyio
+
+from aethel.providers.base import ProviderError, StreamDone, TextDelta
+from aethel.providers.local_llama import LocalLLMUnavailable
+
+
+class FakeProvider:
+    """Scripted LLM. `error_at=None` + `error` set => fails before any token;
+    `error_at=i` => fails right before chunk i."""
+
+    def __init__(self, label="fake:model", chunks=("Hello", " there"), error=None, error_at=None,
+                 delay=0.0, models=("model-a", "model-b")):
+        self.label = label
+        self.chunks = list(chunks)
+        self.error = error
+        self.error_at = error_at
+        self.delay = delay
+        self.models = list(models)
+        self.calls = []
+
+    async def stream(self, messages, *, temperature, max_tokens):
+        self.calls.append(list(messages))
+        if self.error is not None and self.error_at is None:
+            raise self.error
+        for i, chunk in enumerate(self.chunks):
+            if self.error is not None and self.error_at == i:
+                raise self.error
+            if self.delay:
+                await anyio.sleep(self.delay)
+            yield TextDelta(chunk)
+        yield StreamDone("stop")
+
+    async def list_models(self):
+        return self.models
+
+
+class FakeLocal:
+    def __init__(self, up=True, fail=None):
+        self.up = up
+        self.fail = fail
+        self.ensure_calls = 0
+
+    def ensure_running(self):
+        self.ensure_calls += 1
+        if self.fail:
+            raise LocalLLMUnavailable(self.fail)
+
+    def is_up(self):
+        return self.up
+
+    def stop(self):
+        pass
+
+
+def factory_from(mapping):
+    """mapping: {"groq:model": FakeProvider, ...}; records calls in factory.used."""
+    def factory(entry, api_key, settings):
+        factory.used.append((entry.provider, entry.model, api_key))
+        return mapping[f"{entry.provider}:{entry.model}"]
+
+    factory.used = []
+    return factory
+
+
+def retryable(msg="rate limited"):
+    return ProviderError(msg, retryable=True, status=429)
+
+
+def fatal(msg="bad key"):
+    return ProviderError(msg, retryable=False, status=401)

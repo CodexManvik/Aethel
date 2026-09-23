@@ -1,0 +1,341 @@
+{
+  "$defs": {
+    "ConversationUpdated": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "conversation_updated",
+          "default": "conversation_updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "title"
+      ],
+      "title": "ConversationUpdated",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "no_provider",
+            "provider_error",
+            "bad_request",
+            "internal"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "code",
+        "message_id"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "MessageEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "stopped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "type": {
+          "const": "message_end",
+          "default": "message_end",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id",
+        "status"
+      ],
+      "title": "MessageEnd",
+      "type": "object"
+    },
+    "MessageStart": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "role": {
+          "const": "assistant",
+          "default": "assistant",
+          "title": "Role",
+          "type": "string"
+        },
+        "type": {
+          "const": "message_start",
+          "default": "message_start",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_message_id": {
+          "title": "User Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "message_id",
+        "user_message_id",
+        "client_id",
+        "role"
+      ],
+      "title": "MessageStart",
+      "type": "object"
+    },
+    "ProviderSwitched": {
+      "additionalProperties": false,
+      "properties": {
+        "from_provider": {
+          "title": "From Provider",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "to_provider": {
+          "title": "To Provider",
+          "type": "string"
+        },
+        "type": {
+          "const": "provider_switched",
+          "default": "provider_switched",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "role",
+        "from_provider",
+        "to_provider",
+        "reason"
+      ],
+      "title": "ProviderSwitched",
+      "type": "object"
+    },
+    "StopGeneration": {
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "stop_generation",
+          "default": "stop_generation",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id"
+      ],
+      "title": "StopGeneration",
+      "type": "object"
+    },
+    "Token": {
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "token",
+          "default": "token",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id",
+        "text"
+      ],
+      "title": "Token",
+      "type": "object"
+    },
+    "UserMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "user_message",
+          "default": "user_message",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "text",
+        "client_id"
+      ],
+      "title": "UserMessage",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "client": {
+      "discriminator": {
+        "mapping": {
+          "stop_generation": "#/$defs/StopGeneration",
+          "user_message": "#/$defs/UserMessage"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/UserMessage"
+        },
+        {
+          "$ref": "#/$defs/StopGeneration"
+        }
+      ],
+      "title": "Client"
+    },
+    "server": {
+      "discriminator": {
+        "mapping": {
+          "conversation_updated": "#/$defs/ConversationUpdated",
+          "error": "#/$defs/ErrorEvent",
+          "message_end": "#/$defs/MessageEnd",
+          "message_start": "#/$defs/MessageStart",
+          "provider_switched": "#/$defs/ProviderSwitched",
+          "token": "#/$defs/Token"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/MessageStart"
+        },
+        {
+          "$ref": "#/$defs/Token"
+        },
+        {
+          "$ref": "#/$defs/MessageEnd"
+        },
+        {
+          "$ref": "#/$defs/ProviderSwitched"
+        },
+        {
+          "$ref": "#/$defs/ConversationUpdated"
+        },
+        {
+          "$ref": "#/$defs/ErrorEvent"
+        }
+      ],
+      "title": "Server"
+    }
+  },
+  "required": [
+    "server",
+    "client"
+  ],
+  "title": "AethelProtocol",
+  "type": "object"
+}

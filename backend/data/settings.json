@@ -1,0 +1,21 @@
+{
+    "context_size": 0,
+    "threads": 4,
+    "gpu_layers": 99,
+    "edge_tts_voice": "en-GB-SoniaNeural",
+    "edge_tts_rate": "-5%",
+    "edge_tts_pitch": "-5Hz",
+    "sd_steps": 8,
+    "sd_cfg_scale": 1.0,
+    "sd_negative_prompt": "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, illustration, painting:1.4), text, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, missing arms, missing legs, long neck",
+    "sd_base_prompt": "brown and blonde hair, warm smile, latina skin tone, stylish casual outfit, RAW photo, analog style, 8k uhd, dslr, soft volumetric lighting, highly detailed, (masterpiece, best quality:1.2), 1girl, solo, realistic skin texture, photorealistic",
+    "llm_model_path": "",
+    "image_model_path": "",
+    "image_arch": "zimage",
+    "zimage_transformer_path": "C:\\Users\\manvi\\ComfyUI-Shared\\models\\unet\\z-image-turbo-Q4_K_M.gguf",
+    "zimage_vae_path": "C:\\Users\\manvi\\ComfyUI-Shared\\models\\vae\\ae.safetensors",
+    "zimage_text_encoder_path": "C:\\Users\\manvi\\ComfyUI-Shared\\models\\text_encoders\\Huihui-Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf",
+    "tts_engine": "kokoro",
+    "generation_backend": "local",
+    "kokoro_voice": "af_heart"
+}
