@@ -18,8 +18,11 @@ const ROLES: { id: string; label: string; hint: string }[] = [
   { id: "vision", label: "Vision", hint: "Reads screenshots when an app can't be read directly (Phase 1)." },
 ];
 
-function ModelOptions({ provider }: { provider: ProviderInfo }) {
-  const { data = [] } = useModels(provider.id, provider.has_key);
+// Private mode keeps everything on this machine: no cloud call, not even a model listing or a test.
+const isBlocked = (provider: string, privateMode: boolean) => privateMode && provider !== "local";
+
+function ModelOptions({ provider, privateMode }: { provider: ProviderInfo; privateMode: boolean }) {
+  const { data = [] } = useModels(provider.id, provider.has_key && !isBlocked(provider.id, privateMode));
   return (
     <datalist id={`models-${provider.id}`}>
       {data.map((m) => <option key={m} value={m} />)}
@@ -27,9 +30,10 @@ function ModelOptions({ provider }: { provider: ProviderInfo }) {
   );
 }
 
-function EntryRow({ entry, providers, onChange, onMove, onRemove, canUp, canDown }: {
+function EntryRow({ entry, providers, privateMode, onChange, onMove, onRemove, canUp, canDown }: {
   entry: RouteEntry;
   providers: ProviderInfo[];
+  privateMode: boolean;
   onChange: (e: RouteEntry) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -64,7 +68,13 @@ function EntryRow({ entry, providers, onChange, onMove, onRemove, canUp, canDown
         onChange={(e) => onChange({ ...entry, model: e.target.value })}
         className={`${inputClass} w-64`}
       />
-      <Button onClick={test} disabled={testing || !entry.model.trim()}>{testing ? "Testing…" : "Test"}</Button>
+      <Button
+        onClick={test}
+        disabled={testing || !entry.model.trim() || isBlocked(entry.provider, privateMode)}
+        title={isBlocked(entry.provider, privateMode) ? "Private mode is on." : undefined}
+      >
+        {testing ? "Testing…" : "Test"}
+      </Button>
       <IconButton label="Move up" disabled={!canUp} onClick={() => onMove(-1)}><ArrowUp size={14} /></IconButton>
       <IconButton label="Move down" disabled={!canDown} onClick={() => onMove(1)}><ArrowDown size={14} /></IconButton>
       <IconButton label="Remove" onClick={onRemove}><X size={14} /></IconButton>
@@ -72,8 +82,8 @@ function EntryRow({ entry, providers, onChange, onMove, onRemove, canUp, canDown
   );
 }
 
-function RoleEditor({ role, label, hint, initial, providers }: {
-  role: string; label: string; hint: string; initial: RouteEntry[]; providers: ProviderInfo[];
+function RoleEditor({ role, label, hint, initial, providers, privateMode }: {
+  role: string; label: string; hint: string; initial: RouteEntry[]; providers: ProviderInfo[]; privateMode: boolean;
 }) {
   const [draft, setDraft] = useState<RouteEntry[]>(initial);
   const update = useUpdateSettings();
@@ -95,6 +105,7 @@ function RoleEditor({ role, label, hint, initial, providers }: {
           key={i}
           entry={entry}
           providers={providers}
+          privateMode={privateMode}
           onChange={(e) => setDraft((d) => d.map((x, j) => (j === i ? e : x)))}
           onMove={(dir) => move(i, dir)}
           onRemove={() => setDraft((d) => d.filter((_, j) => j !== i))}
@@ -123,9 +134,17 @@ export function RolesSection({ settings }: { settings: AppSettings }) {
   const { data: providers = [] } = useProviders();
   return (
     <Section title="Models" description="Choose which model does each job, with fallbacks in order.">
-      {providers.map((p) => <ModelOptions key={p.id} provider={p} />)}
+      {providers.map((p) => <ModelOptions key={p.id} provider={p} privateMode={settings.private_mode} />)}
       {ROLES.map((r) => (
-        <RoleEditor key={r.id} role={r.id} label={r.label} hint={r.hint} initial={settings.roles[r.id] ?? NO_ENTRIES} providers={providers} />
+        <RoleEditor
+          key={r.id}
+          role={r.id}
+          label={r.label}
+          hint={r.hint}
+          initial={settings.roles[r.id] ?? NO_ENTRIES}
+          providers={providers}
+          privateMode={settings.private_mode}
+        />
       ))}
     </Section>
   );

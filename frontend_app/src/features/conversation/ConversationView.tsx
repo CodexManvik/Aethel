@@ -1,5 +1,6 @@
 import { getSocket } from "../../lib/session";
 import { useSession } from "../../stores/session";
+import { useSettings } from "../settings/useSettings";
 import { greeting } from "./greeting";
 import { MessageList } from "./MessageList";
 import { Notices } from "./Notices";
@@ -9,6 +10,7 @@ import { useSendMessage } from "./useConversations";
 export function ConversationView() {
   const { conversationId, messages, streamingId, socketStatus } = useSession();
   const send = useSendMessage();
+  const { data: settings } = useSettings();
   const stop = () => streamingId && getSocket().send({ type: "stop_generation", message_id: streamingId });
   const status =
     socketStatus !== "open" ? "reconnecting…" : streamingId ? "writing…" : "here with you";
@@ -24,6 +26,14 @@ export function ConversationView() {
           <span className={socketStatus === "open" ? "size-1.5 rounded-full bg-accent" : "breathe size-1.5 rounded-full bg-faint"} />
           {status}
         </span>
+        {settings?.private_mode && (
+          <span
+            title="Private mode: everything stays on this computer"
+            className="rounded-full border border-hairline px-2 py-px text-[11px] leading-4 text-muted"
+          >
+            private
+          </span>
+        )}
       </header>
       {conversationId === null && messages.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-10">

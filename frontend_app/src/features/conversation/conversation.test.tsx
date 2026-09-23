@@ -78,3 +78,18 @@ test("greeting and relative time helpers", () => {
   expect(formatRelative("2026-09-23T11:59:30Z", now)).toBe("just now");
   expect(formatRelative("2026-09-23T09:00:00Z", now)).toBe("3 hours ago");
 });
+
+test("the header shows a private badge only in private mode", async () => {
+  setSocketForTests({ send: () => {}, subscribe: () => () => {}, onStatus: () => () => {} });
+  useSession.setState({ conversationId: null, messages: [], streamingId: null, notices: [], socketStatus: "open" });
+  let privateMode = true;
+  apiMock.mockImplementation(async (path: string) => (path === "/api/settings" ? { private_mode: privateMode } : []));
+  const first = wrap(<ConversationView />);
+  expect(await screen.findByText("private")).toBeInTheDocument();
+  first.unmount();
+  privateMode = false;
+  wrap(<ConversationView />);
+  await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("private")).not.toBeInTheDocument();
+  apiMock.mockReset();
+});

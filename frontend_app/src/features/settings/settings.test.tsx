@@ -88,3 +88,27 @@ test("adding a fallback to the chat role and saving sends the whole chain", asyn
     }),
   );
 });
+
+test("private mode: no model listing or Test for cloud providers, local still works", async () => {
+  const privateSettings: AppSettings = {
+    ...settings,
+    private_mode: true,
+    roles: { ...settings.roles, chat: [{ provider: "groq", model: "g" }, { provider: "local", model: "local" }] },
+  };
+  apiMock.mockImplementation(async (path: string) => {
+    if (path === "/api/settings") return privateSettings;
+    if (path === "/api/providers") return providers;
+    if (path.endsWith("/models")) return { models: ["m1"] };
+    return {};
+  });
+  renderSettings();
+  const chat = await screen.findByTestId("role-chat");
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/providers/local/models"));
+  // groq has a key, but in private mode its models must not be fetched
+  expect(apiMock.mock.calls.map(([p]) => p).filter((p: string) => p.endsWith("/models"))).toEqual([
+    "/api/providers/local/models",
+  ]);
+  const [groqTest, localTest] = within(chat).getAllByRole("button", { name: "Test" });
+  expect(groqTest).toBeDisabled();
+  expect(localTest).toBeEnabled();
+});
