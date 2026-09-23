@@ -36,6 +36,9 @@ def test_commands(tmp_path):
     assert p.check_command("python -cprint(1)").verdict == "deny"  # glued flag
     assert p.check_command("python \"-c\" x").verdict == "deny"     # quoted flag
     assert p.check_command("powershell -ec ZQBjAGgAbwA=").verdict == "deny"  # PowerShell -ec shorthand
+    assert p.check_command("python -\"c\"print(1)").verdict == "deny"  # quotes around flag
+    assert p.check_command("python -^c print(1)").verdict == "deny"  # cmd escape char
+    assert p.check_command("python '-'c x").verdict == "deny"  # quotes around dash
     assert p.check_command("dir | findstr x").verdict == "deny"
     assert p.check_command("shutdown /s").verdict == "deny"
     assert p.check_command("winget install foo").verdict == "ask"

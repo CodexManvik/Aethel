@@ -1,6 +1,7 @@
 """The user's permission manifest (~/.aethel/permissions.yaml, same format as
 v1). Every filesystem and shell action is checked here first."""
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -107,15 +108,17 @@ class Permissions:
         for pattern in sh.forbidden_patterns:
             if pattern.lower() in low:
                 return Decision("deny", f"Commands containing '{pattern.strip()}' are blocked.")
-        tokens = [t.strip("\"'") for t in low.split()]
+        # Normalize quotes and escape chars before tokenizing, but keep original for substring checks
+        plain = re.sub(r"[\"'^`]", "", low)
+        tokens = plain.split()
         for bad in sh.forbidden_arguments or FORBIDDEN_ARGUMENTS:
             b = bad.lower()
             if b.startswith("-"):
-                # Flag-style: match exact token or token prefix
+                # Flag-style: match exact token or token prefix (on normalized text)
                 if any(t == b or t.startswith(b) for t in tokens):
                     return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
             else:
-                # Non-flag: substring match
+                # Non-flag: substring match on original to catch literal |, backticks, etc.
                 if b in low:
                     return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
         for allowed in sh.allowed_commands:
