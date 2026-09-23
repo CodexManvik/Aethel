@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .api import ws
-from .api.routes import conversations, health, keys, providers, settings
+from .api.routes import conversations, health, keys, providers, settings, tasks
 from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
@@ -24,6 +24,7 @@ def create_app(services: Services | None = None) -> FastAPI:
             yield
         finally:
             try:
+                await svc.engine.shutdown()
                 await svc.chat.shutdown()
             finally:
                 if owns_services:
@@ -53,5 +54,6 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(settings.router)
     app.include_router(providers.router)
+    app.include_router(tasks.router)
     app.include_router(ws.router)
     return app

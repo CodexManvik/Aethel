@@ -4,7 +4,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from ..auth import origin_allowed
-from ..protocol import ErrorEvent, StopGeneration, UserMessage, client_event_adapter
+from ..protocol import ApprovalDecision, ErrorEvent, StartTask, StopGeneration, TaskControl, UserMessage, \
+    client_event_adapter
 
 router = APIRouter()
 
@@ -40,6 +41,15 @@ async def session_socket(websocket: WebSocket) -> None:
                 services.chat.start_turn(event)
             elif isinstance(event, StopGeneration):
                 await services.chat.stop(event.message_id)
+            elif isinstance(event, StartTask):
+                await services.engine.start(conversation_id=event.conversation_id, goal=event.goal,
+                                            client_id=event.client_id)
+            elif isinstance(event, TaskControl):
+                action = {"pause": services.engine.pause, "resume": services.engine.resume,
+                          "cancel": services.engine.cancel}[event.action]
+                await action(event.task_id)
+            elif isinstance(event, ApprovalDecision):
+                await services.approvals.resolve(event.approval_id, event.decision)
     except WebSocketDisconnect:
         pass
     finally:
