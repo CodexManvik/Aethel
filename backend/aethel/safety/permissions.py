@@ -71,6 +71,32 @@ def _inside(child: str, parent: str) -> bool:
         return False
 
 
+_DB_FILES = ("aethel.db", "aethel.db-wal", "aethel.db-shm", "aethel.db-journal")
+
+
+def _protected(target: str, mode: Literal["read", "write"]) -> Decision | None:
+    """Hard rules the manifest can't override: the agent may never change its
+    own configuration, database or source, drop a .env, or add a startup
+    program, and it may never read the database or a .env file."""
+    home = aethel_home()
+    if os.path.basename(target) == ".env":
+        return Decision("deny", ".env files hold secrets and are off-limits.")
+    if mode == "read":
+        if any(target == _norm(str(home / name)) for name in _DB_FILES):
+            return Decision("deny", "Aethel's own database is off-limits.")
+        return None
+    if _inside(target, _norm(str(home))) and not _inside(target, _norm(str(home / "scratch"))):
+        return Decision("deny", "Aethel's own settings and data can't be changed by a task.")
+    if _inside(target, _norm(str(PROJECT_ROOT))):
+        return Decision("deny", "Aethel's own program files can't be changed by a task.")
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        startup = os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+        if _inside(target, _norm(startup)):
+            return Decision("deny", "Programs that run at sign-in can't be added by a task.")
+    return None
+
+
 class Permissions:
     def __init__(self, path: Path):
         self.path = path
@@ -90,6 +116,9 @@ class Permissions:
         if not path:
             return Decision("deny", "No path given.")
         target = _norm(path)
+        protected = _protected(target, mode)
+        if protected is not None:
+            return protected
         fs = self.manifest.filesystem
         for forbidden in fs.forbidden_paths:
             if _inside(target, _norm(forbidden)):
