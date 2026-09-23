@@ -1,5 +1,152 @@
 {
   "$defs": {
+    "ApprovalDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allow_once",
+            "allow_task",
+            "deny"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "type": {
+          "const": "approval_decision",
+          "default": "approval_decision",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "approval_id",
+        "decision"
+      ],
+      "title": "ApprovalDecision",
+      "type": "object"
+    },
+    "ApprovalNeeded": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "read",
+            "write",
+            "irreversible"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "type": {
+          "const": "approval_needed",
+          "default": "approval_needed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "approval_id",
+        "task_id",
+        "step_id",
+        "tool",
+        "summary",
+        "reason",
+        "tier"
+      ],
+      "title": "ApprovalNeeded",
+      "type": "object"
+    },
+    "ApprovalResolved": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allow_once",
+            "allow_task",
+            "deny"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "approval_resolved",
+          "default": "approval_resolved",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "approval_id",
+        "task_id",
+        "decision"
+      ],
+      "title": "ApprovalResolved",
+      "type": "object"
+    },
+    "CheckOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "description",
+        "passed",
+        "detail"
+      ],
+      "title": "CheckOutcome",
+      "type": "object"
+    },
     "ConversationUpdated": {
       "additionalProperties": false,
       "properties": {
@@ -166,6 +313,32 @@
       "title": "MessageStart",
       "type": "object"
     },
+    "PlanProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "plan_progress",
+          "default": "plan_progress",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "index"
+      ],
+      "title": "PlanProgress",
+      "type": "object"
+    },
     "ProviderSwitched": {
       "additionalProperties": false,
       "properties": {
@@ -228,6 +401,134 @@
       "title": "ProviderSwitched",
       "type": "object"
     },
+    "StartTask": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "type": {
+          "const": "start_task",
+          "default": "start_task",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "goal",
+        "client_id"
+      ],
+      "title": "StartTask",
+      "type": "object"
+    },
+    "StepFinished": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "duration_ms": {
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "step_finished",
+          "default": "step_finished",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "step_id",
+        "ok",
+        "detail",
+        "duration_ms"
+      ],
+      "title": "StepFinished",
+      "type": "object"
+    },
+    "StepStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "type": {
+          "const": "step_started",
+          "default": "step_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "allow",
+            "ask",
+            "deny"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "step_id",
+        "tool",
+        "summary",
+        "verdict"
+      ],
+      "title": "StepStarted",
+      "type": "object"
+    },
     "StopGeneration": {
       "additionalProperties": false,
       "properties": {
@@ -247,6 +548,216 @@
         "message_id"
       ],
       "title": "StopGeneration",
+      "type": "object"
+    },
+    "TaskControl": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "pause",
+            "resume",
+            "cancel"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_control",
+          "default": "task_control",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "action"
+      ],
+      "title": "TaskControl",
+      "type": "object"
+    },
+    "TaskCreated": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_created",
+          "default": "task_created",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_message_id": {
+          "title": "User Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "conversation_id",
+        "goal",
+        "user_message_id",
+        "client_id"
+      ],
+      "title": "TaskCreated",
+      "type": "object"
+    },
+    "TaskPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_plan",
+          "default": "task_plan",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "steps",
+        "checks"
+      ],
+      "title": "TaskPlan",
+      "type": "object"
+    },
+    "TaskState": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "message_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Text"
+        },
+        "state": {
+          "enum": [
+            "planning",
+            "running",
+            "waiting_approval",
+            "paused",
+            "verifying",
+            "done",
+            "failed",
+            "cancelled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_state",
+          "default": "task_state",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "conversation_id",
+        "state",
+        "summary",
+        "error",
+        "message_id",
+        "message_text"
+      ],
+      "title": "TaskState",
       "type": "object"
     },
     "Token": {
@@ -315,13 +826,45 @@
       ],
       "title": "UserMessage",
       "type": "object"
+    },
+    "VerificationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/$defs/CheckOutcome"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "verification",
+          "default": "verification",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "results"
+      ],
+      "title": "VerificationResult",
+      "type": "object"
     }
   },
   "properties": {
     "client": {
       "discriminator": {
         "mapping": {
+          "approval_decision": "#/$defs/ApprovalDecision",
+          "start_task": "#/$defs/StartTask",
           "stop_generation": "#/$defs/StopGeneration",
+          "task_control": "#/$defs/TaskControl",
           "user_message": "#/$defs/UserMessage"
         },
         "propertyName": "type"
@@ -332,6 +875,15 @@
         },
         {
           "$ref": "#/$defs/StopGeneration"
+        },
+        {
+          "$ref": "#/$defs/StartTask"
+        },
+        {
+          "$ref": "#/$defs/TaskControl"
+        },
+        {
+          "$ref": "#/$defs/ApprovalDecision"
         }
       ],
       "title": "Client"
@@ -339,12 +891,21 @@
     "server": {
       "discriminator": {
         "mapping": {
+          "approval_needed": "#/$defs/ApprovalNeeded",
+          "approval_resolved": "#/$defs/ApprovalResolved",
           "conversation_updated": "#/$defs/ConversationUpdated",
           "error": "#/$defs/ErrorEvent",
           "message_end": "#/$defs/MessageEnd",
           "message_start": "#/$defs/MessageStart",
+          "plan_progress": "#/$defs/PlanProgress",
           "provider_switched": "#/$defs/ProviderSwitched",
-          "token": "#/$defs/Token"
+          "step_finished": "#/$defs/StepFinished",
+          "step_started": "#/$defs/StepStarted",
+          "task_created": "#/$defs/TaskCreated",
+          "task_plan": "#/$defs/TaskPlan",
+          "task_state": "#/$defs/TaskState",
+          "token": "#/$defs/Token",
+          "verification": "#/$defs/VerificationResult"
         },
         "propertyName": "type"
       },
@@ -366,6 +927,33 @@
         },
         {
           "$ref": "#/$defs/ErrorEvent"
+        },
+        {
+          "$ref": "#/$defs/TaskCreated"
+        },
+        {
+          "$ref": "#/$defs/TaskPlan"
+        },
+        {
+          "$ref": "#/$defs/PlanProgress"
+        },
+        {
+          "$ref": "#/$defs/StepStarted"
+        },
+        {
+          "$ref": "#/$defs/StepFinished"
+        },
+        {
+          "$ref": "#/$defs/ApprovalNeeded"
+        },
+        {
+          "$ref": "#/$defs/ApprovalResolved"
+        },
+        {
+          "$ref": "#/$defs/VerificationResult"
+        },
+        {
+          "$ref": "#/$defs/TaskState"
         }
       ],
       "title": "Server"

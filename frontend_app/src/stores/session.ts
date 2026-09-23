@@ -86,6 +86,8 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       };
     case "conversation_updated":
       return data;
+    default:
+      return data;
   }
 }
 

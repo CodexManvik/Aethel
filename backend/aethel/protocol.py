@@ -59,8 +59,97 @@ class ErrorEvent(Event):
     conversation_id: str | None = None
 
 
+TaskStateName = Literal["planning", "running", "waiting_approval", "paused", "verifying", "done", "failed", "cancelled"]
+Verdict = Literal["allow", "ask", "deny"]
+Tier = Literal["read", "write", "irreversible"]
+Decision = Literal["allow_once", "allow_task", "deny"]
+
+
+class TaskCreated(Event):
+    type: Literal["task_created"] = "task_created"
+    task_id: str
+    conversation_id: str
+    goal: str
+    user_message_id: str
+    client_id: str | None = None
+
+
+class TaskPlan(Event):
+    type: Literal["task_plan"] = "task_plan"
+    task_id: str
+    steps: list[str]
+    checks: list[str]  # human-readable descriptions of the postconditions
+
+
+class PlanProgress(Event):
+    type: Literal["plan_progress"] = "plan_progress"
+    task_id: str
+    index: int
+
+
+class StepStarted(Event):
+    type: Literal["step_started"] = "step_started"
+    task_id: str
+    step_id: str
+    tool: str
+    summary: str
+    verdict: Verdict
+
+
+class StepFinished(Event):
+    type: Literal["step_finished"] = "step_finished"
+    task_id: str
+    step_id: str
+    ok: bool
+    detail: str
+    duration_ms: int
+
+
+class ApprovalNeeded(Event):
+    type: Literal["approval_needed"] = "approval_needed"
+    approval_id: str
+    task_id: str
+    step_id: str
+    tool: str
+    summary: str
+    reason: str
+    tier: Tier
+
+
+class ApprovalResolved(Event):
+    type: Literal["approval_resolved"] = "approval_resolved"
+    approval_id: str
+    task_id: str
+    decision: Decision
+
+
+class CheckOutcome(Event):
+    description: str
+    passed: bool
+    detail: str
+
+
+class VerificationResult(Event):
+    type: Literal["verification"] = "verification"
+    task_id: str
+    results: list[CheckOutcome]
+
+
+class TaskState(Event):
+    type: Literal["task_state"] = "task_state"
+    task_id: str
+    conversation_id: str
+    state: TaskStateName
+    summary: str | None = None
+    error: str | None = None
+    message_id: str | None = None    # set on terminal states: the reply persisted into the conversation
+    message_text: str | None = None
+
+
 ServerEvent = Annotated[
-    Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent],
+    Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
+          TaskCreated, TaskPlan, PlanProgress, StepStarted, StepFinished, ApprovalNeeded, ApprovalResolved,
+          VerificationResult, TaskState],
     Field(discriminator="type"),
 ]
 
@@ -78,7 +167,27 @@ class StopGeneration(Event):
     message_id: str
 
 
-ClientEvent = Annotated[Union[UserMessage, StopGeneration], Field(discriminator="type")]
+class StartTask(Event):
+    type: Literal["start_task"] = "start_task"
+    conversation_id: str
+    goal: str = Field(min_length=1, max_length=4000)
+    client_id: str | None = None
+
+
+class TaskControl(Event):
+    type: Literal["task_control"] = "task_control"
+    task_id: str
+    action: Literal["pause", "resume", "cancel"]
+
+
+class ApprovalDecision(Event):
+    type: Literal["approval_decision"] = "approval_decision"
+    approval_id: str
+    decision: Decision
+
+
+ClientEvent = Annotated[Union[UserMessage, StopGeneration, StartTask, TaskControl, ApprovalDecision],
+                        Field(discriminator="type")]
 
 server_event_adapter: TypeAdapter = TypeAdapter(ServerEvent)
 client_event_adapter: TypeAdapter = TypeAdapter(ClientEvent)
