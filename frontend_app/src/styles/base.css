@@ -73,3 +73,31 @@ body {
 [data-motion="reduced"] .breathe {
   animation: none;
 }
+
+/* Task checklist: the tick is drawn like a pen stroke (spec §12.4). */
+@keyframes pen-stroke {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.pen-stroke {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: pen-stroke 280ms var(--ease-out) forwards;
+}
+[data-motion="reduced"] .pen-stroke {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+@keyframes slow-arc {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.slow-arc {
+  animation: slow-arc 1.6s linear infinite;
+  transform-origin: center;
+}
+[data-motion="reduced"] .slow-arc {
+  animation: none;
+}
