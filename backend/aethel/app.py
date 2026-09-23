@@ -27,9 +27,11 @@ def create_app(services: Services | None = None) -> FastAPI:
         try:
             yield
         finally:
-            await svc.chat.wait_idle()
-            if owns_services:
-                svc.close()
+            try:
+                await svc.chat.shutdown()
+            finally:
+                if owns_services:
+                    svc.close()
 
     app = FastAPI(title="Aethel", version=__version__, lifespan=lifespan)
     app.add_middleware(

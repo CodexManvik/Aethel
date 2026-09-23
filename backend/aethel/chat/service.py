@@ -46,8 +46,20 @@ class ChatService:
         return True
 
     async def wait_idle(self) -> None:
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+    async def shutdown(self, timeout: float = 10.0) -> None:
+        """Give in-flight turns up to `timeout` seconds to finish on their own,
+        then cancel whatever's left (the cancellation path persists partial
+        text as "stopped") and wait for them to settle."""
+        try:
+            await asyncio.wait_for(self.wait_idle(), timeout=timeout)
+        except asyncio.TimeoutError:
+            for task in list(self._tasks):
+                task.cancel()
+            if self._tasks:
+                await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def _turn(self, event: UserMessage, emit: Emit) -> None:
         conv = self.conversations.get(event.conversation_id)
@@ -57,16 +69,17 @@ class ChatService:
         user_msg = self.messages.add(conv.id, "user", event.text)
         assistant = self.messages.add(conv.id, "assistant", "", status="streaming")
         self._active[assistant.id] = asyncio.current_task()
-        await emit(MessageStart(conversation_id=conv.id, message_id=assistant.id,
-                                user_message_id=user_msg.id, client_id=event.client_id))
-        if not conv.title:
-            title = make_title(event.text)
-            self.conversations.rename(conv.id, title)
-            await emit(ConversationUpdated(conversation_id=conv.id, title=title))
 
         parts: list[str] = []
         status = "complete"
         try:
+            await emit(MessageStart(conversation_id=conv.id, message_id=assistant.id,
+                                    user_message_id=user_msg.id, client_id=event.client_id))
+            if not conv.title:
+                title = make_title(event.text)
+                self.conversations.rename(conv.id, title)
+                await emit(ConversationUpdated(conversation_id=conv.id, title=title))
+
             async def on_switch(sw: ProviderSwitch) -> None:
                 await emit(ProviderSwitched(role=sw.role, from_provider=sw.from_label,
                                             to_provider=sw.to_label, reason=sw.reason))

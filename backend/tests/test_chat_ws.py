@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -115,3 +117,68 @@ def test_make_title_and_prompt():
     long = make_title("x" * 100)
     assert len(long) == 48 and long.endswith("…")
     assert "Current local time" in system_prompt()
+
+
+@pytest.mark.anyio
+async def test_exception_before_stream_still_persists_error_and_ends_message():
+    """A failure in the pre-stream section (e.g. rename hitting a bad DB) must
+    still be caught by the turn's try/finally: no row stuck "streaming", no
+    leaked _active entry, and a message_end still reaches the client."""
+    services = build_services(provider_factory=factory_from({"groq:g": FakeProvider()}),
+                               local_llm=FakeLocal(fail="no local model"))
+    services.keys.set_many({"groq": "k"})
+    services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"}]}})
+    conv = services.conversations.create()
+
+    def boom(conv_id, title):
+        raise RuntimeError("db exploded")
+
+    services.conversations.rename = boom
+
+    events = []
+
+    async def emit(ev):
+        events.append(ev)
+
+    from aethel.api.events import UserMessage
+    await services.chat._turn(UserMessage(conversation_id=conv.id, text="hi"), emit)
+
+    types = [e.type for e in events]
+    assert types == ["message_start", "error", "message_end"]
+    assert events[-1].status == "error"
+    stored = services.messages.list(conv.id)
+    assert stored[-1].status == "error"
+    assert services.chat._active == {}
+    services.close()
+
+
+@pytest.mark.anyio
+async def test_shutdown_times_out_and_cancels_slow_turns():
+    """shutdown(timeout=...) must not hang forever waiting on a slow turn: once
+    the timeout elapses it cancels what's left (persisting "stopped") and
+    returns promptly."""
+    provider = FakeProvider(chunks=["a", "b", "c"], delay=5.0)
+    services = build_services(provider_factory=factory_from({"groq:g": provider}),
+                               local_llm=FakeLocal(fail="no local model"))
+    services.keys.set_many({"groq": "k"})
+    services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"}]}})
+    conv = services.conversations.create()
+
+    events = []
+
+    async def emit(ev):
+        events.append(ev)
+
+    from aethel.api.events import UserMessage
+    services.chat.start_turn(UserMessage(conversation_id=conv.id, text="go"), emit)
+    await asyncio.sleep(0.05)  # let the turn register itself in _active/_tasks
+
+    started = asyncio.get_event_loop().time()
+    await services.chat.shutdown(timeout=0.2)
+    elapsed = asyncio.get_event_loop().time() - started
+
+    assert elapsed < 4.0  # returned promptly, not after the provider's 5s delay
+    assert services.chat._tasks == set()
+    stored = services.messages.list(conv.id)
+    assert stored[-1].status == "stopped"
+    services.close()
