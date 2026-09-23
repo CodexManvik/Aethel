@@ -1,12 +1,14 @@
 # Phase 0: items carried over to Phase 1
 
+> Phase 1a closed items 1–4 below, plus: unscoped error unsticks pending messages; mid-stream httpx errors map to provider_error.
+
 Phase 0 (Foundation) finished on `revamp` at commit a5fd333. It passed its per-task reviews, a whole-branch review, and a fix wave. The items below were **deliberately deferred**, and the Phase 1 plan must include them.
 
 ## Do these first in Phase 1 (the task engine builds on them)
-1. **Session hub.** Emit events to every live socket, not only the one that started the turn. Overlay the in-flight partial content in `GET /api/conversations/{id}/messages`, or persist every N tokens. Refetch the open conversation when the socket reopens and on `message_end`. Today, navigating away and back mid-reply, or a reconnect mid-reply, shows a stale or partial reply.
-2. **Streaming hygiene in `ChatService._turn`.** Wrap `router.stream` in `contextlib.aclosing`. Swallow only cancellations that come from `stop()`, and re-raise the rest.
-3. **Protocol layering.** Move the event models out of `aethel/api/events.py` into `aethel/protocol.py`, so the service layer stops importing the API layer.
-4. **Scope `ProviderSwitched`.** Give it a `message_id` (and later a `task_id`), and make the frontend reducer attribute errors and notices to the right conversation.
+1. ~~**Session hub.** Emit events to every live socket, not only the one that started the turn. Overlay the in-flight partial content in `GET /api/conversations/{id}/messages`, or persist every N tokens. Refetch the open conversation when the socket reopens and on `message_end`. Today, navigating away and back mid-reply, or a reconnect mid-reply, shows a stale or partial reply.~~
+2. ~~**Streaming hygiene in `ChatService._turn`.** Wrap `router.stream` in `contextlib.aclosing`. Swallow only cancellations that come from `stop()`, and re-raise the rest.~~
+3. ~~**Protocol layering.** Move the event models out of `aethel/api/events.py` into `aethel/protocol.py`, so the service layer stops importing the API layer.~~
+4. ~~**Scope `ProviderSwitched`.** Give it a `message_id` (and later a `task_id`), and make the frontend reducer attribute errors and notices to the right conversation.~~
 
 ## Smaller follow-ups
 - WS `close(4401/4403)` before `accept` shows up as HTTP 403, which the client sees as 1006. Accept, then close. Stop retrying on 4401 in `ws.ts`. Have Boot make one authenticated call.

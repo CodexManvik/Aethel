@@ -22,6 +22,12 @@ Add an API key in **Settings → Providers** (Groq is the default conversation m
 **Private mode:** put a `.gguf` model in `models/llm/` (or choose one in Settings → Local model) and install
 llama.cpp (`scripts/install.ps1`). Everything then runs on this computer.
 
+**Tasks:** press the **Task** pill in the prompt box and describe a goal (e.g. "write a haiku about rain to
+Documents\Aethel\haiku.txt"). Aethel plans a checklist, works through it with file and command tools, and checks the
+result before reporting back. Anything outside your allowed folders or commands waits for your approval in the task
+panel. Allowed folders and commands live in `~/.aethel/permissions.yaml`. **Undo file changes** restores every
+file a finished task wrote.
+
 **Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
 
 **Changing the WebSocket protocol:** edit `backend/aethel/api/events.py`, then run
