@@ -75,7 +75,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         registry.register(tool)
     approvals = ApprovalBroker(hub)
     engine = TaskEngine(tasks=tasks, messages=messages, conversations=conversations, router=router,
-                        registry=registry, approvals=approvals, hub=hub)
+                        registry=registry, approvals=approvals, hub=hub, settings=settings)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat)
     return Services(

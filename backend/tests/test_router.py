@@ -114,3 +114,20 @@ async def test_everything_failing_raises_no_provider_with_reasons(settings):
         await _collect(router)
     text = str(exc.value)
     assert "groq:g: no API key" in text and "no model found" in text
+
+
+async def test_max_tokens_override_is_passed_to_the_provider(settings):
+    settings.update({"max_tokens": 700})
+    provider = FakeProvider(chunks=["x"])
+    router = RoleRouter(settings=settings, keys=_keys(groq="kg"), local=FakeLocal(),
+                        factory=factory_from({"groq:g": provider}))
+    [e async for e in router.stream("chat", MSGS)]
+    [e async for e in router.stream("chat", MSGS, max_tokens=4096)]
+    assert provider.max_tokens_seen == [700, 4096]
+
+
+def test_agent_max_tokens_setting(settings):
+    assert settings.get().agent_max_tokens == 8192
+    assert settings.update({"agent_max_tokens": 16000}).agent_max_tokens == 16000
+    with pytest.raises(ValueError):
+        settings.update({"agent_max_tokens": 100})

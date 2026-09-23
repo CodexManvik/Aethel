@@ -8,7 +8,7 @@ import yaml
 from aethel.hub import EventHub
 from aethel.keys import KeyStore
 from aethel.paths import db_path
-from aethel.providers.base import TextDelta, ToolCall, ToolCallsReady
+from aethel.providers.base import StreamDone, TextDelta, ToolCall, ToolCallsReady
 from aethel.providers.router import RoleRouter
 from aethel.runtime.engine import TaskEngine
 from aethel.runtime.store import TaskRepo
@@ -56,7 +56,7 @@ def h(tmp_path):
         return engine, provider
 
     yield SimpleNamespace(tmp=tmp_path, out=tmp_path / "out", events=events, make=make, convs=convs, msgs=msgs,
-                          tasks=tasks)
+                          tasks=tasks, settings=settings)
     db.close()
 
 
@@ -694,3 +694,31 @@ async def test_allow_for_task_covers_the_same_folder_not_everywhere(h):
     await engine.wait_idle()
     assert h.tasks.get(task_id).state == "done"
     assert [ev["summary"] for ev in h.events if ev["type"] == "approval_needed"] == [str(d / "a.txt"), str(e / "c.txt")]
+
+
+async def test_agent_role_uses_its_own_token_limit(h):
+    h.settings.update({"max_tokens": 512, "agent_max_tokens": 9000})
+    engine, provider = h.make([[plan(["Finish"])], [tool_call("finish_task", summary="Done.")]], settings=h.settings)
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="finish")
+    await engine.wait_idle()
+    assert provider.max_tokens_seen == [9000, 9000]
+    plain, plain_provider = h.make([[plan(["Finish"])], [tool_call("finish_task", summary="Done.")]])
+    await plain.start(conversation_id=conv.id, goal="finish")
+    await plain.wait_idle()
+    assert plain_provider.max_tokens_seen == [512, 512]  # no settings: the shared max_tokens
+
+
+async def test_tool_call_cut_off_by_the_token_limit_is_explained(h):
+    cut = ToolCallsReady([ToolCall(id="cut1", name="fs_write", arguments='{"path": "C:/a.txt", "content": "long')])
+    engine, provider = h.make([
+        [plan(["Write it"])],
+        [cut, StreamDone("length")],
+        [tool_call("finish_task", summary="Done.")],
+    ])
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="write a long file")
+    await engine.wait_idle()
+    answer = next(m for m in provider.calls[2] if m.role == "tool" and m.tool_call_id == "cut1").content
+    assert answer == ("Error: your tool call was cut off because it was too long. "
+                      "Write the content in smaller parts (use mode 'append').")

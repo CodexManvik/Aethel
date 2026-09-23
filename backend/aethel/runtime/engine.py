@@ -18,10 +18,11 @@ from ..chat.service import make_title
 from ..hub import EventHub
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
                         StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState, VerificationResult)
-from ..providers.base import ChatMessage, ProviderError, TextDelta, ToolCall, ToolCallsReady, ToolSpec
+from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady, ToolSpec
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..safety.approvals import ApprovalBroker
 from ..safety.policy import decide
+from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
 from ..tools.registry import ToolRegistry
@@ -35,6 +36,8 @@ MAX_IDENTICAL_CALLS = 2
 MAX_CONSECUTIVE_LOOPS = 3
 UNTRUSTED_TOOLS = {"fs_read", "fs_list", "shell_run"}
 _CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
+CUT_OFF_MESSAGE = ("Error: your tool call was cut off because it was too long. "
+                   "Write the content in smaller parts (use mode 'append').")
 
 
 class PlanningError(Exception):
@@ -147,8 +150,9 @@ class TaskEngine:
     def __init__(self, *, tasks: TaskRepo, messages: MessageRepo, conversations: ConversationRepo,
                  router: RoleRouter, registry: ToolRegistry, approvals: ApprovalBroker, hub: EventHub,
                  max_steps: int = 40, max_seconds: float = 15 * 60, max_identical_calls: int = MAX_IDENTICAL_CALLS,
-                 clock=time.monotonic):
+                 clock=time.monotonic, settings: SettingsService | None = None):
         self.tasks = tasks
+        self.settings = settings  # None: the agent role uses the shared max_tokens
         self.messages = messages
         self.conversations = conversations
         self.router = router
@@ -349,7 +353,7 @@ class TaskEngine:
         messages = [ChatMessage("system", PLANNER_SYSTEM),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}")]
         for _ in range(2):
-            calls, text = await self._complete(task_id, messages, [SUBMIT_PLAN])
+            calls, text, _ = await self._complete(task_id, messages, [SUBMIT_PLAN])
             call = next((c for c in calls if c.name == "submit_plan"), None)
             parsed = _parse_plan(call.arguments) if call is not None else None
             if parsed is not None:
@@ -361,21 +365,26 @@ class TaskEngine:
         raise PlanningError("I couldn't come up with a workable plan for this.")
 
     async def _complete(self, task_id: str, messages: list[ChatMessage],
-                        tools: list[ToolSpec] | None) -> tuple[list[ToolCall], str]:
+                        tools: list[ToolSpec] | None) -> tuple[list[ToolCall], str, str | None]:
+        """One model turn: its tool calls, its text and the finish reason."""
         async def on_switch(sw: ProviderSwitch) -> None:
             await self.hub.publish(ProviderSwitched(role=sw.role, from_provider=sw.from_label,
                                                     to_provider=sw.to_label, reason=sw.reason, task_id=task_id))
 
         calls: list[ToolCall] = []
         text: list[str] = []
-        stream = self.router.stream("agent", messages, tools=tools, on_switch=on_switch)
+        finish: str | None = None
+        max_tokens = self.settings.get().agent_max_tokens if self.settings is not None else None
+        stream = self.router.stream("agent", messages, tools=tools, on_switch=on_switch, max_tokens=max_tokens)
         async with aclosing(stream):
             async for event in stream:
                 if isinstance(event, TextDelta):
                     text.append(event.text)
                 elif isinstance(event, ToolCallsReady):
                     calls.extend(event.calls)
-        return calls, "".join(text)
+                elif isinstance(event, StreamDone):
+                    finish = event.finish_reason
+        return calls, "".join(text), finish
 
     async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[tuple[str, str]],
                        run: "_RunClock", budget: "_Budget") -> Outcome:
@@ -385,7 +394,7 @@ class TaskEngine:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
             await self._gate(task_id, run)
-            calls, text = await self._complete(task_id, convo, specs)
+            calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
                 return Outcome(text.strip() or None, False)
@@ -398,7 +407,8 @@ class TaskEngine:
                     # to the model next (the final summary) is malformed.
                     convo.append(ChatMessage("tool", "[STOPPED] step limit reached", tool_call_id=call.id))
                     continue
-                result = await self._handle(task_id, call, ctx, grants, seen, run, budget)
+                result = await self._handle(task_id, call, ctx, grants, seen, run, budget,
+                                            cut_off=finish_reason == "length")
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
@@ -411,12 +421,14 @@ class TaskEngine:
                 return Outcome(finished, False)
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
-                      seen: Counter, run: "_RunClock", budget: "_Budget") -> str:
+                      seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False) -> str:
         args = _parse_args(call.arguments)
         if args is None:
             if call.name != "finish_task":
                 budget.calls_made += 1
                 budget.consecutive_loops = 0
+            if cut_off:  # the output token limit ended the turn mid-arguments
+                return CUT_OFF_MESSAGE
             return f"Error: the arguments for {call.name} were not a JSON object. Try again."
         if call.name == "finish_task":
             return "Finishing up."
@@ -496,7 +508,7 @@ class TaskEngine:
     async def _final_summary(self, task_id: str, convo: list[ChatMessage]) -> str | None:
         convo.append(ChatMessage("user", "[STEP LIMIT REACHED] Stop using tools. In 1-3 sentences, tell the user "
                                          "what you did and what is left."))
-        _, text = await self._complete(task_id, convo, None)
+        _, text, _ = await self._complete(task_id, convo, None)
         return text.strip() or None
 
     async def _gate(self, task_id: str, run: "_RunClock | None" = None) -> None:

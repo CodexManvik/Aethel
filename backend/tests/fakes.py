@@ -22,9 +22,11 @@ class FakeProvider:
         self.delay = delay
         self.models = list(models)
         self.calls = []
+        self.max_tokens_seen = []
 
     async def stream(self, messages, *, temperature, max_tokens, tools=None):
         self.calls.append(list(messages))
+        self.max_tokens_seen.append(max_tokens)
         if self.error is not None and self.error_at is None:
             raise self.error
         for i, chunk in enumerate(self.chunks):
@@ -82,24 +84,28 @@ def tool_call(name, call_id=None, **args):
 
 class ScriptedProvider:
     """Each stream() call plays the next scripted turn (a list of TextDelta /
-    ToolCallsReady events); StreamDone is appended automatically."""
+    ToolCallsReady events); StreamDone is appended automatically unless the
+    turn scripts its own (e.g. StreamDone("length"))."""
 
     def __init__(self, turns, label="scripted:model"):
         self.turns = [list(t) for t in turns]
         self.label = label
         self.calls = []
         self.tools_seen = []
+        self.max_tokens_seen = []
 
     async def stream(self, messages, *, temperature, max_tokens, tools=None):
         self.calls.append(list(messages))
         self.tools_seen.append([t.name for t in tools or []])
+        self.max_tokens_seen.append(max_tokens)
         if not self.turns:
             raise AssertionError("ScriptedProvider ran out of scripted turns")
         turn = self.turns.pop(0)
         for event in turn:
             await anyio.sleep(0)
             yield event
-        yield StreamDone("tool_calls" if any(isinstance(e, ToolCallsReady) for e in turn) else "stop")
+        if not any(isinstance(e, StreamDone) for e in turn):
+            yield StreamDone("tool_calls" if any(isinstance(e, ToolCallsReady) for e in turn) else "stop")
 
     async def list_models(self):
         return ["scripted"]

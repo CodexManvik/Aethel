@@ -142,3 +142,21 @@ async def test_router_passes_tools_through():
     assert isinstance(events[0], ToolCallsReady) and events[0].calls[0].name == "fs_read"
     assert scripted.tools_seen == [["fs_read"]]
     db.close()
+
+
+async def test_calls_cut_off_by_the_token_limit_are_still_yielded():
+    def handler(request):
+        body = (
+            _chunk({"tool_calls": [{"index": 0, "id": "call_1", "type": "function",
+                                    "function": {"name": "fs_write", "arguments": "{\"path\": \"C:/a.txt\", \"con"}}]})
+            + _chunk({}, finish="length")
+            + "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = [e async for e in _provider(handler).stream(
+        [ChatMessage("user", "write")], temperature=0.2, max_tokens=64, tools=[SPEC])]
+    assert events == [
+        ToolCallsReady([ToolCall(id="call_1", name="fs_write", arguments='{"path": "C:/a.txt", "con')]),
+        StreamDone("length"),
+    ]

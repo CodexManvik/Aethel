@@ -39,6 +39,7 @@ export interface AppSettings {
   local_llm: LocalLLMSettings;
   temperature: number;
   max_tokens: number;
+  agent_max_tokens: number;
   history_window: number;
 }
 
