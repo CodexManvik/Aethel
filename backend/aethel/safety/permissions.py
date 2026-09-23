@@ -130,10 +130,18 @@ def _protected(target: str, mode: Literal["read", "write"]) -> Decision | None:
     own configuration, database or source, drop a .env, or add a startup
     program, and it may never read the database or a .env file."""
     home = aethel_home()
-    if os.path.basename(target) == ".env":
+    if target.startswith(("\\\\?\\", "\\\\.\\")):
+        return Decision("deny", "Use a normal path (no \\\\?\\ or \\\\.\\ prefix).")
+    if re.match(r"^\\\\[^\\]+\\[^\\]*\$(\\|$)", target):
+        return Decision("deny", "Administrative network shares (like \\\\host\\C$) are off-limits.")
+    # Windows ignores trailing dots and spaces and treats name::$DATA (or any
+    # name:stream) as the same file, so compare on the name Windows will use.
+    name = os.path.basename(target).split(":", 1)[0].rstrip(". ")
+    canonical = os.path.join(os.path.dirname(target), name)
+    if name == ".env":
         return Decision("deny", ".env files hold secrets and are off-limits.")
     if mode == "read":
-        if any(target == _norm(str(home / name)) for name in _DB_FILES):
+        if any(canonical == _norm(str(home / db)) for db in _DB_FILES):
             return Decision("deny", "Aethel's own database is off-limits.")
         return None
     if _inside(target, _norm(str(home))) and not _inside(target, _norm(str(home / "scratch"))):

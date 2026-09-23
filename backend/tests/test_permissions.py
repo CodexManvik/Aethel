@@ -1,3 +1,6 @@
+import os
+
+import pytest
 import yaml
 
 from aethel.safety.permissions import Permissions, default_manifest
@@ -139,3 +142,19 @@ def test_interpreters_are_never_auto_allowed(tmp_path, monkeypatch):
     assert p.check_command("pwsh x.ps1").verdict == "ask"          # allowed only via "*"
     assert p.check_command('python -c "print(1)"').verdict == "deny"  # forbidden arguments still deny first
     assert p.check_command("git status").verdict == "allow"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path forms")
+def test_alternative_windows_path_forms_cannot_dodge_the_hard_rules(tmp_path):
+    p, home, _ = _wide_open(tmp_path)
+    (tmp_path / "proj").mkdir()
+    for raw in ["\\\\?\\" + str(home / "permissions.yaml"),       # device namespace
+                "\\\\.\\" + str(home / "permissions.yaml"),
+                "\\\\localhost\\C$\\Windows\\win.ini",              # admin share
+                str(home / "permissions.yaml."),                     # Windows drops trailing dots
+                str(tmp_path / "proj" / ".env."),
+                str(tmp_path / "proj" / ".env::$DATA")]:            # the file's main data stream
+        assert p.check_path(raw, "write").verdict == "deny", raw
+    for raw in [str(home / "aethel.db::$DATA"), str(home / "aethel.db ."), str(tmp_path / "proj" / ".ENV"),
+                "\\\\?\\" + str(home / "aethel.db")]:
+        assert p.check_path(raw, "read").verdict == "deny", raw
