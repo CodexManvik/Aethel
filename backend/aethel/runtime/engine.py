@@ -5,10 +5,11 @@ restart leaves unfinished tasks 'paused' and resumable."""
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import Counter
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from pydantic import ValidationError
@@ -31,6 +32,9 @@ from .store import TERMINAL_STATES, TaskRepo
 log = logging.getLogger("aethel.tasks")
 MAX_TOOL_RESULT_CHARS = 12_000
 MAX_IDENTICAL_CALLS = 2
+MAX_CONSECUTIVE_LOOPS = 3
+UNTRUSTED_TOOLS = {"fs_read", "fs_list", "shell_run"}
+_CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
 
 
 class PlanningError(Exception):
@@ -41,6 +45,47 @@ class PlanningError(Exception):
 class Outcome:
     summary: str | None
     budget_exhausted: bool
+
+
+@dataclass
+class _RunClock:
+    """Tracks active (non-waiting) seconds for one runner's lifetime, so time
+    spent paused or waiting on an approval doesn't count against the budget."""
+    clock: callable
+    active_base: float          # active_seconds already persisted before this run
+    active_accum: float = 0.0   # active seconds accumulated this run, not yet persisted
+    _segment_start: float | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        self._segment_start = self.clock()
+
+    def pause(self) -> None:
+        if self._segment_start is not None:
+            self.active_accum += self.clock() - self._segment_start
+            self._segment_start = None
+
+    def resume(self) -> None:
+        if self._segment_start is None:
+            self._segment_start = self.clock()
+
+    def active_seconds(self) -> float:
+        current = self.active_accum
+        if self._segment_start is not None:
+            current += self.clock() - self._segment_start
+        return current
+
+    def total_seconds(self) -> float:
+        return self.active_base + self.active_seconds()
+
+
+@dataclass
+class _Budget:
+    """Mutable step/loop counters shared across a run's _execute/_handle calls.
+    calls_made counts every tool call the model makes except finish_task,
+    regardless of whether it produced a persisted step row (loop-detected,
+    unknown-tool and bad-JSON calls all still cost a step)."""
+    calls_made: int = 0
+    consecutive_loops: int = 0
 
 
 def _parse_args(raw: str) -> dict | None:
@@ -71,10 +116,20 @@ def _first_line(text: str) -> str:
     return (text.strip().splitlines() or [""])[0][:200]
 
 
+def _wrap_untrusted(source: str, content: str) -> str:
+    """Wrap content the model must treat as data, not instructions. Any
+    closing tag inside the content is neutralised so it can't escape early,
+    and the source name is quote-escaped defensively."""
+    safe_source = source.replace('"', "&quot;")
+    safe_content = _CLOSE_UNTRUSTED_RE.sub("&lt;/untrusted", content)
+    return f'<untrusted source="{safe_source}">\n{safe_content}\n</untrusted>'
+
+
 class TaskEngine:
     def __init__(self, *, tasks: TaskRepo, messages: MessageRepo, conversations: ConversationRepo,
                  router: RoleRouter, registry: ToolRegistry, approvals: ApprovalBroker, hub: EventHub,
-                 max_steps: int = 40, max_seconds: float = 15 * 60, clock=time.monotonic):
+                 max_steps: int = 40, max_seconds: float = 15 * 60, max_identical_calls: int = MAX_IDENTICAL_CALLS,
+                 clock=time.monotonic):
         self.tasks = tasks
         self.messages = messages
         self.conversations = conversations
@@ -84,10 +139,12 @@ class TaskEngine:
         self.hub = hub
         self.max_steps = max_steps
         self.max_seconds = max_seconds
+        self.max_identical_calls = max_identical_calls
         self.clock = clock
         self._runners: dict[str, asyncio.Task] = {}
         self._gates: dict[str, asyncio.Event] = {}  # set = may proceed, clear = paused
         self._cancel_requested: set[str] = set()
+        self._underlying: dict[str, str] = {}  # task_id -> state to restore on resume, while paused
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -110,8 +167,12 @@ class TaskEngine:
         gate = self._gates.get(task_id)
         if gate is None or not gate.is_set():
             return False
+        record = self.tasks.get(task_id)
+        self._underlying[task_id] = record.state if record is not None else "running"
         gate.clear()
-        await self._set_state(task_id, "paused")
+        self.tasks.set_state(task_id, "paused")
+        record = self.tasks.get(task_id)
+        await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state="paused"))
         return True
 
     async def resume(self, task_id: str) -> bool:
@@ -120,7 +181,9 @@ class TaskEngine:
             if gate.is_set():
                 return False
             gate.set()
-            await self._set_state(task_id, "running")
+            restored = "waiting_approval" if self.approvals.pending_for(task_id) else \
+                self._underlying.pop(task_id, "running")
+            await self._set_state(task_id, restored)
             return True
         record = self.tasks.get(task_id)
         if record is None or record.state != "paused":
@@ -179,9 +242,9 @@ class TaskEngine:
         runner.add_done_callback(cleanup)
 
     async def _run(self, task_id: str, note: str | None) -> None:
-        started = self.clock()
+        record = self.tasks.get(task_id)
+        run = _RunClock(self.clock, active_base=record.active_seconds)
         try:
-            record = self.tasks.get(task_id)
             if not record.plan:
                 await self._set_state(task_id, "planning")
                 steps, checks = await self._plan(task_id, record.goal)
@@ -195,12 +258,17 @@ class TaskEngine:
                                                       datetime.now().astimezone())),
                 ChatMessage("user", record.goal),
             ]
-            if note:
-                convo.append(ChatMessage("user", note))
             ctx = ToolContext(task_id=task_id)
+            if note:
+                prior_steps = self.tasks.steps(task_id)
+                if any(s.ok and s.tool in UNTRUSTED_TOOLS for s in prior_steps):
+                    ctx.tainted = True
+                convo.append(ChatMessage("user", _wrap_untrusted("task history", note)))
             grants: set[str] = set()
-            outcome = await self._execute(task_id, convo, ctx, grants, started)
+            calls_made = len(self.tasks.steps(task_id))
+            outcome = await self._execute(task_id, convo, ctx, grants, run, calls_made)
             if outcome.budget_exhausted:
+                self.tasks.add_active_seconds(task_id, run.active_seconds())
                 await self._finish(task_id, "failed", outcome.summary,
                                    error="I ran out of steps or time before finishing.")
                 return
@@ -209,24 +277,36 @@ class TaskEngine:
                 if failed:
                     convo.append(ChatMessage("user", repair_prompt([f"{r.description} ({r.detail})" for r in failed])))
                     await self._set_state(task_id, "running")
-                    retry = await self._execute(task_id, convo, ctx, grants, started)
+                    retry = await self._execute(task_id, convo, ctx, grants, run, calls_made)
                     outcome = Outcome(retry.summary or outcome.summary, retry.budget_exhausted)
                     failed = [r for r in await self._verify(task_id, checks) if not r.passed]
                 if failed:
+                    self.tasks.add_active_seconds(task_id, run.active_seconds())
                     await self._finish(task_id, "failed", outcome.summary,
                                        error="Not all checks passed: " + "; ".join(r.description for r in failed))
                     return
+            self.tasks.add_active_seconds(task_id, run.active_seconds())
             await self._finish(task_id, "done", outcome.summary)
         except asyncio.CancelledError:
+            self.tasks.add_active_seconds(task_id, run.active_seconds())
             if task_id in self._cancel_requested:
                 await self._finish(task_id, "cancelled", None)
                 return
+            current = self.tasks.get(task_id)
+            if current is not None and current.state in TERMINAL_STATES:
+                raise  # already finished (e.g. _finish's publish was in flight); don't resurrect it
             self.tasks.set_state(task_id, "paused")  # shutdown: resumable after the next launch
+            current = self.tasks.get(task_id)
+            if current is not None:
+                await self.hub.publish(TaskState(task_id=task_id, conversation_id=current.conversation_id,
+                                                  state="paused"))
             raise
         except (NoProviderAvailable, ProviderError, PlanningError) as exc:
+            self.tasks.add_active_seconds(task_id, run.active_seconds())
             await self._finish(task_id, "failed", None, error=str(exc))
         except Exception:
             log.exception("task %s crashed", task_id)
+            self.tasks.add_active_seconds(task_id, run.active_seconds())
             await self._finish(task_id, "failed", None, error="something went wrong while working on this")
 
     async def _plan(self, task_id: str, goal: str) -> tuple[list[str], list[Check]]:
@@ -263,35 +343,43 @@ class TaskEngine:
         return calls, "".join(text)
 
     async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[str],
-                       started: float) -> Outcome:
+                       run: "_RunClock", calls_made: int) -> Outcome:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
+        budget = _Budget(calls_made=calls_made)
         while True:
-            if len(self.tasks.steps(task_id)) >= self.max_steps or self.clock() - started > self.max_seconds:
+            if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
-            await self._gate(task_id)
+            await self._gate(task_id, run)
             calls, text = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
                 return Outcome(text.strip() or None, False)
             finished: str | None = None
             for call in calls:
-                result = await self._handle(task_id, call, ctx, grants, seen)
+                result = await self._handle(task_id, call, ctx, grants, seen, run, budget)
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
                     finished = str(args.get("summary") or text.strip() or "Done.")
+                if budget.consecutive_loops >= MAX_CONSECUTIVE_LOOPS:
+                    return Outcome(await self._final_summary(task_id, convo), True)
             if finished is not None:
                 return Outcome(finished, False)
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[str],
-                      seen: Counter) -> str:
+                      seen: Counter, run: "_RunClock", budget: "_Budget") -> str:
         args = _parse_args(call.arguments)
         if args is None:
+            if call.name != "finish_task":
+                budget.calls_made += 1
+                budget.consecutive_loops = 0
             return f"Error: the arguments for {call.name} were not a JSON object. Try again."
         if call.name == "finish_task":
             return "Finishing up."
+        budget.calls_made += 1
         if call.name == "complete_plan_step":
+            budget.consecutive_loops = 0
             index = args.get("index")
             if isinstance(index, int) and self.tasks.mark_plan_step(task_id, index):
                 await self.hub.publish(PlanProgress(task_id=task_id, index=index))
@@ -299,11 +387,14 @@ class TaskEngine:
             return "Error: there's no plan step with that index."
         tool = self.registry.get(call.name)
         if tool is None:
+            budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
         signature = call.name + json.dumps(args, sort_keys=True)
         seen[signature] += 1
-        if seen[signature] > MAX_IDENTICAL_CALLS:
+        if seen[signature] > self.max_identical_calls:
+            budget.consecutive_loops += 1
             return "[LOOP DETECTED] You've already made this exact call. Use the earlier result or try something different."
+        budget.consecutive_loops = 0
 
         verdict = decide(tool, tool.assess(args), tainted=ctx.tainted, grants=grants)
         step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict)
@@ -313,8 +404,12 @@ class TaskEngine:
             return await self._end_step(task_id, step.id, tool.name, ToolResult(False, f"Denied: {verdict.reason}"), 0, ctx)
         if verdict.verdict == "ask":
             await self._set_state(task_id, "waiting_approval")
-            decision = await self.approvals.request(task_id=task_id, step_id=step.id, tool=tool.name,
-                                                    summary=verdict.target, reason=verdict.reason, tier=tool.tier)
+            run.pause()
+            try:
+                decision = await self.approvals.request(task_id=task_id, step_id=step.id, tool=tool.name,
+                                                        summary=verdict.target, reason=verdict.reason, tier=tool.tier)
+            finally:
+                run.resume()
             if self._gates.get(task_id) is None or self._gates[task_id].is_set():
                 await self._set_state(task_id, "running")
             if decision == "deny":
@@ -323,7 +418,7 @@ class TaskEngine:
                     0, ctx)
             if decision == "allow_task":
                 grants.add(tool.name)
-        await self._gate(task_id)
+        await self._gate(task_id, run)
         t0 = self.clock()
         try:
             result = await tool.handler(args, ctx)
@@ -342,7 +437,7 @@ class TaskEngine:
             content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated]"
         if result.untrusted:
             ctx.tainted = True
-            return f'<untrusted source="{tool_name}">\n{content}\n</untrusted>'
+            return _wrap_untrusted(tool_name, content)
         return content
 
     async def _verify(self, task_id: str, checks: list[Check]) -> list[CheckResult]:
@@ -358,18 +453,39 @@ class TaskEngine:
         _, text = await self._complete(task_id, convo, None)
         return text.strip() or None
 
-    async def _gate(self, task_id: str) -> None:
+    async def _gate(self, task_id: str, run: "_RunClock | None" = None) -> None:
         gate = self._gates.get(task_id)
-        if gate is not None:
-            await gate.wait()
+        if gate is not None and not gate.is_set():
+            if run is not None:
+                run.pause()
+            try:
+                await gate.wait()
+            finally:
+                if run is not None:
+                    run.resume()
 
     async def _set_state(self, task_id: str, state: str) -> None:
+        """Persist and publish a state transition made from inside the runner.
+
+        While a task is paused (its gate is clear), the runner may still want
+        to record what it was doing ('running', 'waiting_approval', ...) so
+        resume() can restore it — but the persisted/published state must stay
+        'paused' until the user actually resumes (fix: pause is no longer
+        clobbered by the runner's own state transitions)."""
+        gate = self._gates.get(task_id)
+        if gate is not None and not gate.is_set():
+            self._underlying[task_id] = state
+            return
         self.tasks.set_state(task_id, state)
         record = self.tasks.get(task_id)
+        if record is None or record.state != state:
+            return  # terminal task: set_state was a no-op, nothing to publish
         await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state))
 
     async def _finish(self, task_id: str, state: str, summary: str | None, error: str | None = None) -> None:
         record = self.tasks.get(task_id)
+        if record is None or record.state in TERMINAL_STATES:
+            return  # already finished (e.g. a cancel raced the runner's own completion)
         if state == "done":
             text = summary or "Done."
         elif state == "cancelled":

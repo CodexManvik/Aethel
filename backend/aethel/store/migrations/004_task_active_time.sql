@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN active_seconds REAL NOT NULL DEFAULT 0;

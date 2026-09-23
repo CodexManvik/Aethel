@@ -22,6 +22,7 @@ class TaskRecord(BaseModel):
     error: str | None
     created_at: str
     updated_at: str
+    active_seconds: float = 0.0
 
 
 class StepRecord(BaseModel):
@@ -73,10 +74,17 @@ class TaskRepo:
         return [_task(r) for r in rows]
 
     def set_state(self, task_id: str, state: str, *, summary: str | None = None, error: str | None = None) -> None:
+        placeholders = ",".join("?" for _ in TERMINAL_STATES)
         self.db.execute(
             "UPDATE tasks SET state = ?, summary = COALESCE(?, summary), error = COALESCE(?, error),"
-            " updated_at = ? WHERE id = ?",
-            (state, summary, error, now_iso(), task_id),
+            f" updated_at = ? WHERE id = ? AND state NOT IN ({placeholders})",
+            (state, summary, error, now_iso(), task_id, *TERMINAL_STATES),
+        )
+
+    def add_active_seconds(self, task_id: str, seconds: float) -> None:
+        self.db.execute(
+            "UPDATE tasks SET active_seconds = active_seconds + ?, updated_at = ? WHERE id = ?",
+            (seconds, now_iso(), task_id),
         )
 
     def set_plan(self, task_id: str, steps: list[str], checks: list[dict]) -> None:

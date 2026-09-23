@@ -53,3 +53,24 @@ def test_tasks_are_deleted_with_their_conversation(repo):
     tasks.add_step(t.id, "fs_read", {}, "x", "allow")
     convs.delete(conv.id)
     assert tasks.get(t.id) is None and tasks.steps(t.id) == []
+
+
+def test_set_state_on_a_terminal_task_is_ignored(repo):
+    tasks, convs = repo
+    conv = convs.create()
+    t = tasks.create(conv.id, "a")
+    tasks.set_state(t.id, "done", summary="All set.")
+    tasks.set_state(t.id, "paused")
+    tasks.set_state(t.id, "cancelled", error="nope")
+    fresh = tasks.get(t.id)
+    assert (fresh.state, fresh.summary, fresh.error) == ("done", "All set.", None)
+
+
+def test_add_active_seconds_accumulates(repo):
+    tasks, convs = repo
+    conv = convs.create()
+    t = tasks.create(conv.id, "a")
+    assert tasks.get(t.id).active_seconds == 0.0
+    tasks.add_active_seconds(t.id, 2.5)
+    tasks.add_active_seconds(t.id, 1.5)
+    assert tasks.get(t.id).active_seconds == 4.0
