@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from .auth import AuthConfig
+from .chat.service import ChatService
 from .keys import KeyStore
 from .paths import LEGACY_SETTINGS_PATH, db_path
 from .providers.local_llama import LocalLlama
@@ -23,6 +24,7 @@ class Services:
     local_llm: object | None
     router: RoleRouter
     provider_factory: ProviderFactory
+    chat: ChatService
 
     def close(self) -> None:
         if self.local_llm is not None:
@@ -37,14 +39,17 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     keys = KeyStore()
     local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
     factory = provider_factory or default_provider_factory
+    router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory)
+    conversations, messages = ConversationRepo(db), MessageRepo(db)
     return Services(
         db=db,
         settings=settings,
         keys=keys,
         auth=AuthConfig.from_env(),
-        conversations=ConversationRepo(db),
-        messages=MessageRepo(db),
+        conversations=conversations,
+        messages=messages,
         local_llm=local,
-        router=RoleRouter(settings=settings, keys=keys, local=local, factory=factory),
+        router=router,
         provider_factory=factory,
+        chat=ChatService(conversations=conversations, messages=messages, router=router, settings=settings),
     )

@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
-from .api.routes import health, keys
+from .api import ws
+from .api.routes import conversations, health, keys, providers, settings
 from .services import Services, build_services
 
 ALLOWED_ORIGINS = [
@@ -17,6 +18,8 @@ ALLOWED_ORIGINS = [
 
 
 def create_app(services: Services | None = None) -> FastAPI:
+    owns_services = services is None
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         svc = services or build_services()
@@ -24,7 +27,9 @@ def create_app(services: Services | None = None) -> FastAPI:
         try:
             yield
         finally:
-            svc.close()
+            await svc.chat.wait_idle()
+            if owns_services:
+                svc.close()
 
     app = FastAPI(title="Aethel", version=__version__, lifespan=lifespan)
     app.add_middleware(
@@ -35,4 +40,8 @@ def create_app(services: Services | None = None) -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(keys.router)
+    app.include_router(conversations.router)
+    app.include_router(settings.router)
+    app.include_router(providers.router)
+    app.include_router(ws.router)
     return app
