@@ -133,7 +133,7 @@ Existing data under `~/.aethel/` (skills, permissions, transactions) is migrated
 
 - **Failover chain:** each role has an ordered list of `provider:model` entries. On a rate-limit error, a 5xx or a timeout, the router moves to the next entry and emits a `provider_switched` event, which the UI shows as a small toast.
 - **Private mode:** one switch. It forces every role to local models, disables `web.*` tools and cloud image backends, and shows a visible badge.
-- **API keys** are stored in the Windows Credential Manager through the Rust `keyring` crate, exposed as Tauri commands, never in `settings.json`. At startup the shell pushes them to the backend over the authenticated local API (`POST /api/secrets`), and the backend keeps them in memory only. The existing plain-text `cloud_api_key` setting is migrated, then removed.
+- **API keys** are stored in the Windows Credential Manager through the Rust `keyring` crate, exposed as Tauri commands, never in `settings.json`. At startup the shell pushes them to the backend over the authenticated local API (`POST /api/keys`), and the backend keeps them in memory only. The existing plain-text `cloud_api_key` setting is migrated, then removed.
 - **Tool calling** uses native function calling for every provider. The fenced-JSON protocol stays **only** as a fallback for local models without function-calling support, with `ToolCallStreamFilter` kept.
 
 ---
