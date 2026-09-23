@@ -12,17 +12,18 @@
   "app": {
     "windows": [
       {
-	"label": "main",
-        "title": "Aethel Core",
-        "width": 800,
-        "height": 600,
+        "label": "main",
+        "title": "Aethel",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
         "decorations": true,
-        "resizable": true,
-        "fullscreen": false
+        "resizable": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://localhost:9000 https: wss:; font-src 'self' data:;"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:8765; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:8765 ws://127.0.0.1:8765"
     }
   },
   "bundle": {

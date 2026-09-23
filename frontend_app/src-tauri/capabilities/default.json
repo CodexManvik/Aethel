@@ -6,14 +6,6 @@
     "main"
   ],
   "permissions": [
-    "core:default",
-    "core:window:default",
-    "http:default",
-    { "identifier": "fs:allow-exists",   "allow": [{ "path": "$APPLOCALDATA/**" }] },
-    { "identifier": "fs:allow-mkdir",    "allow": [{ "path": "$APPLOCALDATA/**" }] },
-    { "identifier": "fs:allow-read-dir", "allow": [{ "path": "$APPLOCALDATA/**" }] },
-    { "identifier": "fs:allow-create",   "allow": [{ "path": "$APPLOCALDATA/**" }] },
-    { "identifier": "fs:allow-write",    "allow": [{ "path": "$APPLOCALDATA/**" }] },
-    { "identifier": "fs:allow-remove",   "allow": [{ "path": "$APPLOCALDATA/**" }] }
+    "core:default"
   ]
 }
