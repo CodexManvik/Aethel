@@ -1,7 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from ..auth import origin_allowed
 from ..protocol import ErrorEvent, StopGeneration, UserMessage, client_event_adapter
@@ -22,29 +22,25 @@ async def session_socket(websocket: WebSocket) -> None:
         return
     await websocket.accept()
     send_lock = asyncio.Lock()
-    state = {"open": True}
 
-    async def emit(event: BaseModel) -> None:
-        # Generation keeps going (and persists) even if the socket went away.
-        if not state["open"]:
-            return
+    async def send(payload: str) -> None:
         async with send_lock:
-            try:
-                await websocket.send_text(event.model_dump_json())
-            except Exception:
-                state["open"] = False
+            await websocket.send_text(payload)
 
+    unsubscribe = services.hub.subscribe(send)
     try:
         while True:
             raw = await websocket.receive_text()
             try:
                 event = client_event_adapter.validate_json(raw)
             except ValidationError:
-                await emit(ErrorEvent(message="Invalid event.", code="bad_request"))
+                await send(ErrorEvent(message="Invalid event.", code="bad_request").model_dump_json())
                 continue
             if isinstance(event, UserMessage):
-                services.chat.start_turn(event, emit)
+                services.chat.start_turn(event)
             elif isinstance(event, StopGeneration):
-                await services.chat.stop(event.message_id, emit)
+                await services.chat.stop(event.message_id)
     except WebSocketDisconnect:
-        state["open"] = False
+        pass
+    finally:
+        unsubscribe()

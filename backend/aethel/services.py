@@ -5,6 +5,7 @@ from openai import DefaultAsyncHttpxClient
 
 from .auth import AuthConfig
 from .chat.service import ChatService
+from .hub import EventHub
 from .keys import KeyStore
 from .paths import LEGACY_SETTINGS_PATH, db_path
 from .providers.local_llama import LocalLlama
@@ -27,6 +28,7 @@ class Services:
     local_llm: object | None
     router: RoleRouter
     provider_factory: ProviderFactory
+    hub: EventHub
     chat: ChatService
     http_client: httpx.AsyncClient  # shared by every provider the default factory builds
 
@@ -47,6 +49,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     http_client = DefaultAsyncHttpxClient()
     factory = provider_factory or make_provider_factory(http_client)
     router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory)
+    hub = EventHub()
     return Services(
         db=db,
         settings=settings,
@@ -57,6 +60,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         local_llm=local,
         router=router,
         provider_factory=factory,
-        chat=ChatService(conversations=conversations, messages=messages, router=router, settings=settings),
+        hub=hub,
+        chat=ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub),
         http_client=http_client,
     )
