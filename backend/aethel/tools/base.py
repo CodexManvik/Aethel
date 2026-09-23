@@ -27,6 +27,7 @@ class Assessment:
 
 Handler = Callable[[dict, ToolContext], Awaitable[ToolResult]]
 Assessor = Callable[[dict], Assessment]
+GrantScope = Callable[[dict], str]
 
 
 @dataclass
@@ -37,3 +38,9 @@ class Tool:
     tier: RiskTier
     handler: Handler
     assess: Assessor
+    # What "Allow for this task" covers for one call (a folder, a command...).
+    # None: the whole tool.
+    grant_scope: GrantScope | None = None
+
+    def scope_for(self, args: dict) -> str:
+        return self.grant_scope(args) if self.grant_scope is not None else self.name

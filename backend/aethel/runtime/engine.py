@@ -296,7 +296,7 @@ class TaskEngine:
                 if any(s.ok and s.tool in UNTRUSTED_TOOLS for s in prior_steps):
                     ctx.tainted = True
                 convo.append(ChatMessage("user", note))
-            grants: set[str] = set()
+            grants: set[tuple[str, str]] = set()  # (tool name, scope) the user allowed for this task
             budget = _Budget(calls_made=len(self.tasks.steps(task_id)))
             outcome = await self._execute(task_id, convo, ctx, grants, run, budget)
             if outcome.budget_exhausted:
@@ -377,7 +377,7 @@ class TaskEngine:
                     calls.extend(event.calls)
         return calls, "".join(text)
 
-    async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[str],
+    async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[tuple[str, str]],
                        run: "_RunClock", budget: "_Budget") -> Outcome:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
@@ -410,7 +410,7 @@ class TaskEngine:
             if finished is not None:
                 return Outcome(finished, False)
 
-    async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[str],
+    async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
                       seen: Counter, run: "_RunClock", budget: "_Budget") -> str:
         args = _parse_args(call.arguments)
         if args is None:
@@ -439,7 +439,8 @@ class TaskEngine:
             return "[LOOP DETECTED] You've already made this exact call. Use the earlier result or try something different."
         budget.consecutive_loops = 0
 
-        verdict = decide(tool, tool.assess(args), tainted=ctx.tainted, grants=grants)
+        scope = tool.scope_for(args)
+        verdict = decide(tool, tool.assess(args), tainted=ctx.tainted, grants=grants, scope=scope)
         step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict)
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
                                            summary=verdict.target, verdict=verdict.verdict))
@@ -462,7 +463,7 @@ class TaskEngine:
                     False, "The user declined this action. Don't try it again; find another way or finish and explain."),
                     0, ctx)
             if decision == "allow_task":
-                grants.add(tool.name)
+                grants.add((tool.name, scope))
         await self._gate(task_id, run)
         t0 = self.clock()
         try:

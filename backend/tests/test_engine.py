@@ -671,3 +671,26 @@ async def test_G_resume_note_wraps_only_the_action_list_not_the_instructions(h):
     plain = resume_note([StepRecord(id="s", task_id="t", idx=0, tool="fs_write", args={}, summary="C:/a.txt",
                                     verdict="allow", ok=True, result="ok", duration_ms=1, created_at="")])
     assert "untrusted" not in plain
+
+
+async def test_allow_for_task_covers_the_same_folder_not_everywhere(h):
+    d, e = h.tmp / "d", h.tmp / "e"  # both outside the allowed write folders
+    engine, _ = h.make([
+        [plan(["Write three files"])],
+        [tool_call("fs_write", path=str(d / "a.txt"), content="a")],
+        [tool_call("fs_write", path=str(d / "b.txt"), content="b")],
+        [tool_call("fs_write", path=str(e / "c.txt"), content="c")],
+        [tool_call("finish_task", summary="Done.")],
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write three files")
+    first = await until(h.events, lambda ev: ev["type"] == "approval_needed")
+    assert first["summary"] == str(d / "a.txt")
+    await engine.approvals.resolve(first["approval_id"], "allow_task")
+    second = await until(h.events, lambda ev: ev["type"] == "approval_needed" and ev["approval_id"] != first["approval_id"])
+    assert second["summary"] == str(e / "c.txt")  # b.txt, in the granted folder, never asked
+    assert (d / "b.txt").read_text(encoding="utf-8") == "b"
+    await engine.approvals.resolve(second["approval_id"], "allow_once")
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done"
+    assert [ev["summary"] for ev in h.events if ev["type"] == "approval_needed"] == [str(d / "a.txt"), str(e / "c.txt")]

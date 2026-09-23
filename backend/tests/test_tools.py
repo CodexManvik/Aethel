@@ -173,3 +173,13 @@ async def test_fs_tools_resolve_home_and_reject_relative_paths(env, monkeypatch)
         assert relative.verdict == "deny" and "absolute" in relative.reason
     assert not (await tools["fs_write"].handler({"path": "notes.txt", "content": "x"}, ToolContext("t4"))).ok
     assert not (tmp / "cwd" / "notes.txt").exists()
+
+
+def test_grant_scopes(env):
+    tmp, tools, _ = env
+    write = tools["fs_write"].scope_for
+    assert write({"path": str(tmp / "d" / "a.txt")}) == write({"path": str(tmp / "d" / "b.txt")})
+    assert write({"path": str(tmp / "d" / "a.txt")}) != write({"path": str(tmp / "e" / "c.txt")})
+    assert tools["shell_run"].scope_for({"command": "  Winget   install foo "}) == "winget install foo"
+    assert tools["shell_run"].scope_for({"command": "winget install bar"}) != "winget install foo"
+    assert tools["fs_read"].scope_for({"path": str(tmp / "x")}) == "fs_read"  # no grant_scope: the whole tool

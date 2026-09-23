@@ -1,3 +1,5 @@
+import os
+
 import anyio
 
 from ..safety.changes import ChangeLog
@@ -25,6 +27,11 @@ def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
             d = perms.check_path(str(resolved), mode)
             return Assessment(d.verdict, d.reason, str(resolved))
         return run
+
+    def write_scope(args: dict) -> str:
+        # "Allow for this task" on a write covers the folder the file is in.
+        p = resolve_user_path(_path_arg(args))
+        return os.path.normcase(str(p.parent)) if p is not None else ""
 
     async def fs_list(args: dict, ctx: ToolContext) -> ToolResult:
         p = resolve_user_path(_path_arg(args))
@@ -79,6 +86,6 @@ def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
                 "content": {"type": "string"},
                 "mode": {"type": "string", "enum": ["overwrite", "append"]}},
              "required": ["path", "content"]},
-            "write", fs_write, assess("write"),
+            "write", fs_write, assess("write"), grant_scope=write_scope,
         ),
     ]

@@ -22,6 +22,11 @@ def scrubbed_env() -> dict[str, str]:
             if k.upper() not in _SECRET_NAMES and not k.upper().endswith(_SECRET_SUFFIXES)}
 
 
+def normalise_command(command) -> str:
+    """"Allow for this task" on a command covers exactly that command."""
+    return " ".join(command.lower().split()) if isinstance(command, str) else ""
+
+
 def _decode(data: bytes) -> str:
     return data.decode(locale.getpreferredencoding(False), errors="replace")
 
@@ -90,5 +95,5 @@ def shell_tool(perms: Permissions) -> Tool:
         "shell_run",
         "Run a Windows command-line command (cmd.exe) in the user's home folder. No pipes or chaining.",
         {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
-        "write", run, assess,
+        "write", run, assess, grant_scope=lambda args: normalise_command(args.get("command")),
     )
