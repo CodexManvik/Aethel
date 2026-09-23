@@ -18,6 +18,7 @@ import httpx
 
 from ..paths import MODELS_DIR, PROJECT_ROOT
 from ..settings import LocalLLMSettings
+from . import job_object
 from .catalog import LOCAL_BASE_URL
 
 log = logging.getLogger("aethel.local_llama")
@@ -132,6 +133,11 @@ class LocalLlama:
                 self.build_command(binary, model, mmproj, port),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
             )
+            # Kill-on-close job: llama-server dies with this process however it
+            # exits (incl. a hard kill by the shell), so it can't be orphaned.
+            if job_object.SUPPORTED and not job_object.assign(self._process):
+                log.warning("could not add llama-server (pid %s) to the kill-on-close job; "
+                            "it may outlive the backend", self._process.pid)
             deadline = time.monotonic() + STARTUP_TIMEOUT_S
             while time.monotonic() < deadline:
                 if self._process.poll() is not None:

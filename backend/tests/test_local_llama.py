@@ -1,7 +1,11 @@
+import logging
+import socket
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from aethel.providers import local_llama
 from aethel.providers.local_llama import LocalLLMUnavailable, LocalLlama
 from aethel.settings import LocalLLMSettings
 
@@ -67,3 +71,80 @@ def test_ensure_running_is_noop_when_server_up(tmp_path, monkeypatch):
     llama = _llama(tmp_path)
     monkeypatch.setattr(llama, "is_up", lambda: True)
     llama.ensure_running()  # no model on disk, but nothing to spawn
+
+
+class FakePopen:
+    def __init__(self, *args, hang=False, **kwargs):
+        self.args = args
+        self.hang = hang
+        self.returncode = None
+        self.pid = 4242
+        self.terminated = self.killed = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        if self.hang:
+            raise subprocess.TimeoutExpired("llama-server", timeout)
+        self.returncode = 0
+        return 0
+
+    def kill(self):
+        self.killed = True
+
+
+def test_stop_terminates_process_and_clears_it(tmp_path):
+    llama = _llama(tmp_path)
+    proc = FakePopen()
+    llama._process = proc
+    llama.stop()
+    assert proc.terminated is True and proc.killed is False
+    assert llama._process is None
+    llama.stop()  # idempotent with nothing running
+
+
+def test_stop_kills_when_terminate_times_out(tmp_path):
+    llama = _llama(tmp_path)
+    proc = FakePopen(hang=True)
+    llama._process = proc
+    llama.stop()
+    assert proc.terminated is True and proc.killed is True
+    assert llama._process is None
+
+
+def _spawnable(tmp_path, monkeypatch, assign_result):
+    """A LocalLlama whose spawn is faked: model + binary exist, a free port,
+    is_up() is False until the fake process has been started."""
+    model = _write(tmp_path / "models" / "llm" / "m.gguf", 10)
+    binary = _write(tmp_path / "bin" / "llama-server.exe", 1)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        free_port = s.getsockname()[1]
+    llama = LocalLlama(lambda: LocalLLMSettings(), base_url=f"http://127.0.0.1:{free_port}/v1",
+                       models_dir=tmp_path / "models")
+    spawned, assigned = [], []
+    monkeypatch.setattr(llama, "find_binary", lambda: binary)
+    monkeypatch.setattr(llama, "is_up", lambda: bool(spawned))
+    monkeypatch.setattr(local_llama.subprocess, "Popen", lambda *a, **k: spawned.append(FakePopen(*a)) or spawned[-1])
+    monkeypatch.setattr(local_llama.job_object, "assign", lambda p: assigned.append(p) or assign_result)
+    monkeypatch.setattr(local_llama.job_object, "SUPPORTED", True)
+    return llama, model, spawned, assigned
+
+
+def test_ensure_running_assigns_spawned_server_to_job(tmp_path, monkeypatch):
+    llama, _, spawned, assigned = _spawnable(tmp_path, monkeypatch, assign_result=True)
+    llama.ensure_running()
+    assert len(spawned) == 1 and assigned == spawned
+    assert llama._process is spawned[0]
+
+
+def test_failed_job_assign_warns_but_still_starts(tmp_path, monkeypatch, caplog):
+    llama, _, spawned, assigned = _spawnable(tmp_path, monkeypatch, assign_result=False)
+    with caplog.at_level(logging.WARNING, logger="aethel.local_llama"):
+        llama.ensure_running()
+    assert assigned == spawned and llama._process is spawned[0]
+    assert any("job" in r.getMessage() for r in caplog.records)

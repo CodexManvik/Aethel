@@ -158,8 +158,14 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            if let Some(mut child) = handle.state::<BackendProcess>().0.lock().unwrap().take() {
-                let _ = child.kill();
+            // The backend puts llama-server in a kill-on-close job, so this hard
+            // kill takes llama-server down with it.
+            if let Ok(mut guard) = handle.state::<BackendProcess>().0.lock() {
+                if let Some(mut child) = guard.take() {
+                    if let Err(e) = child.kill() {
+                        log::warn!("failed to stop the Aethel backend: {e}");
+                    }
+                }
             }
         }
     });
