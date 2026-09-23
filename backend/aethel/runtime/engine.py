@@ -79,6 +79,24 @@ class _RunClock:
 
 
 @dataclass
+class _ActiveTimeWriter:
+    """Persists a run's active seconds exactly once, however the run ends.
+    Without this, a cancel/shutdown landing while _finish's publish is still
+    in flight would race the CancelledError handler into adding the same
+    seconds twice."""
+    tasks: "TaskRepo"
+    task_id: str
+    run: "_RunClock"
+    _written: bool = field(default=False, init=False)
+
+    def write(self) -> None:
+        if self._written:
+            return
+        self._written = True
+        self.tasks.add_active_seconds(self.task_id, self.run.active_seconds())
+
+
+@dataclass
 class _Budget:
     """Mutable step/loop counters shared across a run's _execute/_handle calls.
     calls_made counts every tool call the model makes except finish_task,
@@ -167,11 +185,19 @@ class TaskEngine:
         gate = self._gates.get(task_id)
         if gate is None or not gate.is_set():
             return False
-        record = self.tasks.get(task_id)
-        self._underlying[task_id] = record.state if record is not None else "running"
+        before = self.tasks.get(task_id)
+        if before is None or before.state in TERMINAL_STATES:
+            # The runner finished (e.g. its own _finish was still publishing)
+            # while this call was in flight: nothing to pause any more.
+            return False
+        self._underlying[task_id] = before.state
         gate.clear()
-        self.tasks.set_state(task_id, "paused")
+        self.tasks.set_state(task_id, "paused")  # SQL-level terminal guard: a no-op if it raced to terminal
         record = self.tasks.get(task_id)
+        if record is None or record.state != "paused":
+            self._underlying.pop(task_id, None)
+            gate.set()  # the write didn't take; don't leave the runner gated shut for nothing
+            return False
         await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state="paused"))
         return True
 
@@ -188,7 +214,8 @@ class TaskEngine:
         record = self.tasks.get(task_id)
         if record is None or record.state != "paused":
             return False
-        self._launch(task_id, note=resume_note(self.tasks.steps(task_id)))
+        note = resume_note(self.tasks.steps(task_id), wrap=lambda text: _wrap_untrusted("task history", text))
+        self._launch(task_id, note=note)
         return True
 
     async def cancel(self, task_id: str) -> bool:
@@ -238,13 +265,18 @@ class TaskEngine:
             self._runners.pop(task_id, None)
             self._gates.pop(task_id, None)
             self._cancel_requested.discard(task_id)
+            self._underlying.pop(task_id, None)
 
         runner.add_done_callback(cleanup)
 
     async def _run(self, task_id: str, note: str | None) -> None:
-        record = self.tasks.get(task_id)
-        run = _RunClock(self.clock, active_base=record.active_seconds)
+        active_time: "_ActiveTimeWriter | None" = None
         try:
+            record = self.tasks.get(task_id)
+            if record is None:
+                return  # the task was deleted before this runner started
+            run = _RunClock(self.clock, active_base=record.active_seconds)
+            active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             if not record.plan:
                 await self._set_state(task_id, "planning")
                 steps, checks = await self._plan(task_id, record.goal)
@@ -263,12 +295,12 @@ class TaskEngine:
                 prior_steps = self.tasks.steps(task_id)
                 if any(s.ok and s.tool in UNTRUSTED_TOOLS for s in prior_steps):
                     ctx.tainted = True
-                convo.append(ChatMessage("user", _wrap_untrusted("task history", note)))
+                convo.append(ChatMessage("user", note))
             grants: set[str] = set()
-            calls_made = len(self.tasks.steps(task_id))
-            outcome = await self._execute(task_id, convo, ctx, grants, run, calls_made)
+            budget = _Budget(calls_made=len(self.tasks.steps(task_id)))
+            outcome = await self._execute(task_id, convo, ctx, grants, run, budget)
             if outcome.budget_exhausted:
-                self.tasks.add_active_seconds(task_id, run.active_seconds())
+                active_time.write()
                 await self._finish(task_id, "failed", outcome.summary,
                                    error="I ran out of steps or time before finishing.")
                 return
@@ -277,18 +309,19 @@ class TaskEngine:
                 if failed:
                     convo.append(ChatMessage("user", repair_prompt([f"{r.description} ({r.detail})" for r in failed])))
                     await self._set_state(task_id, "running")
-                    retry = await self._execute(task_id, convo, ctx, grants, run, calls_made)
+                    retry = await self._execute(task_id, convo, ctx, grants, run, budget)
                     outcome = Outcome(retry.summary or outcome.summary, retry.budget_exhausted)
                     failed = [r for r in await self._verify(task_id, checks) if not r.passed]
                 if failed:
-                    self.tasks.add_active_seconds(task_id, run.active_seconds())
+                    active_time.write()
                     await self._finish(task_id, "failed", outcome.summary,
                                        error="Not all checks passed: " + "; ".join(r.description for r in failed))
                     return
-            self.tasks.add_active_seconds(task_id, run.active_seconds())
+            active_time.write()
             await self._finish(task_id, "done", outcome.summary)
         except asyncio.CancelledError:
-            self.tasks.add_active_seconds(task_id, run.active_seconds())
+            if active_time is not None:
+                active_time.write()
             if task_id in self._cancel_requested:
                 await self._finish(task_id, "cancelled", None)
                 return
@@ -302,11 +335,13 @@ class TaskEngine:
                                                   state="paused"))
             raise
         except (NoProviderAvailable, ProviderError, PlanningError) as exc:
-            self.tasks.add_active_seconds(task_id, run.active_seconds())
+            if active_time is not None:
+                active_time.write()
             await self._finish(task_id, "failed", None, error=str(exc))
         except Exception:
             log.exception("task %s crashed", task_id)
-            self.tasks.add_active_seconds(task_id, run.active_seconds())
+            if active_time is not None:
+                active_time.write()
             await self._finish(task_id, "failed", None, error="something went wrong while working on this")
 
     async def _plan(self, task_id: str, goal: str) -> tuple[list[str], list[Check]]:
@@ -343,10 +378,9 @@ class TaskEngine:
         return calls, "".join(text)
 
     async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[str],
-                       run: "_RunClock", calls_made: int) -> Outcome:
+                       run: "_RunClock", budget: "_Budget") -> Outcome:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
-        budget = _Budget(calls_made=calls_made)
         while True:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
@@ -356,14 +390,23 @@ class TaskEngine:
             if not calls:
                 return Outcome(text.strip() or None, False)
             finished: str | None = None
+            stop_batch = False
             for call in calls:
+                if stop_batch:
+                    # The loop guard already tripped this batch: every remaining
+                    # call still needs a tool message, or the conversation sent
+                    # to the model next (the final summary) is malformed.
+                    convo.append(ChatMessage("tool", "[STOPPED] step limit reached", tool_call_id=call.id))
+                    continue
                 result = await self._handle(task_id, call, ctx, grants, seen, run, budget)
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
                     finished = str(args.get("summary") or text.strip() or "Done.")
                 if budget.consecutive_loops >= MAX_CONSECUTIVE_LOOPS:
-                    return Outcome(await self._final_summary(task_id, convo), True)
+                    stop_batch = True
+            if stop_batch:
+                return Outcome(await self._final_summary(task_id, convo), True)
             if finished is not None:
                 return Outcome(finished, False)
 
@@ -410,8 +453,10 @@ class TaskEngine:
                                                         summary=verdict.target, reason=verdict.reason, tier=tool.tier)
             finally:
                 run.resume()
-            if self._gates.get(task_id) is None or self._gates[task_id].is_set():
-                await self._set_state(task_id, "running")
+            # Unconditional: _set_state already defers to _underlying while
+            # paused, so this correctly records 'running' as the state to
+            # restore on resume() instead of leaving 'waiting_approval' stale.
+            await self._set_state(task_id, "running")
             if decision == "deny":
                 return await self._end_step(task_id, step.id, tool.name, ToolResult(
                     False, "The user declined this action. Don't try it again; find another way or finish and explain."),

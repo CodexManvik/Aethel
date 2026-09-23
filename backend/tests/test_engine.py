@@ -8,7 +8,7 @@ import yaml
 from aethel.hub import EventHub
 from aethel.keys import KeyStore
 from aethel.paths import db_path
-from aethel.providers.base import TextDelta
+from aethel.providers.base import TextDelta, ToolCall, ToolCallsReady
 from aethel.providers.router import RoleRouter
 from aethel.runtime.engine import TaskEngine
 from aethel.runtime.store import TaskRepo
@@ -460,8 +460,14 @@ async def test_restart_resume_taints_context_and_wraps_history_as_untrusted(h):
     needed = await until(h.events, lambda e: e["type"] == "approval_needed")
     assert "outside content" in needed["reason"]  # tainted, so even an in-scope write needs approval
     history_msg = next(m for m in provider2.calls[0] if m.role == "user" and "interrupted" in m.content)
-    assert history_msg.content.startswith('<untrusted source="task history">') and \
-        history_msg.content.endswith("</untrusted>")
+    # (fix G) only the list of prior actions is wrapped as untrusted data; the
+    # surrounding instructions ("Continue from where you left off...") must
+    # stay directly followable, or the model would be told to ignore them too.
+    assert '<untrusted source="task history">' in history_msg.content and \
+        history_msg.content.count("</untrusted>") == 1
+    assert history_msg.content.startswith("You were interrupted and are now resuming.")
+    assert history_msg.content.endswith("don't repeat work that succeeded.")
+    assert history_msg.content.index("</untrusted>") < history_msg.content.index("Continue from where you left off")
     await engine2.approvals.resolve(needed["approval_id"], "allow_once")
     await engine2.wait_idle()
 
@@ -478,3 +484,190 @@ async def test_shutdown_publishes_paused_state_for_interrupted_tasks(h):
     paused_events = [e for e in h.events if e["type"] == "task_state" and e.get("task_id") == task_id
                      and e["state"] == "paused"]
     assert paused_events
+
+
+# ---- fix round 2 -----------------------------------------------------------
+
+async def test_A_repair_round_shares_the_step_budget_with_the_first_attempt(h):
+    """Fix A: _run must build one _Budget and pass it to both _execute calls,
+    so a repair round can't get a fresh max_steps allowance."""
+    missing = str(h.tmp / "never.txt")
+    turns = [
+        [plan(["Look"], checks=[{"kind": "file_exists", "path": missing}])],
+        [tool_call("fs_list", path=str(h.tmp))],
+        [tool_call("fs_list", path=str(h.out))],
+        [tool_call("finish_task", summary="first")],
+        # repair round: three more calls would blow max_steps=3 if the budget reset
+        [tool_call("fs_read", path=str(h.tmp / "a"))],
+        [tool_call("fs_read", path=str(h.tmp / "b"))],
+        [tool_call("fs_read", path=str(h.tmp / "c"))],
+        [tool_call("finish_task", summary="second")],
+        [],
+        [],
+    ]
+    engine, provider = h.make(turns, max_steps=3)
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert len(h.tasks.steps(task_id)) <= 3
+    task = h.tasks.get(task_id)
+    assert task.state == "failed" and "checks" in task.error.lower()
+
+
+async def test_B_resuming_after_approving_while_paused_lands_on_running(h):
+    """Fix B: _set_state("running") after an approval decision must be
+    unconditional, or the recorded state to restore on resume() stays the
+    stale "waiting_approval" from before the decision, and resume() then
+    leaves the task claiming to wait on an approval that already resolved."""
+    engine, _ = h.make([
+        [plan(["Write"])],
+        [tool_call("fs_write", path=str(h.tmp / "x.txt"), content="x")],
+        [tool_call("fs_list", path=str(h.tmp))],
+        [tool_call("finish_task", summary="ok")],
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    needed = await until(h.events, lambda e: e["type"] == "approval_needed")
+    assert await engine.pause(task_id) is True
+    await engine.approvals.resolve(needed["approval_id"], "allow_once")
+    await asyncio.sleep(0.05)
+    assert h.tasks.get(task_id).state == "paused"
+    assert engine.approvals.pending_for(task_id) == []
+    assert await engine.resume(task_id) is True
+    assert h.tasks.get(task_id).state == "running"
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done"
+
+
+async def test_C_pause_on_an_already_finished_task_does_not_resurrect_paused(h):
+    """Fix C: pause() must not publish "paused" (or return True) for a task
+    that finished while the call was in flight, or clients briefly see a
+    "done" task flip back to "paused"."""
+    async def slow(payload):
+        e = json.loads(payload)
+        if e["type"] == "task_state" and e["state"] == "done":
+            await asyncio.sleep(0.2)
+
+    engine, _ = h.make([[plan(["Look"])], [tool_call("finish_task", summary="ok")]])
+    engine.hub.subscribe(slow)
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    for _ in range(300):
+        if h.tasks.get(task_id).state == "done":
+            break
+        await asyncio.sleep(0.005)
+    assert h.tasks.get(task_id).state == "done"
+    assert await engine.pause(task_id) is False
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done"
+    seq = [e["state"] for e in h.events if e["type"] == "task_state" and e["task_id"] == task_id]
+    assert "paused" not in seq
+
+
+async def test_D_loop_limit_mid_batch_answers_every_call_in_the_batch(h):
+    """Fix D: hitting 3 consecutive LOOP DETECTED results inside a batch of
+    tool calls must not return before answering the rest of the batch, or the
+    conversation sent to the model next (the final summary) has an assistant
+    message whose tool_calls aren't all answered — which real providers (and
+    the OpenAI-compatible API) reject as malformed."""
+    calls = [ToolCall(id=f"L{i}", name="fs_list", arguments=json.dumps({"path": str(h.tmp)})) for i in range(6)]
+    engine, provider = h.make([[plan(["Look"])], [ToolCallsReady(calls)], []], max_steps=100)
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    summary_turn = provider.calls[-1]
+    assistant_msg = next(m for m in summary_turn if m.role == "assistant" and m.tool_calls)
+    asked = [c.id for c in assistant_msg.tool_calls]
+    answered = [m.tool_call_id for m in summary_turn if m.role == "tool"]
+    assert answered == asked
+    assert h.tasks.get(task_id).state == "failed"
+
+
+async def test_E_cancel_during_finish_publish_does_not_double_count_active_seconds(h):
+    """Fix E: active seconds must be persisted exactly once per run. A cancel
+    landing while _finish's "done" publish is still in flight must not add
+    the same elapsed time again in the CancelledError handler."""
+    now = [0.0]
+
+    async def slow(payload):
+        e = json.loads(payload)
+        if e["type"] == "task_state" and e["state"] == "planning":
+            now[0] = 50.0
+        if e["type"] == "task_state" and e["state"] == "done":
+            await asyncio.sleep(0.2)
+
+    engine, _ = h.make([[plan(["Look"])], [tool_call("finish_task", summary="ok")]], clock=lambda: now[0])
+    engine.hub.subscribe(slow)
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    for _ in range(300):
+        if h.tasks.get(task_id).state == "done":
+            break
+        await asyncio.sleep(0.005)
+    await engine.cancel(task_id)
+    await engine.wait_idle()
+    task = h.tasks.get(task_id)
+    assert task.active_seconds == 50.0
+    assert task.state == "done"
+
+
+async def test_F_underlying_state_does_not_leak_across_tasks(h):
+    """Fix F: _underlying must be cleaned up both when resume() restores it
+    and when a runner finishes on its own, so it doesn't accumulate stale
+    entries across the engine's lifetime."""
+    engine, _ = h.make([
+        [TextDelta("."), TextDelta("."), plan(["Write"])],
+        [tool_call("fs_write", path=str(h.out / "x.txt"), content="x")],
+        [tool_call("finish_task", summary="ok")],
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    # Pause during planning (no pending approval, so no race with the
+    # runner's own state writes): resume() must pop the key it restores.
+    await until(h.events, lambda e: e["type"] == "task_state" and e["state"] == "planning")
+    assert await engine.pause(task_id) is True
+    await asyncio.sleep(0.1)
+    assert task_id in engine._underlying
+    assert await engine.resume(task_id) is True
+    assert task_id not in engine._underlying  # popped by resume()
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done"
+    assert task_id not in engine._underlying  # popped by the runner's cleanup callback too
+
+
+async def test_F_run_returns_cleanly_if_the_task_is_deleted_before_it_starts(h):
+    """Fix F: reading the task record must happen inside _run's try block, so
+    a task deleted before its runner gets scheduled returns quietly instead
+    of raising an unhandled AttributeError from a bare `record.plan` access."""
+    engine, _ = h.make([[plan(["Write"])]])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    # The runner is already scheduled (as an asyncio task) but hasn't run yet;
+    # delete the conversation (and therefore the task, via cascade) before it does.
+    h.convs.delete(conv.id)
+    await engine.wait_idle()  # must not raise
+    assert h.tasks.get(task_id) is None
+
+
+async def test_G_resume_note_wraps_only_the_action_list_not_the_instructions(h):
+    """Fix G: wrapping the whole resume note in <untrusted> would also wrap
+    its own "continue from where you left off" instruction, which the system
+    prompt tells the model to never follow inside an <untrusted> tag. Only
+    the list of prior actions should be marked untrusted."""
+    from aethel.runtime.prompts import resume_note
+    from aethel.runtime.store import StepRecord
+
+    note = resume_note(
+        [StepRecord(id="s", task_id="t", idx=0, tool="fs_write", args={}, summary="C:/a.txt",
+                   verdict="allow", ok=True, result="ok", duration_ms=1, created_at="")],
+        wrap=lambda text: f'<untrusted source="task history">\n{text}\n</untrusted>',
+    )
+    assert note.startswith("You were interrupted and are now resuming.")
+    assert note.endswith("don't repeat work that succeeded.")
+    assert '<untrusted source="task history">' in note
+    assert note.count("</untrusted>") == 1
+    assert note.index("</untrusted>") < note.index("Continue from where you left off")
+    # the default (no wrap) keeps existing callers of resume_note unaffected
+    plain = resume_note([StepRecord(id="s", task_id="t", idx=0, tool="fs_write", args={}, summary="C:/a.txt",
+                                    verdict="allow", ok=True, result="ok", duration_ms=1, created_at="")])
+    assert "untrusted" not in plain
