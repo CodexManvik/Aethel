@@ -91,7 +91,8 @@ class ChatService:
         publish = self.hub.publish
         conv = self.conversations.get(event.conversation_id)
         if conv is None:
-            await publish(ErrorEvent(message="Conversation not found.", code="bad_request"))
+            await publish(ErrorEvent(message="Conversation not found.", code="bad_request",
+                                     conversation_id=event.conversation_id))
             return
         user_msg = self.messages.add(conv.id, "user", event.text)
         assistant = self.messages.add(conv.id, "assistant", "", status="streaming")

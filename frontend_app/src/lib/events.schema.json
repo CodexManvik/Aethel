@@ -39,6 +39,18 @@
           "title": "Code",
           "type": "string"
         },
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation Id"
+        },
         "message": {
           "title": "Message",
           "type": "string"
@@ -66,7 +78,8 @@
         "type",
         "message",
         "code",
-        "message_id"
+        "message_id",
+        "conversation_id"
       ],
       "title": "ErrorEvent",
       "type": "object"

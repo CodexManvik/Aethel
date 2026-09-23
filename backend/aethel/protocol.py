@@ -56,6 +56,7 @@ class ErrorEvent(Event):
     message: str
     code: Literal["no_provider", "provider_error", "bad_request", "internal"]
     message_id: str | None = None
+    conversation_id: str | None = None
 
 
 ServerEvent = Annotated[

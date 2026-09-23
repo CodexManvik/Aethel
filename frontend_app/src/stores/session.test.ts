@@ -42,9 +42,9 @@ test("errors attach to their message or become notices", () => {
   let s = applyEvent(base(), {
     type: "message_start", conversation_id: "c1", message_id: "a1", user_message_id: "u1", client_id: "k1", role: "assistant",
   });
-  s = applyEvent(s, { type: "error", code: "no_provider", message: "groq:x: no API key", message_id: "a1" });
+  s = applyEvent(s, { type: "error", code: "no_provider", message: "groq:x: no API key", message_id: "a1", conversation_id: null });
   expect(s.messages[1]).toMatchObject({ status: "error", error: "groq:x: no API key", errorCode: "no_provider" });
-  s = applyEvent(s, { type: "error", code: "bad_request", message: "Invalid event.", message_id: null });
+  s = applyEvent(s, { type: "error", code: "bad_request", message: "Invalid event.", message_id: null, conversation_id: null });
   expect(s.notices.map((n) => n.text)).toEqual(["Invalid event."]);
 });
 
@@ -65,9 +65,27 @@ test("provider_switched for another conversation's message is ignored", () => {
 });
 
 test("an unscoped error fails the pending user message instead of leaving it stuck", () => {
-  const s = applyEvent(base(), { type: "error", code: "bad_request", message: "Conversation not found.", message_id: null });
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Conversation not found.", message_id: null, conversation_id: "c1",
+  });
   expect(s.messages[0]).toMatchObject({ status: "error", error: "Conversation not found." });
   expect(s.notices.map((n) => n.text)).toEqual(["Conversation not found."]);
+});
+
+test("an error scoped to another window's conversation leaves this conversation's pending message alone", () => {
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Conversation not found.", message_id: null, conversation_id: "other",
+  });
+  expect(s.messages[0]).toMatchObject({ status: "pending" });
+  expect(s.notices.map((n) => n.text)).toEqual(["Conversation not found."]);
+});
+
+test("an error with no conversation_id at all leaves the pending message alone", () => {
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Invalid event.", message_id: null, conversation_id: null,
+  });
+  expect(s.messages[0]).toMatchObject({ status: "pending" });
+  expect(s.notices.map((n) => n.text)).toEqual(["Invalid event."]);
 });
 
 test("replaceMessages keeps local pending messages the server doesn't know yet", async () => {

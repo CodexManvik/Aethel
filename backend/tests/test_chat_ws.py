@@ -98,7 +98,9 @@ def test_unknown_conversation_and_bad_json_are_reported():
             ws.send_text("{not json")
             assert ws.receive_json()["code"] == "bad_request"
             ws.send_json({"type": "user_message", "conversation_id": "missing", "text": "hi"})
-            assert ws.receive_json()["code"] == "bad_request"
+            msg = ws.receive_json()
+            assert msg["code"] == "bad_request"
+            assert msg["conversation_id"] == "missing"
 
 
 def test_websocket_rejects_bad_token(monkeypatch):

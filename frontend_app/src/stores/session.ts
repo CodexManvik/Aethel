@@ -70,9 +70,12 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       }
       return {
         ...data,
-        messages: data.messages.map((m) =>
-          m.status === "pending" ? { ...m, status: "error" as const, error: ev.message, errorCode: ev.code } : m,
-        ),
+        messages:
+          ev.conversation_id && ev.conversation_id === data.conversationId
+            ? data.messages.map((m) =>
+                m.status === "pending" ? { ...m, status: "error" as const, error: ev.message, errorCode: ev.code } : m,
+              )
+            : data.messages,
         notices: [...data.notices, notice(ev.message)],
       };
     case "provider_switched":

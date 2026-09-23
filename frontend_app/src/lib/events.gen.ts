@@ -31,6 +31,7 @@ export type ConversationId2 = string;
 export type Title = string;
 export type Type6 = "conversation_updated";
 export type Code = "no_provider" | "provider_error" | "bad_request" | "internal";
+export type ConversationId3 = string | null;
 export type Message = string;
 export type MessageId5 = string | null;
 export type Type7 = "error";
@@ -84,6 +85,7 @@ export interface ConversationUpdated {
 }
 export interface ErrorEvent {
   code: Code;
+  conversation_id: ConversationId3;
   message: Message;
   message_id: MessageId5;
   type: Type7;
