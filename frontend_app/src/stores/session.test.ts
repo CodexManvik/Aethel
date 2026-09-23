@@ -105,3 +105,17 @@ test("toUiMessages drops system messages", () => {
     ]),
   ).toEqual([{ id: "u", role: "user", content: "hi", status: "complete" }]);
 });
+
+test("task_created confirms the pending bubble and task_state appends the reply", () => {
+  let s = applyEvent(base(), { type: "task_created", task_id: "t1", conversation_id: "c1", goal: "hi",
+    user_message_id: "u1", client_id: "k1" });
+  expect(s.messages[0]).toMatchObject({ id: "u1", status: "complete" });
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "running", summary: null,
+    error: null, message_id: null, message_text: null });
+  expect(s.messages).toHaveLength(1);
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "done", summary: "ok",
+    error: null, message_id: "m2", message_text: "All done." });
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "done", summary: "ok",
+    error: null, message_id: "m2", message_text: "All done." });
+  expect(s.messages.map((m) => [m.id, m.content])).toEqual([["u1", "hi"], ["m2", "All done."]]);
+});

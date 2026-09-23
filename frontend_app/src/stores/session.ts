@@ -86,6 +86,23 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       };
     case "conversation_updated":
       return data;
+    case "task_created": {
+      if (ev.conversation_id !== data.conversationId) return data;
+      return {
+        ...data,
+        messages: data.messages.map((m) =>
+          ev.client_id && m.clientId === ev.client_id ? { ...m, id: ev.user_message_id, status: "complete" as const } : m,
+        ),
+      };
+    }
+    case "task_state": {
+      if (ev.conversation_id !== data.conversationId || !ev.message_id || !ev.message_text) return data;
+      if (has(ev.message_id)) return data;
+      return {
+        ...data,
+        messages: [...data.messages, { id: ev.message_id, role: "assistant", content: ev.message_text, status: "complete" }],
+      };
+    }
     default:
       return data;
   }

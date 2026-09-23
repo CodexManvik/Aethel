@@ -56,3 +56,52 @@ export interface ProviderTestResult {
   reply: string | null;
   error: string | null;
 }
+
+export type TaskStateName =
+  | "planning" | "running" | "waiting_approval" | "paused" | "verifying" | "done" | "failed" | "cancelled";
+
+export interface TaskRecord {
+  id: string;
+  conversation_id: string;
+  goal: string;
+  state: TaskStateName;
+  plan: string[];
+  plan_done: number[];
+  checks: Record<string, unknown>[];
+  summary: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  active_seconds?: number;
+}
+
+export interface StepRecord {
+  id: string;
+  task_id: string;
+  idx: number;
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+  verdict: "allow" | "ask" | "deny";
+  ok: boolean | null;
+  result: string | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface PendingApproval {
+  approval_id: string;
+  task_id: string;
+  step_id: string;
+  tool: string;
+  summary: string;
+  reason: string;
+  tier: "read" | "write" | "irreversible";
+}
+
+export interface TaskDetail {
+  task: TaskRecord;
+  steps: StepRecord[];
+  approvals: PendingApproval[];
+  check_descriptions: string[];
+}
