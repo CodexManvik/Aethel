@@ -1,8 +1,11 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
-from .api.routes import health
+from .api.routes import health, keys
+from .services import Services, build_services
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -13,8 +16,17 @@ ALLOWED_ORIGINS = [
 ]
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="Aethel", version=__version__)
+def create_app(services: Services | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        svc = services or build_services()
+        app.state.services = svc
+        try:
+            yield
+        finally:
+            svc.close()
+
+    app = FastAPI(title="Aethel", version=__version__, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
@@ -22,4 +34,5 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(keys.router)
     return app
