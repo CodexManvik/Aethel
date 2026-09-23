@@ -3,9 +3,13 @@ from dataclasses import dataclass
 from .auth import AuthConfig
 from .keys import KeyStore
 from .paths import LEGACY_SETTINGS_PATH, db_path
+from .providers.local_llama import LocalLlama
+from .providers.router import ProviderFactory, RoleRouter, default_provider_factory
 from .settings import SettingsService
 from .store.db import Database
 from .store.repos import ConversationRepo, MessageRepo
+
+AUTO = object()
 
 
 @dataclass
@@ -16,20 +20,31 @@ class Services:
     auth: AuthConfig
     conversations: ConversationRepo
     messages: MessageRepo
+    local_llm: object | None
+    router: RoleRouter
+    provider_factory: ProviderFactory
 
     def close(self) -> None:
+        if self.local_llm is not None:
+            self.local_llm.stop()
         self.db.close()
 
 
-def build_services() -> Services:
+def build_services(*, provider_factory: ProviderFactory | None = None, local_llm=AUTO) -> Services:
     db = Database(db_path())
     settings = SettingsService(db)
     settings.import_legacy(LEGACY_SETTINGS_PATH)
+    keys = KeyStore()
+    local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
+    factory = provider_factory or default_provider_factory
     return Services(
         db=db,
         settings=settings,
-        keys=KeyStore(),
+        keys=keys,
         auth=AuthConfig.from_env(),
         conversations=ConversationRepo(db),
         messages=MessageRepo(db),
+        local_llm=local,
+        router=RoleRouter(settings=settings, keys=keys, local=local, factory=factory),
+        provider_factory=factory,
     )
