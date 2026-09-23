@@ -1,8 +1,0 @@
-/* NOTE: This file imports Google Fonts externally which creates privacy and availability risks.
- * For production, consider self-hosting font files:
- * 1. Download Cormorant Garamond (wght 400,500,600,700; italic) and Inter (wght 300,400,500,600) from https://fonts.google.com/
- * 2. Place .woff2 files in src/assets/fonts/
- * 3. Replace @import with @font-face rules below and reference local paths
- * 4. Document this in the README so deployments can opt out of external dependencies
- */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap');

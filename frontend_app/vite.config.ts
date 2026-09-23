@@ -1,52 +1,15 @@
-import { defineConfig } from 'vite'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite' // <--- Restored for v4
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
-// Handle __dirname in ES modules
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-function figmaAssetResolver() {
-  return {
-    name: 'figma-asset-resolver',
-    resolveId(id: string) {
-      if (id.startsWith('figma:asset/')) {
-        const filename = id.replace('figma:asset/', '')
-        return path.resolve(__dirname, 'src/assets', filename)
-      }
-    },
-  }
-}
+const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [
-    figmaAssetResolver(),
-    react(),
-    tailwindcss(), // <--- Restored for v4
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  assetsInclude: ['**/*.svg', '**/*.csv'],
-
-  // Tauri Desktop Configurations
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": path.resolve(root, "./src") } },
   clearScreen: false,
-  server: {
-    port: 5173,
-    strictPort: true,
-    watch: {
-      ignored: ["**/src-tauri/**"],
-    },
-    // Use environment variable for dev tunnel URL (ephemeral, update when tunnel expires)
-    proxy: {
-      '/api': {
-        target: process.env.DEV_TUNNEL_URL || 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      }
-    }
-  },
-})
+  server: { port: 5173, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
+  test: { environment: "jsdom", globals: true, setupFiles: ["./src/test/setup.ts"], css: false },
+});

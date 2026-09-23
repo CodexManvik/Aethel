@@ -11,6 +11,7 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "noEmit": true,
+    "types": ["vitest/globals"],
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "baseUrl": ".",
