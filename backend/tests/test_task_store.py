@@ -74,3 +74,19 @@ def test_add_active_seconds_accumulates(repo):
     tasks.add_active_seconds(t.id, 2.5)
     tasks.add_active_seconds(t.id, 1.5)
     assert tasks.get(t.id).active_seconds == 4.0
+
+
+def test_steps_remember_whether_their_result_was_untrusted():
+    from aethel.paths import db_path
+    from aethel.runtime.store import TaskRepo
+    from aethel.store.db import Database
+    from aethel.store.repos import ConversationRepo
+    db = Database(db_path())
+    tasks = TaskRepo(db)
+    task = tasks.create(ConversationRepo(db).create().id, "g")
+    a = tasks.add_step(task.id, "t", {}, "s", "allow")
+    b = tasks.add_step(task.id, "t", {}, "s", "allow")
+    tasks.finish_step(a.id, True, "screen text", 1, untrusted=True)
+    tasks.finish_step(b.id, True, "ok", 1)
+    assert [s.untrusted for s in tasks.steps(task.id)] == [True, False]
+    db.close()

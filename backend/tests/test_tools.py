@@ -183,3 +183,17 @@ def test_grant_scopes(env):
     assert tools["shell_run"].scope_for({"command": "  Winget   install foo "}) == "winget install foo"
     assert tools["shell_run"].scope_for({"command": "winget install bar"}) != "winget install foo"
     assert tools["fs_read"].scope_for({"path": str(tmp / "x")}) == "fs_read"  # no grant_scope: the whole tool
+
+
+def test_registry_unregister():
+    from aethel.tools.base import Assessment, Tool, ToolResult
+    from aethel.tools.registry import ToolRegistry
+
+    async def run(args, ctx):
+        return ToolResult(True, "")
+
+    reg = ToolRegistry()
+    reg.register(Tool("win_click", "", {}, "write", run, lambda a: Assessment("allow", "", "")))
+    reg.unregister("win_click")
+    reg.unregister("never_there")  # no error
+    assert reg.get("win_click") is None and reg.specs() == []
