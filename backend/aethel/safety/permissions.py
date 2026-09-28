@@ -70,15 +70,15 @@ _SWITCH_RE = re.compile(r"^/[a-z0-9?]{1,2}(:[^\\/]*)?$", re.IGNORECASE)  # cmd s
 
 
 def _split_command(cmd: str) -> list[str]:
-    """Split like cmd.exe does: whitespace separates words except inside double
-    quotes; the quotes and ^ escapes are dropped."""
+    """Split like cmd.exe does: whitespace, ',', ';' and '=' separate words except
+    inside double quotes; the quotes and ^ escapes are dropped."""
     words, current, quoted = [], [], False
     for ch in cmd:
         if ch == '"':
             quoted = not quoted
         elif ch == "^" and not quoted:
             continue
-        elif ch.isspace() and not quoted:
+        elif (ch.isspace() or ch in ",;=") and not quoted:
             if current:
                 words.append("".join(current))
                 current = []
@@ -211,6 +211,10 @@ class Permissions:
                     return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
         if any(t.startswith(flag) for t in tokens for flag in OUTPUT_FLAGS):
             return Decision("deny", "Options that write output to a file are blocked.")
+        # cmd also expands %CD%, %=C:%, %VAR:~n% and %VAR:a=b%, which we can't
+        # resolve here; a %...% pair left after expanding env vars could be any path.
+        if os.path.expandvars(cmd).count("%") >= 2:
+            return Decision("deny", "Only plain %VARIABLE% references are allowed in commands.")
         words = _split_command(cmd)
         matched = next((a for a in sh.allowed_commands if _matches(low, a.strip().lower())), None)
         # The program itself is never checked as a path; for an allowed command,
@@ -223,7 +227,7 @@ class Permissions:
             return denied
         if matched is None:
             return Decision("ask", "Not on the list of commands I may run without asking.")
-        if _program(words[0] if words else "") in INTERPRETERS:
+        if _program(os.path.expandvars(words[0]) if words else "") in INTERPRETERS:
             return Decision("ask", "This starts a program that can run any code, so I check first.")
         if any(d.verdict == "ask" for d in path_verdicts):
             return Decision("ask", "It reads outside the folders I'm allowed to read without asking.")

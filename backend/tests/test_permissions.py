@@ -158,3 +158,19 @@ def test_alternative_windows_path_forms_cannot_dodge_the_hard_rules(tmp_path):
     for raw in [str(home / "aethel.db::$DATA"), str(home / "aethel.db ."), str(tmp_path / "proj" / ".ENV"),
                 "\\\\?\\" + str(home / "aethel.db")]:
         assert p.check_path(raw, "read").verdict == "deny", raw
+
+
+def test_cmd_only_expansion_and_delimiters_cannot_dodge_the_path_check(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch)
+    assert p.check_command(r"type %CD%\.ssh\id_rsa").verdict == "deny"             # dynamic variable
+    assert p.check_command(r"type %USERPROFILE:~0%\.ssh\id_rsa").verdict == "deny"  # substring syntax
+    assert p.check_command(r"type %=C:%\x").verdict == "deny"
+    assert p.check_command(r"type x,.ssh\id_rsa").verdict == "deny"                 # , ; = split arguments
+    assert p.check_command(r"type x=.ssh\id_rsa").verdict == "deny"
+    assert p.check_command("git log --since=2.weeks").verdict == "allow"             # ordinary = options still fine
+
+
+def test_interpreter_hidden_behind_a_variable_is_still_an_interpreter(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch, allowed=["*"])
+    monkeypatch.setenv("ComSpec", r"C:\Windows\system32\cmd.exe")
+    assert p.check_command("%ComSpec% /k").verdict == "ask"
