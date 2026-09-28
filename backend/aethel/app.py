@@ -20,12 +20,14 @@ def create_app(services: Services | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         svc = services or build_services()
         app.state.services = svc
+        svc.mcp.start(svc.mcp_servers)
         try:
             yield
         finally:
             try:
                 await svc.engine.shutdown()
                 await svc.chat.shutdown()
+                await svc.mcp.stop()
             finally:
                 if owns_services:
                     try:
