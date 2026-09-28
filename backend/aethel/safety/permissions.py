@@ -91,7 +91,8 @@ def _split_command(cmd: str) -> list[str]:
 
 def _program(word: str) -> str:
     name = re.split(r"[\\/]", re.sub(r"[\"'^`]", "", word).lower())[-1]
-    return name[:-4] if name.endswith(".exe") else name
+    name = name[:-4] if name.endswith(".exe") else name
+    return re.sub(r"[\d.]+$", "", name) or name  # python3.11 -> python
 
 
 def _matches(low: str, allowed: str) -> bool:

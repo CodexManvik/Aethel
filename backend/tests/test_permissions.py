@@ -174,3 +174,5 @@ def test_interpreter_hidden_behind_a_variable_is_still_an_interpreter(tmp_path, 
     p = _shell_perms(tmp_path, monkeypatch, allowed=["*"])
     monkeypatch.setenv("ComSpec", r"C:\Windows\system32\cmd.exe")
     assert p.check_command("%ComSpec% /k").verdict == "ask"
+    assert p.check_command("python3.11 x.py").verdict == "ask"
+    assert p.check_command("node20.exe x.js").verdict == "ask"
