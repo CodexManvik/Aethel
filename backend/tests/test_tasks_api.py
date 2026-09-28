@@ -103,3 +103,11 @@ def test_kill_switch_cancels_every_running_task(tmp_path):
             _until(ws, lambda e: (e["type"] == "task_state" and e["state"] == "cancelled"
                                   and seen.add(e["task_id"]) is None and len(seen) == 2))
     assert all(t.state == "cancelled" for t in svc.tasks.list_for_conversation(conv["id"]))
+
+
+def test_tools_status_lists_servers_and_tools(tmp_path):
+    client, svc = _client(tmp_path, [])
+    with client:
+        body = client.get("/api/tools").json()
+    assert body["servers"] == {}  # tests run without MCP servers
+    assert "fs_write" in body["tools"] and "shell_run" in body["tools"]

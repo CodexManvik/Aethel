@@ -9,7 +9,9 @@ import { cn } from "../../ui/cn";
 import { ApprovalCard } from "./ApprovalCard";
 import { PenCheck } from "./PenCheck";
 import { controlTask, rollbackTask } from "./taskActions";
+import { inTauri } from "../../lib/backend";
 
+const FILE_WRITES = /^fs_write$|_save$/; // steps "Undo file changes" can restore
 const STATE_LABEL: Record<string, string> = {
   planning: "planning", running: "working", waiting_approval: "needs you", paused: "paused",
   verifying: "checking", done: "done", failed: "couldn't finish", cancelled: "stopped",
@@ -110,7 +112,7 @@ export function TaskPanel() {
                 <Button variant="danger" aria-label="Cancel task" onClick={() => controlTask(task.id, "cancel")}>Cancel</Button>
               </>
             )}
-            {TERMINAL_STATES.includes(task.state) && task.steps.some((s) => s.tool === "fs_write" && s.ok) && (
+            {TERMINAL_STATES.includes(task.state) && task.steps.some((s) => FILE_WRITES.test(s.tool) && s.ok) && (
               <Button
                 onClick={async () => {
                   const n = await rollbackTask(task.id);
@@ -121,6 +123,9 @@ export function TaskPanel() {
               </Button>
             )}
           </div>
+          {!TERMINAL_STATES.includes(task.state) && inTauri() && (
+            <p className="text-[11.5px] text-muted">Ctrl+Alt+Esc stops everything, from any app.</p>
+          )}
         </motion.aside>
       )}
     </AnimatePresence>

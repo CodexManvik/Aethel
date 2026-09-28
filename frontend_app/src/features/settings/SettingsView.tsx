@@ -4,6 +4,7 @@ import { ProvidersSection } from "./ProvidersSection";
 import { RolesSection } from "./RolesSection";
 import { LocalModelSection } from "./LocalModelSection";
 import { AppearanceSection } from "./AppearanceSection";
+import { ToolsSection } from "./ToolsSection";
 
 export function SettingsView() {
   const { data: settings, error } = useSettings();
@@ -18,6 +19,7 @@ export function SettingsView() {
             <ProvidersSection settings={settings} />
             <RolesSection settings={settings} />
             <LocalModelSection settings={settings} />
+            <ToolsSection />
             <AppearanceSection />
           </>
         )}

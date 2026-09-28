@@ -44,6 +44,7 @@ beforeEach(() => {
     if (path === "/api/settings") return settings;
     if (path === "/api/providers") return providers;
     if (path.endsWith("/models")) return { models: ["m1", "m2"] };
+    if (path === "/api/tools") return { servers: { windows: "running", office: "failed: no Office" }, tools: [] };
     return {};
   });
   saveKeyMock.mockResolvedValue(undefined);
@@ -112,4 +113,11 @@ test("private mode: no model listing or Test for cloud providers, local still wo
   const [groqTest, localTest] = within(chat).getAllByRole("button", { name: "Test" });
   expect(groqTest).toBeDisabled();
   expect(localTest).toBeEnabled();
+});
+
+test("computer control shows each server's connection", async () => {
+  renderSettings();
+  expect(await screen.findByText("Desktop control")).toBeInTheDocument();
+  expect(screen.getByText("Connected")).toBeInTheDocument();
+  expect(screen.getByText("Not available: no Office")).toBeInTheDocument();
 });
