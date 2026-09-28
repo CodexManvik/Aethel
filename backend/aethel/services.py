@@ -23,6 +23,7 @@ from .store.repos import ConversationRepo, MessageRepo
 from .tools.desktop import Desktop, desktop_spec
 from .tools.local_fs import fs_tools
 from .tools.mcp_hub import McpHub, ServerSpec
+from .tools.office import Office, office_spec
 from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
 
@@ -88,12 +89,13 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry),
-        mcp_servers=default_mcp_servers() if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes) if mcp_servers is None else mcp_servers,
     )
 
 
-def default_mcp_servers() -> list[ServerSpec]:
+def default_mcp_servers(permissions: Permissions, changes: ChangeLog) -> list[ServerSpec]:
     """The desktop and Office servers. AETHEL_MCP=0 turns computer control off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    return [spec for spec in [desktop_spec(Desktop())] if spec is not None]
+    specs = [desktop_spec(Desktop()), office_spec(Office(permissions, changes))]
+    return [spec for spec in specs if spec is not None]

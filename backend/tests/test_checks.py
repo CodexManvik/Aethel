@@ -26,3 +26,15 @@ def test_check_validation():
         Check(kind="min_words", path="C:/a.txt")      # needs count
     with pytest.raises(ValidationError):
         Check(kind="rm_rf", path="C:/")
+
+
+def test_word_counts_read_the_text_of_a_docx(tmp_path):
+    import zipfile
+    from aethel.runtime.checks import Check, run_check
+    doc = tmp_path / "essay.docx"
+    body = "".join(f"<w:p><w:r><w:t>Rain fa</w:t></w:r><w:r><w:t>lls softly {i}</w:t></w:r></w:p>" for i in range(5))
+    with zipfile.ZipFile(doc, "w") as z:
+        z.writestr("word/document.xml", f'<w:document xmlns:w="x"><w:body>{body}</w:body></w:document>')
+    result = run_check(Check(kind="min_words", path=str(doc), count=20))
+    assert result.passed and result.detail == "20 words"   # runs split mid-word don't inflate the count
+    assert run_check(Check(kind="file_contains", path=str(doc), text="falls softly")).passed
