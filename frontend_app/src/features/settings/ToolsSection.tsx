@@ -3,7 +3,7 @@ import { api } from "../../lib/api";
 import { Field } from "../../ui/Field";
 import { Section } from "./Section";
 
-const LABELS: Record<string, string> = { windows: "Desktop control", office: "Word, Excel and PowerPoint" };
+const LABELS: Record<string, string> = { windows: "Desktop control", office: "Word, Excel and PowerPoint", files: "File search and editing" };
 
 export function describeServer(status: string): string {
   if (status === "running") return "Connected";

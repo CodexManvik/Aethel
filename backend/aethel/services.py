@@ -21,6 +21,7 @@ from .settings import SettingsService
 from .store.db import Database
 from .store.repos import ConversationRepo, MessageRepo
 from .tools.desktop import Desktop, desktop_spec
+from .tools.file_commander import FileCommander, file_commander_spec
 from .tools.local_fs import fs_tools
 from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.office import Office, office_spec
@@ -94,8 +95,9 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
 
 
 def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter) -> list[ServerSpec]:
-    """The desktop and Office servers. AETHEL_MCP=0 turns computer control off."""
+    """Desktop, Office and Desktop Commander. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes))]
+    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes)),
+             file_commander_spec(FileCommander(permissions, changes))]
     return [spec for spec in specs if spec is not None]
