@@ -137,6 +137,17 @@ cmd-only `%…%` expansion, `, ; =` argument splitting, interpreter detection on
 - Run every automated check.
 - Manual demo on the user's machine: **"Open Notepad, write a haiku about rain and save it to my Desktop"**, then the Word essay task. Both need an approval and a working kill switch.
 
+### Task 8b: Desktop Commander (added 2026-09-28 at the user's request)
+**Files:** `tools/file_commander.py`, `tests/test_file_commander.py`.
+- Exposed: `dc_read_file`, `dc_file_info`, `dc_search`, `dc_search_more`, `dc_search_stop` and `dc_edit_block`. Everything else is excluded, including process and command tools, `set_config_value`, write, move and feedback.
+- It runs through `npx`, pinned to 0.2.51, with its own `USERPROFILE` under `~/.aethel/desktop-commander`. Telemetry is off (env and config) and remote flags are off (`DC_FLAG_URL`). Its own allow-list is kept empty, so Aethel's check is the single gate.
+- Content search asks, because it reads every file, including ones the hard rules protect. `edit_block` snapshots the file for Undo.
+
+## Execution notes
+- **Task 6 deviation:** the EventHub uses a per-send 5 s timeout plus drop-and-close instead of per-subscriber queues. It's smaller, keeps delivery synchronous, and fixes both the stall and the deaf-window problem. It uses `asyncio.timeout`, because 3.11's `wait_for` swallows a cancel that lands as the send completes.
+- **Task 4:** under late-bound COM, `Range.Cells(1,1).Resize` misplaces Excel writes, so the server uses an explicit `Cells`-to-`Cells` range.
+- **Task 8:** Windows-MCP reports "Screenshot Coordinate Scale" only when it downscales. On the user's 1920×1080 screen the image is full size.
+
 ## Deferred (with reasons)
 - **argv-exact command allowlisting.** The denylist plus hard rules cover the known bypasses, and exact-argv matching would break the v1 manifest format.
 - **Playwright browser server.** Windows-MCP reaches browsers through UIA, and CDP control arrives with web tools in Phase 3.
