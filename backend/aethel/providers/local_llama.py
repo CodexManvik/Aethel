@@ -94,7 +94,7 @@ class LocalLlama:
         cmd = [
             str(binary), "-m", str(model), "--port", str(port),
             "-c", str(s.context_size), "-t", str(s.threads),
-            "--context-shift", "--cache-reuse", "256", "--log-disable",
+            "--context-shift", "--cache-reuse", "256", "--log-disable", "--jinja",
         ]
         if s.gpu_layers > 0:
             cmd += ["-ngl", str(s.gpu_layers)]

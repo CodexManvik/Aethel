@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, ListChecks, Square } from "lucide-react";
+import { cn } from "../../ui/cn";
 
 interface Props {
-  onSend: (text: string) => void;
+  onSend: (text: string, mode: "chat" | "task") => void;
   onStop: () => void;
   streaming: boolean;
   placeholder?: string;
@@ -10,6 +11,7 @@ interface Props {
 
 export function PromptBox({ onSend, onStop, streaming, placeholder = "Say something to Aethel…" }: Props) {
   const [text, setText] = useState("");
+  const [mode, setMode] = useState<"chat" | "task">("chat");
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -21,8 +23,9 @@ export function PromptBox({ onSend, onStop, streaming, placeholder = "Say someth
 
   const submit = () => {
     if (!text.trim() || streaming) return;
-    onSend(text);
+    onSend(text, mode);
     setText("");
+    setMode("chat");
   };
 
   return (
@@ -33,12 +36,24 @@ export function PromptBox({ onSend, onStop, streaming, placeholder = "Say someth
       }}
       className="mx-auto mb-6 flex w-full max-w-3xl items-end gap-3 rounded-[14px] border border-hairline bg-paper px-4 py-3 transition-colors duration-[var(--dur-fast)] focus-within:border-muted"
     >
+      <button
+        type="button"
+        aria-pressed={mode === "task"}
+        title="Give Aethel a task to carry out"
+        onClick={() => setMode((m) => (m === "task" ? "chat" : "task"))}
+        className={cn(
+          "mb-0.5 flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11.5px] transition-colors",
+          mode === "task" ? "border-accent/50 bg-accent-soft text-accent" : "border-hairline text-muted hover:text-ink",
+        )}
+      >
+        <ListChecks size={13} /> Task
+      </button>
       <textarea
         ref={ref}
         aria-label="Message"
         rows={1}
         value={text}
-        placeholder={placeholder}
+        placeholder={mode === "task" ? "Describe a task for Aethel…" : placeholder}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

@@ -21,6 +21,7 @@ const settings: AppSettings = {
   local_llm: { model_path: "", context_size: 0, threads: 4, gpu_layers: 99 },
   temperature: 0.8,
   max_tokens: 1024,
+  agent_max_tokens: 8192,
   history_window: 24,
 };
 const providers: ProviderInfo[] = [

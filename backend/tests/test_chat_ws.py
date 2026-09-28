@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -97,7 +98,9 @@ def test_unknown_conversation_and_bad_json_are_reported():
             ws.send_text("{not json")
             assert ws.receive_json()["code"] == "bad_request"
             ws.send_json({"type": "user_message", "conversation_id": "missing", "text": "hi"})
-            assert ws.receive_json()["code"] == "bad_request"
+            msg = ws.receive_json()
+            assert msg["code"] == "bad_request"
+            assert msg["conversation_id"] == "missing"
 
 
 def test_websocket_rejects_bad_token(monkeypatch):
@@ -137,15 +140,17 @@ async def test_exception_before_stream_still_persists_error_and_ends_message():
 
     events = []
 
-    async def emit(ev):
-        events.append(ev)
+    async def collect(payload):
+        events.append(json.loads(payload))
 
-    from aethel.api.events import UserMessage
-    await services.chat._turn(UserMessage(conversation_id=conv.id, text="hi"), emit)
+    services.hub.subscribe(collect)
 
-    types = [e.type for e in events]
+    from aethel.protocol import UserMessage
+    await services.chat._turn(UserMessage(conversation_id=conv.id, text="hi"))
+
+    types = [e["type"] for e in events]
     assert types == ["message_start", "error", "message_end"]
-    assert events[-1].status == "error"
+    assert events[-1]["status"] == "error"
     stored = services.messages.list(conv.id)
     assert stored[-1].status == "error"
     assert services.chat._active == {}
@@ -164,13 +169,8 @@ async def test_shutdown_times_out_and_cancels_slow_turns():
     services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"}]}})
     conv = services.conversations.create()
 
-    events = []
-
-    async def emit(ev):
-        events.append(ev)
-
-    from aethel.api.events import UserMessage
-    services.chat.start_turn(UserMessage(conversation_id=conv.id, text="go"), emit)
+    from aethel.protocol import UserMessage
+    services.chat.start_turn(UserMessage(conversation_id=conv.id, text="go"))
     await asyncio.sleep(0.05)  # let the turn register itself in _active/_tasks
 
     started = asyncio.get_event_loop().time()
@@ -267,3 +267,88 @@ def test_websocket_rejects_foreign_origin_but_allows_known_or_missing():
             with client.websocket_connect("/ws/session", headers=headers) as ws:
                 ws.send_text("{not json")
                 assert ws.receive_json()["code"] == "bad_request"  # accepted and serving
+
+
+def test_provider_switch_is_scoped_to_its_message():
+    from tests.fakes import retryable
+
+    services = build_services(
+        provider_factory=factory_from({
+            "groq:g": FakeProvider(label="groq:g", error=retryable()),
+            "openrouter:o": FakeProvider(label="openrouter:o", chunks=["ok"]),
+        }),
+        local_llm=FakeLocal(fail="no local model"),
+    )
+    services.keys.set_many({"groq": "a", "openrouter": "b"})
+    services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"},
+                                                  {"provider": "openrouter", "model": "o"}]}})
+    client = TestClient(create_app(services))
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            events = _receive_until_end(ws)
+    start = next(e for e in events if e["type"] == "message_start")
+    switch = next(e for e in events if e["type"] == "provider_switched")
+    assert switch["message_id"] == start["message_id"]
+    assert switch["task_id"] is None
+
+
+def test_every_open_socket_receives_the_turn():
+    client, _ = _client({"groq:g": FakeProvider(chunks=["a", "b"])})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws1, client.websocket_connect("/ws/session") as ws2:
+            ws1.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            e1 = _receive_until_end(ws1)
+            e2 = _receive_until_end(ws2)
+    assert [e["type"] for e in e1] == [e["type"] for e in e2]
+
+
+def test_messages_endpoint_overlays_partial_text_while_streaming():
+    client, svc = _client({"groq:g": FakeProvider(chunks=["Hel", "lo", " there"], delay=0.3)})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            start = ws.receive_json()
+            ws.receive_json()  # conversation_updated
+            ws.receive_json()  # token "Hel"
+            msgs = client.get(f"/api/conversations/{conv['id']}/messages").json()
+            streaming = next(m for m in msgs if m["id"] == start["message_id"])
+            assert streaming["status"] == "streaming"
+            assert streaming["content"].startswith("Hel")
+            _receive_until_end(ws)
+
+
+def test_reply_continues_on_a_new_socket_after_reconnect():
+    client, svc = _client({"groq:g": FakeProvider(chunks=["a", "b", "c"], delay=0.3)})
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "hi"})
+            start = ws.receive_json()
+        with client.websocket_connect("/ws/session") as ws2:
+            events = _receive_until_end(ws2)
+    assert events[-1] == {"type": "message_end", "message_id": start["message_id"], "status": "complete"}
+    assert svc.messages.list(conv["id"])[-1].content == "abc"
+
+
+@pytest.mark.anyio
+async def test_foreign_cancellation_propagates_but_still_persists():
+    import asyncio
+    from aethel.protocol import UserMessage
+
+    services = build_services(provider_factory=factory_from({"groq:g": FakeProvider(chunks=["a", "b"], delay=1)}),
+                              local_llm=FakeLocal())
+    services.keys.set_many({"groq": "k"})
+    services.settings.update({"roles": {"chat": [{"provider": "groq", "model": "g"}]}})
+    conv = services.conversations.create()
+    services.chat.start_turn(UserMessage(conversation_id=conv.id, text="hi"))
+    await asyncio.sleep(0.1)
+    [task] = list(services.chat._tasks)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert services.messages.list(conv.id)[-1].status == "stopped"
+    services.close()

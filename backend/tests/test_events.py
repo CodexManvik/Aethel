@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from aethel.api.events import (
+from aethel.protocol import (
     SCHEMA_PATH, ErrorEvent, MessageStart, StopGeneration, Token, UserMessage,
     client_event_adapter, export_schema, server_event_adapter,
 )
@@ -33,10 +33,40 @@ def test_invalid_client_events_rejected(raw):
         client_event_adapter.validate_json(raw)
 
 
+def test_task_events_round_trip():
+    from aethel.protocol import (ApprovalDecision, ApprovalNeeded, StartTask, TaskControl, TaskState,
+                                 VerificationResult, CheckOutcome)
+
+    ev = TaskState(task_id="t", conversation_id="c", state="waiting_approval")
+    assert server_event_adapter.validate_json(ev.model_dump_json()) == ev
+    vr = VerificationResult(task_id="t", results=[CheckOutcome(description="x exists", passed=True, detail="")])
+    assert server_event_adapter.validate_json(vr.model_dump_json()) == vr
+    an = ApprovalNeeded(approval_id="a", task_id="t", step_id="s", tool="fs_write", summary="write x",
+                        reason="outside allowed folders", tier="write")
+    assert server_event_adapter.validate_json(an.model_dump_json()) == an
+    assert isinstance(client_event_adapter.validate_json(
+        '{"type":"start_task","conversation_id":"c","goal":"do it","client_id":null}'), StartTask)
+    assert isinstance(client_event_adapter.validate_json(
+        '{"type":"task_control","task_id":"t","action":"pause"}'), TaskControl)
+    assert isinstance(client_event_adapter.validate_json(
+        '{"type":"approval_decision","approval_id":"a","decision":"allow_task"}'), ApprovalDecision)
+
+
+def test_task_state_rejects_unknown_states():
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from aethel.protocol import TaskState
+
+    with _pytest.raises(ValidationError):
+        TaskState(task_id="t", conversation_id="c", state="sleeping")
+
+
 def test_schema_marks_type_required_on_every_event():
     defs = export_schema()["$defs"]
     for name in ("MessageStart", "Token", "MessageEnd", "ProviderSwitched", "ConversationUpdated",
-                 "ErrorEvent", "UserMessage", "StopGeneration"):
+                 "ErrorEvent", "UserMessage", "StopGeneration",
+                 "TaskCreated", "TaskPlan", "PlanProgress", "StepStarted", "StepFinished", "ApprovalNeeded",
+                 "ApprovalResolved", "VerificationResult", "TaskState", "StartTask", "TaskControl", "ApprovalDecision"):
         assert "type" in defs[name]["required"], name
     assert "client_id" in defs["MessageStart"]["required"]
 

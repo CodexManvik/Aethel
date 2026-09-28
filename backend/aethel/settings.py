@@ -47,6 +47,7 @@ class AppSettings(BaseModel):
     local_llm: LocalLLMSettings = Field(default_factory=LocalLLMSettings)
     temperature: float = Field(default=0.8, ge=0.0, le=2.0)
     max_tokens: int = Field(default=1024, ge=16, le=32768)
+    agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
 
 

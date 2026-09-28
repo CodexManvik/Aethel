@@ -52,11 +52,14 @@ interface UiState {
   threadsOpen: boolean;
   theme: ThemePref;
   motion: MotionPref;
+  taskPanelId: string | null;
   setScreen(screen: Screen): void;
   toggleThreads(): void;
   setThreadsOpen(open: boolean): void;
   setTheme(theme: ThemePref): void;
   setMotion(motion: MotionPref): void;
+  openTaskPanel(id: string): void;
+  closeTaskPanel(): void;
 }
 
 export const useUi = create<UiState>()((set, get) => ({
@@ -64,6 +67,7 @@ export const useUi = create<UiState>()((set, get) => ({
   threadsOpen: false,
   theme: storedTheme(),
   motion: storedMotion(),
+  taskPanelId: null,
   setScreen: (screen) => set({ screen, threadsOpen: false }),
   toggleThreads: () => set((s) => ({ threadsOpen: !s.threadsOpen })),
   setThreadsOpen: (threadsOpen) => set({ threadsOpen }),
@@ -77,6 +81,8 @@ export const useUi = create<UiState>()((set, get) => ({
     applyAppearance(get().theme, motion);
     set({ motion });
   },
+  openTaskPanel: (taskPanelId) => set({ taskPanelId }),
+  closeTaskPanel: () => set({ taskPanelId: null }),
 }));
 
 /** Re-apply when the OS theme / motion preference changes and we follow it. */

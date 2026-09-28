@@ -42,17 +42,59 @@ test("errors attach to their message or become notices", () => {
   let s = applyEvent(base(), {
     type: "message_start", conversation_id: "c1", message_id: "a1", user_message_id: "u1", client_id: "k1", role: "assistant",
   });
-  s = applyEvent(s, { type: "error", code: "no_provider", message: "groq:x: no API key", message_id: "a1" });
+  s = applyEvent(s, { type: "error", code: "no_provider", message: "groq:x: no API key", message_id: "a1", conversation_id: null });
   expect(s.messages[1]).toMatchObject({ status: "error", error: "groq:x: no API key", errorCode: "no_provider" });
-  s = applyEvent(s, { type: "error", code: "bad_request", message: "Invalid event.", message_id: null });
+  s = applyEvent(s, { type: "error", code: "bad_request", message: "Invalid event.", message_id: null, conversation_id: null });
   expect(s.notices.map((n) => n.text)).toEqual(["Invalid event."]);
 });
 
 test("provider switches become gentle notices", () => {
   const s = applyEvent(base(), {
     type: "provider_switched", role: "chat", from_provider: "groq:a", to_provider: "openrouter:b", reason: "429",
+    message_id: null, task_id: null,
   });
   expect(s.notices[0].text).toBe("groq:a was unavailable, so openrouter:b answered instead.");
+});
+
+test("provider_switched for another conversation's message is ignored", () => {
+  const s = applyEvent(base(), {
+    type: "provider_switched", role: "chat", from_provider: "a", to_provider: "b", reason: "429",
+    message_id: "not-here", task_id: null,
+  });
+  expect(s.notices).toEqual([]);
+});
+
+test("an unscoped error fails the pending user message instead of leaving it stuck", () => {
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Conversation not found.", message_id: null, conversation_id: "c1",
+  });
+  expect(s.messages[0]).toMatchObject({ status: "error", error: "Conversation not found." });
+  expect(s.notices.map((n) => n.text)).toEqual(["Conversation not found."]);
+});
+
+test("an error scoped to another window's conversation leaves this conversation's pending message alone", () => {
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Conversation not found.", message_id: null, conversation_id: "other",
+  });
+  expect(s.messages[0]).toMatchObject({ status: "pending" });
+  expect(s.notices.map((n) => n.text)).toEqual(["Conversation not found."]);
+});
+
+test("an error with no conversation_id at all leaves the pending message alone", () => {
+  const s = applyEvent(base(), {
+    type: "error", code: "bad_request", message: "Invalid event.", message_id: null, conversation_id: null,
+  });
+  expect(s.messages[0]).toMatchObject({ status: "pending" });
+  expect(s.notices.map((n) => n.text)).toEqual(["Invalid event."]);
+});
+
+test("replaceMessages keeps local pending messages the server doesn't know yet", async () => {
+  const { useSession } = await import("./session");
+  useSession.setState({ conversationId: "c1", messages: [
+    { id: "pending_k2", role: "user", content: "second", status: "pending", clientId: "k2" },
+  ], streamingId: null, notices: [], socketStatus: "open" });
+  useSession.getState().replaceMessages("c1", [{ id: "u1", role: "user", content: "first", status: "complete" }]);
+  expect(useSession.getState().messages.map((m) => m.content)).toEqual(["first", "second"]);
 });
 
 test("toUiMessages drops system messages", () => {
@@ -62,4 +104,18 @@ test("toUiMessages drops system messages", () => {
       { id: "u", conversation_id: "c", role: "user", content: "hi", status: "complete", meta: {}, created_at: "" },
     ]),
   ).toEqual([{ id: "u", role: "user", content: "hi", status: "complete" }]);
+});
+
+test("task_created confirms the pending bubble and task_state appends the reply", () => {
+  let s = applyEvent(base(), { type: "task_created", task_id: "t1", conversation_id: "c1", goal: "hi",
+    user_message_id: "u1", client_id: "k1" });
+  expect(s.messages[0]).toMatchObject({ id: "u1", status: "complete" });
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "running", summary: null,
+    error: null, message_id: null, message_text: null });
+  expect(s.messages).toHaveLength(1);
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "done", summary: "ok",
+    error: null, message_id: "m2", message_text: "All done." });
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "done", summary: "ok",
+    error: null, message_id: "m2", message_text: "All done." });
+  expect(s.messages.map((m) => [m.id, m.content])).toEqual([["u1", "hi"], ["m2", "All done."]]);
 });

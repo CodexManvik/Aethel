@@ -44,7 +44,7 @@ test("PromptBox sends on Enter, not on Shift+Enter, and shows Stop while streami
   await userEvent.type(box, "line one{Shift>}{Enter}{/Shift}line two");
   expect(onSend).not.toHaveBeenCalled();
   await userEvent.type(box, "{Enter}");
-  expect(onSend).toHaveBeenCalledWith("line one\nline two");
+  expect(onSend).toHaveBeenCalledWith("line one\nline two", "chat");
   expect(box).toHaveValue("");
   rerender(<PromptBox onSend={onSend} onStop={onStop} streaming />);
   await userEvent.click(screen.getByRole("button", { name: "Stop" }));

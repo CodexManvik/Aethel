@@ -49,4 +49,11 @@ def delete_conversation(conv_id: str, svc: Services = Depends(get_services)) -> 
 @router.get("/{conv_id}/messages")
 def list_messages(conv_id: str, svc: Services = Depends(get_services)) -> list[Message]:
     _require(svc, conv_id)
-    return svc.messages.list(conv_id)
+    out = []
+    for m in svc.messages.list(conv_id):
+        if m.status == "streaming":
+            live = svc.chat.partial(m.id)
+            if live is not None:
+                m = m.model_copy(update={"content": live})
+        out.append(m)
+    return out
