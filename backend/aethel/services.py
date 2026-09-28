@@ -20,6 +20,7 @@ from .safety.permissions import Permissions
 from .settings import SettingsService
 from .store.db import Database
 from .store.repos import ConversationRepo, MessageRepo
+from .tools.desktop import Desktop, desktop_spec
 from .tools.local_fs import fs_tools
 from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.registry import ToolRegistry
@@ -95,4 +96,4 @@ def default_mcp_servers() -> list[ServerSpec]:
     """The desktop and Office servers. AETHEL_MCP=0 turns computer control off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    return []
+    return [spec for spec in [desktop_spec(Desktop())] if spec is not None]

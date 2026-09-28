@@ -132,7 +132,7 @@ class McpHub:
 
     async def stop(self) -> None:
         for conn in list(self._conns.values()):
-            await self._shutdown(conn)
+            await self._shutdown(conn, hard=False)
 
     # ---- internals ---------------------------------------------------------
     def _restart_soon(self, server: str) -> None:
@@ -145,9 +145,12 @@ class McpHub:
         self._conns[spec.name] = conn
         conn.runner = asyncio.get_running_loop().create_task(self._serve(conn))
 
-    async def _shutdown(self, conn: _Conn) -> None:
+    async def _shutdown(self, conn: _Conn, hard: bool = True) -> None:
+        """hard: kill now (the SDK would give a server 2s to finish typing);
+        otherwise let it exit on closed stdin like the MCP spec asks."""
         conn.stop.set()
-        _kill_tree(conn.pid)  # immediate: the SDK would give it 2s to finish typing
+        if hard:
+            _kill_tree(conn.pid)
         if conn.runner is not None:
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await conn.runner
@@ -188,5 +191,4 @@ class McpHub:
             for tool in conn.tools:
                 self.registry.unregister(tool.name)
             conn.tools = []
-            _kill_tree(conn.pid)
             conn.ready.set()  # wake wait_ready() whatever happened
