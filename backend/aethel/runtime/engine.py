@@ -238,6 +238,14 @@ class TaskEngine:
         await self._finish(task_id, "cancelled", None)
         return True
 
+    async def cancel_all(self) -> int:
+        """The kill switch. Cancelling a runner also cancels its in-flight tool
+        call, and the MCP hub restarts that server so no input keeps going."""
+        ids = list(self._runners)
+        for task_id in ids:
+            await self.cancel(task_id)
+        return len(ids)
+
     def note_for_chat(self, conversation_id: str) -> str | None:
         active = [t for t in self.tasks.list_for_conversation(conversation_id) if t.state not in TERMINAL_STATES]
         if not active:

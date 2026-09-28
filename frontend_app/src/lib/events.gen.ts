@@ -1,6 +1,6 @@
 /* Generated from backend/aethel/protocol.py by pnpm gen:types. Do not edit. */
 
-export type Client = UserMessage | StopGeneration | StartTask | TaskControl | ApprovalDecision;
+export type Client = UserMessage | StopGeneration | StartTask | TaskControl | ApprovalDecision | KillSwitch;
 export type ClientId = string | null;
 export type ConversationId = string;
 export type Text = string;
@@ -17,6 +17,7 @@ export type Type3 = "task_control";
 export type ApprovalId = string;
 export type Decision = "allow_once" | "allow_task" | "deny";
 export type Type4 = "approval_decision";
+export type Type5 = "kill_switch";
 export type Server =
   | MessageStart
   | Token
@@ -37,54 +38,54 @@ export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
 export type Role = "assistant";
-export type Type5 = "message_start";
+export type Type6 = "message_start";
 export type UserMessageId = string;
 export type MessageId2 = string;
 export type Text1 = string;
-export type Type6 = "token";
+export type Type7 = "token";
 export type MessageId3 = string;
 export type Status = "complete" | "stopped" | "error";
-export type Type7 = "message_end";
+export type Type8 = "message_end";
 export type FromProvider = string;
 export type MessageId4 = string | null;
 export type Reason = string;
 export type Role1 = string;
 export type TaskId1 = string | null;
 export type ToProvider = string;
-export type Type8 = "provider_switched";
+export type Type9 = "provider_switched";
 export type ConversationId3 = string;
 export type Title = string;
-export type Type9 = "conversation_updated";
+export type Type10 = "conversation_updated";
 export type Code = "no_provider" | "provider_error" | "bad_request" | "internal";
 export type ConversationId4 = string | null;
 export type Message = string;
 export type MessageId5 = string | null;
-export type Type10 = "error";
+export type Type11 = "error";
 export type ClientId3 = string | null;
 export type ConversationId5 = string;
 export type Goal1 = string;
 export type TaskId2 = string;
-export type Type11 = "task_created";
+export type Type12 = "task_created";
 export type UserMessageId1 = string;
 export type Checks = string[];
 export type Steps = string[];
 export type TaskId3 = string;
-export type Type12 = "task_plan";
+export type Type13 = "task_plan";
 export type Index = number;
 export type TaskId4 = string;
-export type Type13 = "plan_progress";
+export type Type14 = "plan_progress";
 export type StepId = string;
 export type Summary = string;
 export type TaskId5 = string;
 export type Tool = string;
-export type Type14 = "step_started";
+export type Type15 = "step_started";
 export type Verdict = "allow" | "ask" | "deny";
 export type Detail = string;
 export type DurationMs = number;
 export type Ok = boolean;
 export type StepId1 = string;
 export type TaskId6 = string;
-export type Type15 = "step_finished";
+export type Type16 = "step_finished";
 export type ApprovalId1 = string;
 export type Reason1 = string;
 export type StepId2 = string;
@@ -92,17 +93,17 @@ export type Summary1 = string;
 export type TaskId7 = string;
 export type Tier = "read" | "write" | "irreversible";
 export type Tool1 = string;
-export type Type16 = "approval_needed";
+export type Type17 = "approval_needed";
 export type ApprovalId2 = string;
 export type Decision1 = "allow_once" | "allow_task" | "deny";
 export type TaskId8 = string;
-export type Type17 = "approval_resolved";
+export type Type18 = "approval_resolved";
 export type Description = string;
 export type Detail1 = string;
 export type Passed = boolean;
 export type Results = CheckOutcome[];
 export type TaskId9 = string;
-export type Type18 = "verification";
+export type Type19 = "verification";
 export type ConversationId6 = string;
 export type Error = string | null;
 export type MessageId6 = string | null;
@@ -111,7 +112,7 @@ export type State =
   "planning" | "running" | "waiting_approval" | "paused" | "verifying" | "done" | "failed" | "cancelled";
 export type Summary2 = string | null;
 export type TaskId10 = string;
-export type Type19 = "task_state";
+export type Type20 = "task_state";
 
 export interface AethelProtocol {
   client: Client;
@@ -144,23 +145,29 @@ export interface ApprovalDecision {
   decision: Decision;
   type: Type4;
 }
+/**
+ * Ctrl+Alt+Esc: cancel every task now (spec §4.3).
+ */
+export interface KillSwitch {
+  type: Type5;
+}
 export interface MessageStart {
   client_id: ClientId2;
   conversation_id: ConversationId2;
   message_id: MessageId1;
   role: Role;
-  type: Type5;
+  type: Type6;
   user_message_id: UserMessageId;
 }
 export interface Token {
   message_id: MessageId2;
   text: Text1;
-  type: Type6;
+  type: Type7;
 }
 export interface MessageEnd {
   message_id: MessageId3;
   status: Status;
-  type: Type7;
+  type: Type8;
 }
 export interface ProviderSwitched {
   from_provider: FromProvider;
@@ -169,45 +176,45 @@ export interface ProviderSwitched {
   role: Role1;
   task_id: TaskId1;
   to_provider: ToProvider;
-  type: Type8;
+  type: Type9;
 }
 export interface ConversationUpdated {
   conversation_id: ConversationId3;
   title: Title;
-  type: Type9;
+  type: Type10;
 }
 export interface ErrorEvent {
   code: Code;
   conversation_id: ConversationId4;
   message: Message;
   message_id: MessageId5;
-  type: Type10;
+  type: Type11;
 }
 export interface TaskCreated {
   client_id: ClientId3;
   conversation_id: ConversationId5;
   goal: Goal1;
   task_id: TaskId2;
-  type: Type11;
+  type: Type12;
   user_message_id: UserMessageId1;
 }
 export interface TaskPlan {
   checks: Checks;
   steps: Steps;
   task_id: TaskId3;
-  type: Type12;
+  type: Type13;
 }
 export interface PlanProgress {
   index: Index;
   task_id: TaskId4;
-  type: Type13;
+  type: Type14;
 }
 export interface StepStarted {
   step_id: StepId;
   summary: Summary;
   task_id: TaskId5;
   tool: Tool;
-  type: Type14;
+  type: Type15;
   verdict: Verdict;
 }
 export interface StepFinished {
@@ -216,7 +223,7 @@ export interface StepFinished {
   ok: Ok;
   step_id: StepId1;
   task_id: TaskId6;
-  type: Type15;
+  type: Type16;
 }
 export interface ApprovalNeeded {
   approval_id: ApprovalId1;
@@ -226,18 +233,18 @@ export interface ApprovalNeeded {
   task_id: TaskId7;
   tier: Tier;
   tool: Tool1;
-  type: Type16;
+  type: Type17;
 }
 export interface ApprovalResolved {
   approval_id: ApprovalId2;
   decision: Decision1;
   task_id: TaskId8;
-  type: Type17;
+  type: Type18;
 }
 export interface VerificationResult {
   results: Results;
   task_id: TaskId9;
-  type: Type18;
+  type: Type19;
 }
 export interface CheckOutcome {
   description: Description;
@@ -252,5 +259,5 @@ export interface TaskState {
   state: State;
   summary: Summary2;
   task_id: TaskId10;
-  type: Type19;
+  type: Type20;
 }

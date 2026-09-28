@@ -197,3 +197,25 @@ def test_registry_unregister():
     reg.unregister("win_click")
     reg.unregister("never_there")  # no error
     assert reg.get("win_click") is None and reg.specs() == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+async def test_shell_cancel_kills_grandchildren_whose_parent_already_exited(env):
+    """`start /b` lets cmd.exe exit at once, orphaning ping: taskkill /T on
+    cmd's pid can't find it any more, the per-command job still can."""
+    import asyncio
+    _, tools, _ = env
+    before = _ping_pids()
+    task = asyncio.ensure_future(tools["shell_run"].handler({"command": "start /b ping -n 30 127.0.0.1"},
+                                                            ToolContext(None)))
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        if _ping_pids() - before:
+            break
+    assert _ping_pids() - before, "ping never started"
+    await asyncio.sleep(0.3)  # cmd.exe has exited by now
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.3)
+    assert _ping_pids() - before == set()

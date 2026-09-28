@@ -24,3 +24,4 @@ tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 keyring = { version = "3", features = ["windows-native"] }
 uuid = { version = "1", features = ["v4"] }
+tauri-plugin-global-shortcut = "2"
