@@ -158,3 +158,34 @@ def test_alternative_windows_path_forms_cannot_dodge_the_hard_rules(tmp_path):
     for raw in [str(home / "aethel.db::$DATA"), str(home / "aethel.db ."), str(tmp_path / "proj" / ".ENV"),
                 "\\\\?\\" + str(home / "aethel.db")]:
         assert p.check_path(raw, "read").verdict == "deny", raw
+
+
+def test_cmd_only_expansion_and_delimiters_cannot_dodge_the_path_check(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch)
+    assert p.check_command(r"type %CD%\.ssh\id_rsa").verdict == "deny"             # dynamic variable
+    assert p.check_command(r"type %USERPROFILE:~0%\.ssh\id_rsa").verdict == "deny"  # substring syntax
+    assert p.check_command(r"type %=C:%\x").verdict == "deny"
+    assert p.check_command(r"type x,.ssh\id_rsa").verdict == "deny"                 # , ; = split arguments
+    assert p.check_command(r"type x=.ssh\id_rsa").verdict == "deny"
+    assert p.check_command("git log --since=2.weeks").verdict == "allow"             # ordinary = options still fine
+
+
+def test_interpreter_hidden_behind_a_variable_is_still_an_interpreter(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch, allowed=["*"])
+    monkeypatch.setenv("ComSpec", r"C:\Windows\system32\cmd.exe")
+    assert p.check_command("%ComSpec% /k").verdict == "ask"
+    assert p.check_command("python3.11 x.py").verdict == "ask"
+    assert p.check_command("node20.exe x.js").verdict == "ask"
+
+
+def test_env_variants_and_bare_home_filenames(tmp_path, monkeypatch):
+    p = _shell_perms(tmp_path, monkeypatch)
+    home = tmp_path / "home"
+    (home / "_netrc").write_text("machine x password y", encoding="utf-8")
+    manifest = yaml.safe_load(p.path.read_text(encoding="utf-8"))
+    manifest["filesystem"]["forbidden_paths"].append(str(home / "_netrc"))
+    p.path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    p.reload()
+    assert p.check_command("type _netrc").verdict == "deny"       # a bare name of a real file in home
+    assert p.check_command("echo hello").verdict == "allow"       # a bare word that isn't a file
+    assert p.check_path(str(tmp_path / "proj" / ".env.local"), "read").verdict == "deny"

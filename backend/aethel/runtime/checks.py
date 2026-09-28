@@ -1,5 +1,8 @@
 """Machine-checkable postconditions (spec §4.1 'verify'). A task only reaches
 'done' when all of its checks pass."""
+import html
+import re
+import zipfile
 from dataclasses import dataclass
 from typing import Literal
 
@@ -37,9 +40,28 @@ class CheckResult:
     detail: str
 
 
+_PARA_RE = re.compile(r"<w:p[ >].*?</w:p>", re.DOTALL)
+_TEXT_RE = re.compile(r"<w:t(?: [^>]*)?>(.*?)</w:t>", re.DOTALL)
+
+
+def _docx_text(p) -> str:
+    """Paragraph text of a .docx; runs inside a paragraph are joined without a
+    space, since Word often splits one word across runs."""
+    try:
+        with zipfile.ZipFile(p) as z:
+            xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return ""
+    return "\n".join(html.unescape("".join(_TEXT_RE.findall(para))) for para in _PARA_RE.findall(xml))
+
+
 def _read(path: str) -> str | None:
     p = resolve_user_path(path)  # the same resolution the fs tools use, so ~ and %VAR% match
-    return p.read_text(encoding="utf-8", errors="replace") if p is not None and p.is_file() else None
+    if p is None or not p.is_file():
+        return None
+    if p.suffix.lower() == ".docx":
+        return _docx_text(p)
+    return p.read_text(encoding="utf-8", errors="replace")
 
 
 def run_check(check: Check) -> CheckResult:

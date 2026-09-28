@@ -82,3 +82,32 @@ def test_task_control_cancel_over_websocket(tmp_path):
             ws.send_json({"type": "task_control", "task_id": task_id, "action": "cancel"})
             final = _until(ws, lambda e: e["type"] == "task_state" and e["state"] == "cancelled")[-1]
     assert final["message_text"] == "Okay, I've stopped that task."
+
+
+def test_kill_switch_cancels_every_running_task(tmp_path):
+    client, svc = _client(tmp_path, [
+        [tool_call("submit_plan", steps=["Write"], checks=[])],
+        [tool_call("fs_write", path=str(tmp_path / "x.txt"), content="x")],
+        [tool_call("submit_plan", steps=["Write"], checks=[])],
+        [tool_call("fs_write", path=str(tmp_path / "y.txt"), content="y")],
+    ])
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "start_task", "conversation_id": conv["id"], "goal": "one"})
+            _until(ws, lambda e: e["type"] == "approval_needed")
+            ws.send_json({"type": "start_task", "conversation_id": conv["id"], "goal": "two"})
+            _until(ws, lambda e: e["type"] == "approval_needed")
+            ws.send_json({"type": "kill_switch"})
+            seen = set()
+            _until(ws, lambda e: (e["type"] == "task_state" and e["state"] == "cancelled"
+                                  and seen.add(e["task_id"]) is None and len(seen) == 2))
+    assert all(t.state == "cancelled" for t in svc.tasks.list_for_conversation(conv["id"]))
+
+
+def test_tools_status_lists_servers_and_tools(tmp_path):
+    client, svc = _client(tmp_path, [])
+    with client:
+        body = client.get("/api/tools").json()
+    assert body["servers"] == {}  # tests run without MCP servers
+    assert "fs_write" in body["tools"] and "shell_run" in body["tools"]

@@ -73,6 +73,8 @@ if SUPPORTED:
     _k32.OpenProcess.restype = wintypes.HANDLE
     _k32.CloseHandle.argtypes = [wintypes.HANDLE]
     _k32.CloseHandle.restype = wintypes.BOOL
+    _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    _k32.TerminateJobObject.restype = wintypes.BOOL
 
     def _create_job():
         job = _k32.CreateJobObjectW(None, None)
@@ -125,3 +127,33 @@ def kill_on_close_enabled() -> bool:
     ok = _k32.QueryInformationJobObject(_get_job(), JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
                                         ctypes.byref(info), ctypes.sizeof(info), None)
     return bool(ok) and bool(info.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+
+
+class ProcessGroup:
+    """A private job for one command and everything it starts, so the whole
+    tree can be killed even after the command's own process has exited.
+    Deliberately not kill-on-close: whatever is still running when the
+    command finishes normally (an approved `start notepad`) keeps running."""
+
+    def __init__(self) -> None:
+        self._job = _k32.CreateJobObjectW(None, None) if SUPPORTED else None
+
+    def add(self, pid: int) -> bool:
+        if not self._job:
+            return False
+        handle = _k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, int(pid))
+        if not handle:
+            return False
+        try:
+            return bool(_k32.AssignProcessToJobObject(self._job, handle))
+        finally:
+            _k32.CloseHandle(handle)
+
+    def kill(self) -> None:
+        if self._job:
+            _k32.TerminateJobObject(self._job, 1)
+
+    def close(self) -> None:
+        if self._job:
+            _k32.CloseHandle(self._job)
+            self._job = None

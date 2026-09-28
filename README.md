@@ -28,6 +28,15 @@ result before reporting back. Anything outside your allowed folders or commands 
 panel. Allowed folders and commands live in `~/.aethel/permissions.yaml`. **Undo file changes** restores every
 file a finished task wrote.
 
+**Computer control:** tasks can also drive any Windows app through
+[Windows-MCP](https://github.com/CursorTouch/Windows-MCP) (needs [uv](https://docs.astral.sh/uv/)), Word, Excel
+and PowerPoint through an in-house COM server, and precise file edits, PDF/Excel reading and search through
+[Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) (needs Node). Each connects in the background
+at launch; **Settings → Computer control** shows which are up. Only vetted tools are exposed: their shell, registry
+and process tools are never offered, since they would bypass `permissions.yaml`. Actions are scoped to the app they
+land in; anything that sends, buys, deletes or closes always asks, and Aethel never operates its own window or sign-in
+prompts. **Ctrl+Alt+Esc** stops every task at once, from any app. Set `AETHEL_MCP=0` to turn computer control off.
+
 **Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
 
 **Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run

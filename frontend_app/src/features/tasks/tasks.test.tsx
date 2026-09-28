@@ -74,3 +74,21 @@ test("the Task pill switches the prompt into task mode", async () => {
   expect(onSend).toHaveBeenCalledWith("tidy my downloads", "task");
   expect(screen.getByRole("button", { name: "Task" })).toHaveAttribute("aria-pressed", "false");
 });
+
+test("desktop and Office actions get readable approval verbs", async () => {
+  const { approvalVerb } = await import("./ApprovalCard");
+  expect(approvalVerb("win_click")).toBe("click");
+  expect(approvalVerb("win_multi_edit")).toBe("use an app on your screen");
+  expect(approvalVerb("excel_write")).toBe("work in Office");
+  expect(approvalVerb("something_new")).toBe("use something_new");
+});
+
+test("Undo is offered after an Office save, not after read-only steps", () => {
+  const step = (tool: string) => ({ id: tool, tool, summary: "x", verdict: "allow" as const, ok: true, detail: "", durationMs: 1 });
+  useTasks.setState({ tasks: { t1: task({ state: "done", approvals: [], steps: [step("word_read")] }) } });
+  const { rerender } = render(<TaskPanel />);
+  expect(screen.queryByRole("button", { name: /Undo file changes/ })).not.toBeInTheDocument();
+  useTasks.setState({ tasks: { t1: task({ state: "done", approvals: [], steps: [step("word_save")] }) } });
+  rerender(<TaskPanel />);
+  expect(screen.getByRole("button", { name: /Undo file changes/ })).toBeInTheDocument();
+});

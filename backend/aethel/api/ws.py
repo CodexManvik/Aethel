@@ -4,7 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from ..auth import origin_allowed
-from ..protocol import ApprovalDecision, ErrorEvent, StartTask, StopGeneration, TaskControl, UserMessage, \
+from ..protocol import ApprovalDecision, ErrorEvent, KillSwitch, StartTask, StopGeneration, TaskControl, UserMessage, \
     client_event_adapter
 
 router = APIRouter()
@@ -28,7 +28,16 @@ async def session_socket(websocket: WebSocket) -> None:
         async with send_lock:
             await websocket.send_text(payload)
 
-    unsubscribe = services.hub.subscribe(send)
+    closing: set[asyncio.Task] = set()
+
+    def dropped() -> None:
+        # The hub gave up on this socket: close it so the window reconnects
+        # and re-fetches, rather than silently missing every later event.
+        task = asyncio.get_running_loop().create_task(websocket.close(code=1011))
+        closing.add(task)
+        task.add_done_callback(closing.discard)
+
+    unsubscribe = services.hub.subscribe(send, on_drop=dropped)
     try:
         while True:
             raw = await websocket.receive_text()
@@ -50,6 +59,8 @@ async def session_socket(websocket: WebSocket) -> None:
                 await action(event.task_id)
             elif isinstance(event, ApprovalDecision):
                 await services.approvals.resolve(event.approval_id, event.decision)
+            elif isinstance(event, KillSwitch):
+                await services.engine.cancel_all()
     except WebSocketDisconnect:
         pass
     finally:

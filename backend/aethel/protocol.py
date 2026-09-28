@@ -186,7 +186,12 @@ class ApprovalDecision(Event):
     decision: Decision
 
 
-ClientEvent = Annotated[Union[UserMessage, StopGeneration, StartTask, TaskControl, ApprovalDecision],
+class KillSwitch(Event):
+    """Ctrl+Alt+Esc: cancel every task now (spec §4.3)."""
+    type: Literal["kill_switch"] = "kill_switch"
+
+
+ClientEvent = Annotated[Union[UserMessage, StopGeneration, StartTask, TaskControl, ApprovalDecision, KillSwitch],
                         Field(discriminator="type")]
 
 server_event_adapter: TypeAdapter = TypeAdapter(ServerEvent)

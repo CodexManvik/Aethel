@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +20,11 @@ from .safety.permissions import Permissions
 from .settings import SettingsService
 from .store.db import Database
 from .store.repos import ConversationRepo, MessageRepo
+from .tools.desktop import Desktop, desktop_spec
+from .tools.file_commander import FileCommander, file_commander_spec
 from .tools.local_fs import fs_tools
+from .tools.mcp_hub import McpHub, ServerSpec
+from .tools.office import Office, office_spec
 from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
 
@@ -46,6 +51,8 @@ class Services:
     approvals: ApprovalBroker
     tasks: TaskRepo
     engine: TaskEngine
+    mcp: McpHub
+    mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
         if self.local_llm is not None:
@@ -54,7 +61,7 @@ class Services:
 
 
 def build_services(*, provider_factory: ProviderFactory | None = None, local_llm=AUTO,
-                   permissions_path: Path | None = None) -> Services:
+                   permissions_path: Path | None = None, mcp_servers: list[ServerSpec] | None = None) -> Services:
     db = Database(db_path())
     conversations, messages = ConversationRepo(db), MessageRepo(db)
     messages.reconcile_interrupted()  # replies cut off by a previous kill/crash
@@ -82,5 +89,15 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
-        approvals=approvals, tasks=tasks, engine=engine,
+        approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry),
+        mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
     )
+
+
+def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter) -> list[ServerSpec]:
+    """Desktop, Office and Desktop Commander. AETHEL_MCP=0 turns them all off."""
+    if os.environ.get("AETHEL_MCP") == "0":
+        return []
+    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes)),
+             file_commander_spec(FileCommander(permissions, changes))]
+    return [spec for spec in specs if spec is not None]

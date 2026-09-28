@@ -37,6 +37,7 @@ class StepRecord(BaseModel):
     result: str | None
     duration_ms: int | None
     created_at: str
+    untrusted: bool = False
 
 
 def _task(row) -> TaskRecord:
@@ -50,6 +51,7 @@ def _step(row) -> StepRecord:
     d = dict(row)
     d["args"] = json.loads(d["args"])
     d["ok"] = None if d["ok"] is None else bool(d["ok"])
+    d["untrusted"] = bool(d.get("untrusted"))
     return StepRecord(**d)
 
 
@@ -113,9 +115,9 @@ class TaskRepo:
         )
         return _step(self.db.query_one("SELECT * FROM steps WHERE id = ?", (step_id,)))
 
-    def finish_step(self, step_id: str, ok: bool, result: str, duration_ms: int) -> None:
-        self.db.execute("UPDATE steps SET ok = ?, result = ?, duration_ms = ? WHERE id = ?",
-                        (int(ok), result, duration_ms, step_id))
+    def finish_step(self, step_id: str, ok: bool, result: str, duration_ms: int, untrusted: bool = False) -> None:
+        self.db.execute("UPDATE steps SET ok = ?, result = ?, duration_ms = ?, untrusted = ? WHERE id = ?",
+                        (int(ok), result, duration_ms, int(untrusted), step_id))
 
     def steps(self, task_id: str) -> list[StepRecord]:
         return [_step(r) for r in self.db.query("SELECT * FROM steps WHERE task_id = ? ORDER BY idx", (task_id,))]

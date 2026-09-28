@@ -6,6 +6,7 @@ import signal
 import subprocess
 from pathlib import Path
 
+from ..providers.job_object import ProcessGroup
 from ..safety.permissions import Permissions
 from .base import Assessment, Tool, ToolContext, ToolResult
 
@@ -31,9 +32,13 @@ def _decode(data: bytes) -> str:
     return data.decode(locale.getpreferredencoding(False), errors="replace")
 
 
-async def _kill_tree(proc: asyncio.subprocess.Process) -> None:
+async def _kill_tree(proc: asyncio.subprocess.Process, group: ProcessGroup | None = None) -> None:
     """Kill the command and everything it started. Killing only cmd.exe would
-    leave a grandchild holding the output pipes open."""
+    leave a grandchild holding the output pipes open. The job catches children
+    whose parent already exited; taskkill /T covers anything that escaped the
+    job before cmd.exe was added to it."""
+    if group is not None:
+        group.kill()
     if proc.returncode is None:
         try:
             if os.name == "nt":
@@ -69,23 +74,30 @@ def shell_tool(perms: Permissions) -> Tool:
         spawn = asyncio.ensure_future(asyncio.create_subprocess_exec(
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=str(Path.home()), env=scrubbed_env(), **extra))
+        group = ProcessGroup()
         try:
-            proc = await asyncio.shield(spawn)
-        except asyncio.CancelledError:
-            # Cancelled while the pipes were still being set up: the command
-            # may already be running, so let the spawn finish and kill its tree
-            # (asyncio would otherwise kill only cmd.exe, orphaning the rest).
-            with contextlib.suppress(Exception):
-                await _kill_tree(await spawn)
-            raise
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
-        except asyncio.TimeoutError:
-            await asyncio.shield(_kill_tree(proc))
-            return ToolResult(False, f"Timed out after {TIMEOUT_S}s.")
-        except asyncio.CancelledError:
-            await asyncio.shield(_kill_tree(proc))
-            raise
+            try:
+                proc = await asyncio.shield(spawn)
+            except asyncio.CancelledError:
+                # Cancelled while the pipes were still being set up: the command
+                # may already be running, so let the spawn finish and kill its tree
+                # (asyncio would otherwise kill only cmd.exe, orphaning the rest).
+                with contextlib.suppress(Exception):
+                    await _kill_tree(await spawn)
+                raise
+            # ponytail: added after spawn, so a child started in cmd.exe's first
+            # milliseconds can escape the job; taskkill /T still gets it via cmd.
+            group.add(proc.pid)
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
+            except asyncio.TimeoutError:
+                await asyncio.shield(_kill_tree(proc, group))
+                return ToolResult(False, f"Timed out after {TIMEOUT_S}s.")
+            except asyncio.CancelledError:
+                await asyncio.shield(_kill_tree(proc, group))
+                raise
+        finally:
+            group.close()
         output = _decode(stdout) + (("\n[stderr]\n" + _decode(stderr)) if stderr else "")
         if len(output) > MAX_OUTPUT:
             output = output[:MAX_OUTPUT] + "\n[truncated]"

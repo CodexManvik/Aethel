@@ -130,6 +130,30 @@ fn secret_get_all() -> Result<HashMap<String, String>, String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Ctrl+Alt+Esc anywhere cancels every task (spec §4.3). The window turns the
+/// event into a `kill_switch` message on its socket.
+fn register_kill_switch(app: &mut tauri::App) {
+    use tauri::Emitter;
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+
+    let kill = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Escape);
+    let builder = match tauri_plugin_global_shortcut::Builder::new().with_shortcuts([kill]) {
+        Ok(b) => b,
+        Err(e) => return log::warn!("kill-switch hotkey unavailable: {e}"),
+    };
+    let plugin = builder
+        .with_handler(move |app, shortcut, event| {
+            if shortcut == &kill && event.state() == ShortcutState::Pressed {
+                let _ = app.emit("kill-switch", ());
+            }
+        })
+        .build();
+    // Another program may already own the hotkey; the Cancel buttons still work.
+    if let Err(e) = app.handle().plugin(plugin) {
+        log::warn!("kill-switch hotkey unavailable: {e}");
+    }
+}
+
 pub fn run() {
     let port: u16 = std::env::var("AETHEL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8765);
     let token = std::env::var("AETHEL_TOKEN").unwrap_or_else(|_| uuid::Uuid::new_v4().simple().to_string());
@@ -145,6 +169,7 @@ pub fn run() {
                     tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build(),
                 )?;
             }
+            register_kill_switch(app);
             if std::env::var("AETHEL_EXTERNAL_BACKEND").as_deref() != Ok("1") {
                 match spawn_backend(&token, port) {
                     Ok(child) => *app.state::<BackendProcess>().0.lock().unwrap() = Some(child),

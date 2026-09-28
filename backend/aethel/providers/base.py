@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Literal, Protocol, Union
 
 
@@ -22,6 +22,7 @@ class ChatMessage:
     content: str
     tool_calls: list[ToolCall] | None = None  # assistant turns that called tools
     tool_call_id: str | None = None           # tool results: which call this answers
+    images: list[str] = field(default_factory=list)  # data: URLs, for the vision role
 
 
 @dataclass

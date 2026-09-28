@@ -32,6 +32,9 @@ def _wire_message(m: ChatMessage) -> dict:
                 for c in m.tool_calls
             ],
         }
+    if m.images:
+        return {"role": m.role, "content": [{"type": "text", "text": m.content}] + [
+            {"type": "image_url", "image_url": {"url": url}} for url in m.images]}
     return {"role": m.role, "content": m.content}
 
 

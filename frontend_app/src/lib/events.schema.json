@@ -231,6 +231,23 @@
       "title": "ErrorEvent",
       "type": "object"
     },
+    "KillSwitch": {
+      "additionalProperties": false,
+      "description": "Ctrl+Alt+Esc: cancel every task now (spec \u00a74.3).",
+      "properties": {
+        "type": {
+          "const": "kill_switch",
+          "default": "kill_switch",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "KillSwitch",
+      "type": "object"
+    },
     "MessageEnd": {
       "additionalProperties": false,
       "properties": {
@@ -862,6 +879,7 @@
       "discriminator": {
         "mapping": {
           "approval_decision": "#/$defs/ApprovalDecision",
+          "kill_switch": "#/$defs/KillSwitch",
           "start_task": "#/$defs/StartTask",
           "stop_generation": "#/$defs/StopGeneration",
           "task_control": "#/$defs/TaskControl",
@@ -884,6 +902,9 @@
         },
         {
           "$ref": "#/$defs/ApprovalDecision"
+        },
+        {
+          "$ref": "#/$defs/KillSwitch"
         }
       ],
       "title": "Client"

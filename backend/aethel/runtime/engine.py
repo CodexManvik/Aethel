@@ -3,6 +3,7 @@
 One asyncio runner per task. State is persisted after every change, so a
 restart leaves unfinished tasks 'paused' and resumable."""
 import asyncio
+import inspect
 import json
 import logging
 import re
@@ -34,7 +35,6 @@ log = logging.getLogger("aethel.tasks")
 MAX_TOOL_RESULT_CHARS = 12_000
 MAX_IDENTICAL_CALLS = 2
 MAX_CONSECUTIVE_LOOPS = 3
-UNTRUSTED_TOOLS = {"fs_read", "fs_list", "shell_run"}
 _CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
 CUT_OFF_MESSAGE = ("Error: your tool call was cut off because it was too long. "
                    "Write the content in smaller parts (use mode 'append').")
@@ -238,6 +238,14 @@ class TaskEngine:
         await self._finish(task_id, "cancelled", None)
         return True
 
+    async def cancel_all(self) -> int:
+        """The kill switch. Cancelling a runner also cancels its in-flight tool
+        call, and the MCP hub restarts that server so no input keeps going."""
+        ids = list(self._runners)
+        for task_id in ids:
+            await self.cancel(task_id)
+        return len(ids)
+
     def note_for_chat(self, conversation_id: str) -> str | None:
         active = [t for t in self.tasks.list_for_conversation(conversation_id) if t.state not in TERMINAL_STATES]
         if not active:
@@ -298,7 +306,7 @@ class TaskEngine:
             ctx = ToolContext(task_id=task_id)
             if note:
                 prior_steps = self.tasks.steps(task_id)
-                if any(s.ok and s.tool in UNTRUSTED_TOOLS for s in prior_steps):
+                if any(s.ok and s.untrusted for s in prior_steps):
                     ctx.tainted = True
                 convo.append(ChatMessage("user", note))
             grants: set[tuple[str, str]] = set()  # (tool name, scope) the user allowed for this task
@@ -391,6 +399,7 @@ class TaskEngine:
                        run: "_RunClock", budget: "_Budget") -> Outcome:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
+        nudged = False
         while True:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
@@ -398,6 +407,11 @@ class TaskEngine:
             calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
+                if not nudged:  # models often narrate a step instead of doing it
+                    nudged = True
+                    convo.append(ChatMessage("user", "If the task is finished, call finish_task with a short summary. "
+                                                     "Otherwise carry on with the tools."))
+                    continue
                 return Outcome(text.strip() or None, False)
             finished: str | None = None
             stop_batch = False
@@ -453,7 +467,10 @@ class TaskEngine:
         budget.consecutive_loops = 0
 
         scope = tool.scope_for(args)
-        verdict = decide(tool, tool.assess(args), tainted=ctx.tainted, grants=grants, scope=scope)
+        assessment = tool.assess(args)
+        if inspect.isawaitable(assessment):
+            assessment = await assessment
+        verdict = decide(tool, assessment, tainted=ctx.tainted, grants=grants, scope=scope)
         step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict)
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
                                            summary=verdict.target, verdict=verdict.verdict))
@@ -464,7 +481,7 @@ class TaskEngine:
             run.pause()
             try:
                 decision = await self.approvals.request(task_id=task_id, step_id=step.id, tool=tool.name,
-                                                        summary=verdict.target, reason=verdict.reason, tier=tool.tier)
+                                                        summary=verdict.target, reason=verdict.reason, tier=verdict.tier)
             finally:
                 run.resume()
             # Unconditional: _set_state already defers to _underlying while
@@ -476,7 +493,7 @@ class TaskEngine:
                     False, "The user declined this action. Don't try it again; find another way or finish and explain."),
                     0, ctx)
             if decision == "allow_task":
-                grants.add((tool.name, scope))
+                grants.add((tool.grant_key, scope))
         await self._gate(task_id, run)
         t0 = self.clock()
         try:
@@ -488,7 +505,7 @@ class TaskEngine:
 
     async def _end_step(self, task_id: str, step_id: str, tool_name: str, result: ToolResult, duration_ms: int,
                         ctx: ToolContext) -> str:
-        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms)
+        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms, result.untrusted)
         await self.hub.publish(StepFinished(task_id=task_id, step_id=step_id, ok=result.ok,
                                             detail=_first_line(result.content), duration_ms=duration_ms))
         content = result.content

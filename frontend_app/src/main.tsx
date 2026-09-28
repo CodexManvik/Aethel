@@ -6,8 +6,10 @@ import "./styles/index.css";
 import { App } from "./App";
 import { ErrorBoundary } from "./features/shell/ErrorBoundary";
 import { applyStoredAppearance } from "./stores/ui";
+import { listenForKillSwitch } from "./features/tasks/taskActions";
 
 applyStoredAppearance();
+void listenForKillSwitch();
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
 createRoot(document.getElementById("root")!).render(

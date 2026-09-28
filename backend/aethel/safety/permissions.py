@@ -70,15 +70,15 @@ _SWITCH_RE = re.compile(r"^/[a-z0-9?]{1,2}(:[^\\/]*)?$", re.IGNORECASE)  # cmd s
 
 
 def _split_command(cmd: str) -> list[str]:
-    """Split like cmd.exe does: whitespace separates words except inside double
-    quotes; the quotes and ^ escapes are dropped."""
+    """Split like cmd.exe does: whitespace, ',', ';' and '=' separate words except
+    inside double quotes; the quotes and ^ escapes are dropped."""
     words, current, quoted = [], [], False
     for ch in cmd:
         if ch == '"':
             quoted = not quoted
         elif ch == "^" and not quoted:
             continue
-        elif ch.isspace() and not quoted:
+        elif (ch.isspace() or ch in ",;=") and not quoted:
             if current:
                 words.append("".join(current))
                 current = []
@@ -91,7 +91,8 @@ def _split_command(cmd: str) -> list[str]:
 
 def _program(word: str) -> str:
     name = re.split(r"[\\/]", re.sub(r"[\"'^`]", "", word).lower())[-1]
-    return name[:-4] if name.endswith(".exe") else name
+    name = name[:-4] if name.endswith(".exe") else name
+    return re.sub(r"[\d.]+$", "", name) or name  # python3.11 -> python
 
 
 def _matches(low: str, allowed: str) -> bool:
@@ -102,6 +103,16 @@ def _looks_like_path(word: str) -> bool:
     if word.startswith("-") or _SWITCH_RE.match(word):
         return False
     return any(c in word for c in "\\/:%") or word.startswith((".", "~"))
+
+
+def _names_home_file(word: str) -> bool:
+    """A bare word like `_netrc` is still a file when the command runs in home."""
+    if word.startswith("-") or _SWITCH_RE.match(word):
+        return False
+    try:
+        return (Path.home() / word).exists()
+    except (OSError, ValueError):
+        return False
 
 
 def _expand_arg(word: str) -> str:
@@ -138,7 +149,7 @@ def _protected(target: str, mode: Literal["read", "write"]) -> Decision | None:
     # name:stream) as the same file, so compare on the name Windows will use.
     name = os.path.basename(target).split(":", 1)[0].rstrip(". ")
     canonical = os.path.join(os.path.dirname(target), name)
-    if name == ".env":
+    if name == ".env" or name.startswith(".env."):  # .env.local, .env.production...
         return Decision("deny", ".env files hold secrets and are off-limits.")
     if mode == "read":
         if any(canonical == _norm(str(home / db)) for db in _DB_FILES):
@@ -211,19 +222,23 @@ class Permissions:
                     return Decision("deny", f"'{bad}' would let a command run arbitrary code or chain commands.")
         if any(t.startswith(flag) for t in tokens for flag in OUTPUT_FLAGS):
             return Decision("deny", "Options that write output to a file are blocked.")
+        # cmd also expands %CD%, %=C:%, %VAR:~n% and %VAR:a=b%, which we can't
+        # resolve here; a %...% pair left after expanding env vars could be any path.
+        if os.path.expandvars(cmd).count("%") >= 2:
+            return Decision("deny", "Only plain %VARIABLE% references are allowed in commands.")
         words = _split_command(cmd)
         matched = next((a for a in sh.allowed_commands if _matches(low, a.strip().lower())), None)
         # The program itself is never checked as a path; for an allowed command,
         # neither are the words that matched the allowlist entry.
         skip = max(1, len(matched.split())) if matched is not None and matched.strip() != "*" else 1
         path_verdicts = [self.check_path(arg, "read")
-                         for arg in (_expand_arg(w) for w in words[skip:] if _looks_like_path(w))]
+                         for arg in (_expand_arg(w) for w in words[skip:] if _looks_like_path(w) or _names_home_file(w))]
         denied = next((d for d in path_verdicts if d.verdict == "deny"), None)
         if denied is not None:
             return denied
         if matched is None:
             return Decision("ask", "Not on the list of commands I may run without asking.")
-        if _program(words[0] if words else "") in INTERPRETERS:
+        if _program(os.path.expandvars(words[0]) if words else "") in INTERPRETERS:
             return Decision("ask", "This starts a program that can run any code, so I check first.")
         if any(d.verdict == "ask" for d in path_verdicts):
             return Decision("ask", "It reads outside the folders I'm allowed to read without asking.")

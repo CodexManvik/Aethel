@@ -183,3 +183,39 @@ def test_grant_scopes(env):
     assert tools["shell_run"].scope_for({"command": "  Winget   install foo "}) == "winget install foo"
     assert tools["shell_run"].scope_for({"command": "winget install bar"}) != "winget install foo"
     assert tools["fs_read"].scope_for({"path": str(tmp / "x")}) == "fs_read"  # no grant_scope: the whole tool
+
+
+def test_registry_unregister():
+    from aethel.tools.base import Assessment, Tool, ToolResult
+    from aethel.tools.registry import ToolRegistry
+
+    async def run(args, ctx):
+        return ToolResult(True, "")
+
+    reg = ToolRegistry()
+    reg.register(Tool("win_click", "", {}, "write", run, lambda a: Assessment("allow", "", "")))
+    reg.unregister("win_click")
+    reg.unregister("never_there")  # no error
+    assert reg.get("win_click") is None and reg.specs() == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+async def test_shell_cancel_kills_grandchildren_whose_parent_already_exited(env):
+    """`start /b` lets cmd.exe exit at once, orphaning ping: taskkill /T on
+    cmd's pid can't find it any more, the per-command job still can."""
+    import asyncio
+    _, tools, _ = env
+    before = _ping_pids()
+    task = asyncio.ensure_future(tools["shell_run"].handler({"command": "start /b ping -n 30 127.0.0.1"},
+                                                            ToolContext(None)))
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        if _ping_pids() - before:
+            break
+    assert _ping_pids() - before, "ping never started"
+    await asyncio.sleep(0.3)  # cmd.exe has exited by now
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.3)
+    assert _ping_pids() - before == set()
