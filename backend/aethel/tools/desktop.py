@@ -9,11 +9,13 @@ import math
 import os
 import re
 import shutil
+from contextlib import aclosing
 from dataclasses import dataclass
 
 import psutil
 from mcp import types as mt
 
+from ..providers.base import ChatMessage, TextDelta
 from ..safety.permissions import INTERPRETERS
 from .base import Assessment, Tool, ToolContext, ToolResult
 from .mcp_hub import ServerSpec
@@ -50,6 +52,7 @@ IRREVERSIBLE_RE = re.compile(
 IRREVERSIBLE_KEYS = {"alt+f4", "ctrl+w", "shift+delete", "ctrl+shift+delete"}
 _ELEMENT_RE = re.compile(r'\((-?\d+),(-?\d+)\)\s+(\S+)\s+"(.*)"\s+\[action:')
 _WINDOW_RE = re.compile(r'^window "(.*)"\s*$')
+_SCALE_RE = re.compile(r"Screenshot Coordinate Scale:\s*([\d.]+)")
 
 
 @dataclass
@@ -138,9 +141,10 @@ def _app_name(name) -> str:
 
 
 class Desktop:
-    def __init__(self, window_at=window_at, foreground=foreground_window):
+    def __init__(self, window_at=window_at, foreground=foreground_window, vision=None):
         self.window_at = window_at
         self.foreground = foreground
+        self.vision = vision  # a RoleRouter: win_locate asks its "vision" role
         self.hub = None
         self.elements: list[Element] = []  # from the latest snapshot
 
@@ -242,9 +246,51 @@ class Desktop:
         return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope,
                     group="desktop")
 
+    async def _locate(self, args: dict, ctx: ToolContext | None) -> ToolResult:
+        """Vision fallback (spec §4.2): for apps whose accessibility tree is
+        empty or unhelpful, find a described thing on a screenshot."""
+        description = str(args.get("description") or "").strip()
+        if not description:
+            return ToolResult(False, "Say what to look for.")
+        shot = await self.hub.call_raw(SERVER, "Screenshot", {"use_annotation": False})
+        if isinstance(shot, str):
+            return ToolResult(False, shot)
+        image = next((c for c in shot.content if isinstance(c, mt.ImageContent)), None)
+        if image is None:
+            return ToolResult(False, "Couldn't take a screenshot.")
+        notes = " ".join(c.text for c in shot.content if isinstance(c, mt.TextContent))
+        m = _SCALE_RE.search(notes)
+        scale = float(m.group(1)) if m else 1.0
+        prompt = (f"Find this on the screenshot: {description}\n"
+                  "Reply with only the centre of it as x,y in image pixels, or none if it isn't there.")
+        reply = []
+        stream = self.vision.stream("vision", [ChatMessage("user", prompt,
+                                                           images=[f"data:{image.mimeType};base64,{image.data}"])],
+                                    max_tokens=40)
+        async with aclosing(stream):
+            async for event in stream:
+                if isinstance(event, TextDelta):
+                    reply.append(event.text)
+        point = re.search(r"(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)", "".join(reply))
+        if point is None:
+            return ToolResult(False, f"I couldn't see {description} on the screen.")
+        # ponytail: assumes the screenshot starts at the desktop's top-left; a
+        # monitor left of or above the primary one would need its offset added.
+        x, y = round(float(point.group(1)) * scale), round(float(point.group(2)) * scale)
+        return ToolResult(True, f"{description} is at ({x}, {y}). Pass [{x}, {y}] as loc.", untrusted=True)
+
     def adapt(self, hub, remote_tools: list[mt.Tool]) -> list[Tool]:
         self.hub = hub
-        return [self._tool(t) for t in remote_tools if t.name in EXPOSED]
+        tools = [self._tool(t) for t in remote_tools if t.name in EXPOSED]
+        if self.vision is not None and any(t.name == "Screenshot" for t in remote_tools):
+            tools.append(Tool(
+                "win_locate",
+                "Find something on screen by description using a screenshot, when win_snapshot doesn't list it "
+                "(games, canvases, some Electron apps). Returns screen coordinates to pass as loc.",
+                {"type": "object", "properties": {"description": {"type": "string"}}, "required": ["description"]},
+                "read", self._locate, lambda args: Assessment("allow", "", f"Look for {args.get('description')}"),
+                group="desktop"))
+        return tools
 
 
 def desktop_spec(desk: Desktop) -> ServerSpec | None:

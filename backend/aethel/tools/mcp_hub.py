@@ -108,20 +108,26 @@ class McpHub:
         return {name: conn.status for name, conn in self._conns.items()}
 
     async def call(self, server: str, tool: str, args: dict) -> ToolResult:
+        result = await self.call_raw(server, tool, args)
+        return ToolResult(False, result) if isinstance(result, str) else _to_result(result)
+
+    async def call_raw(self, server: str, tool: str, args: dict) -> mt.CallToolResult | str:
+        """The server's own result (images included), or an error message."""
         conn = self._conns.get(server)
         if conn is None or conn.session is None:
-            return ToolResult(False, f"The {server} tools aren't connected right now.")
+            return f"The {server} tools aren't connected right now."
         try:
-            result = await asyncio.wait_for(conn.session.call_tool(tool, args), CALL_TIMEOUT_S)
+            # Not wait_for: on 3.11 it swallows a cancel that lands as the call completes.
+            async with asyncio.timeout(CALL_TIMEOUT_S):
+                return await conn.session.call_tool(tool, args)
         except asyncio.CancelledError:
             self._restart_soon(server)  # stop whatever it's still doing
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._restart_soon(server)
-            return ToolResult(False, f"{tool} didn't finish within {CALL_TIMEOUT_S}s.")
+            return f"{tool} didn't finish within {CALL_TIMEOUT_S}s."
         except Exception as exc:
-            return ToolResult(False, f"Error: {exc}")
-        return _to_result(result)
+            return f"Error: {exc}"
 
     async def restart(self, server: str) -> None:
         conn = self._conns.get(server)

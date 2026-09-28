@@ -89,13 +89,13 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry),
-        mcp_servers=default_mcp_servers(permissions, changes) if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
     )
 
 
-def default_mcp_servers(permissions: Permissions, changes: ChangeLog) -> list[ServerSpec]:
+def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter) -> list[ServerSpec]:
     """The desktop and Office servers. AETHEL_MCP=0 turns computer control off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    specs = [desktop_spec(Desktop()), office_spec(Office(permissions, changes))]
+    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes))]
     return [spec for spec in specs if spec is not None]

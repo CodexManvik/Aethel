@@ -123,3 +123,37 @@ def test_spec_is_pinned_and_telemetry_is_off(monkeypatch):
 def test_window_lookup_works_on_this_machine():
     app = desktop.foreground_window()
     assert app is None or isinstance(app.name, str)
+
+
+async def test_win_locate_asks_the_vision_role_and_scales_back_to_the_screen():
+    from aethel.providers.base import StreamDone, TextDelta
+
+    class Hub:
+        async def call_raw(self, server, tool, args):
+            assert tool == "Screenshot"
+            return mt.CallToolResult(content=[
+                mt.TextContent(type="text", text="Screenshot Coordinate Scale: 2.0 — image pixels are downscaled"),
+                mt.ImageContent(type="image", data="QUJD", mimeType="image/png")])
+
+    class Router:
+        def __init__(self, reply):
+            self.reply, self.seen = reply, []
+
+        async def stream(self, role, messages, **kw):
+            self.seen.append((role, messages))
+            yield TextDelta(self.reply)
+            yield StreamDone("stop")
+
+    router = Router("The button is at 150, 40.")
+    dk = Desktop(vision=router)
+    tools = {t.name: t for t in dk.adapt(Hub(), [_remote("Screenshot"), _remote("Click")])}
+    result = await tools["win_locate"].handler({"description": "the Save button"}, None)
+    assert result.ok and "(300, 80)" in result.content
+    role, messages = router.seen[0]
+    assert role == "vision" and messages[0].images == ["data:image/png;base64,QUJD"]
+    assert tools["win_locate"].tier == "read"
+
+    dk.vision = Router("none")
+    missing = await tools["win_locate"].handler({"description": "a unicorn"}, None)
+    assert not missing.ok
+    assert "win_locate" not in {t.name for t in Desktop().adapt(Hub(), [_remote("Screenshot")])}  # no vision role

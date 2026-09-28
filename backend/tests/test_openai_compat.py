@@ -84,3 +84,13 @@ def test_catalog_base_urls():
     assert base_url_for("custom", s) == "http://my.box/v1"
     assert base_url_for("local", s).startswith("http://127.0.0.1:")
     assert PROVIDERS["local"].needs_key is False
+
+
+def test_images_travel_as_content_parts():
+    from aethel.providers.base import ChatMessage
+    from aethel.providers.openai_compat import _wire_message
+    wire = _wire_message(ChatMessage("user", "where is Save?", images=["data:image/png;base64,AAAA"]))
+    assert wire == {"role": "user", "content": [
+        {"type": "text", "text": "where is Save?"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}
+    assert _wire_message(ChatMessage("user", "plain")) == {"role": "user", "content": "plain"}
