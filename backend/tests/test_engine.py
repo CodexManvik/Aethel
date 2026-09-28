@@ -760,3 +760,16 @@ async def test_async_assessor_and_per_step_untrusted_survive_a_restart(h):
     await engine2.cancel(task_id)
     await engine2.wait_idle()
     engine.registry.unregister("screen_look")
+
+
+async def test_a_text_only_turn_gets_one_nudge_before_it_counts_as_the_answer(h):
+    engine, provider = h.make([
+        [plan(["Say it"])],
+        [TextDelta("I'll write the file now.")],                 # talks instead of acting
+        [tool_call("finish_task", summary="Nothing to write after all.")],
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).summary == "Nothing to write after all."
+    assert any("finish_task" in m.content for m in provider.calls[2] if m.role == "user")

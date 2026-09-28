@@ -28,7 +28,16 @@ async def session_socket(websocket: WebSocket) -> None:
         async with send_lock:
             await websocket.send_text(payload)
 
-    unsubscribe = services.hub.subscribe(send)
+    closing: set[asyncio.Task] = set()
+
+    def dropped() -> None:
+        # The hub gave up on this socket: close it so the window reconnects
+        # and re-fetches, rather than silently missing every later event.
+        task = asyncio.get_running_loop().create_task(websocket.close(code=1011))
+        closing.add(task)
+        task.add_done_callback(closing.discard)
+
+    unsubscribe = services.hub.subscribe(send, on_drop=dropped)
     try:
         while True:
             raw = await websocket.receive_text()

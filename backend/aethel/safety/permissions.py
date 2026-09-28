@@ -105,6 +105,16 @@ def _looks_like_path(word: str) -> bool:
     return any(c in word for c in "\\/:%") or word.startswith((".", "~"))
 
 
+def _names_home_file(word: str) -> bool:
+    """A bare word like `_netrc` is still a file when the command runs in home."""
+    if word.startswith("-") or _SWITCH_RE.match(word):
+        return False
+    try:
+        return (Path.home() / word).exists()
+    except (OSError, ValueError):
+        return False
+
+
 def _expand_arg(word: str) -> str:
     """Resolve an argument the way the shell will see it: %VAR% and ~ expanded,
     relative paths against the shell's working directory (the home folder)."""
@@ -139,7 +149,7 @@ def _protected(target: str, mode: Literal["read", "write"]) -> Decision | None:
     # name:stream) as the same file, so compare on the name Windows will use.
     name = os.path.basename(target).split(":", 1)[0].rstrip(". ")
     canonical = os.path.join(os.path.dirname(target), name)
-    if name == ".env":
+    if name == ".env" or name.startswith(".env."):  # .env.local, .env.production...
         return Decision("deny", ".env files hold secrets and are off-limits.")
     if mode == "read":
         if any(canonical == _norm(str(home / db)) for db in _DB_FILES):
@@ -222,7 +232,7 @@ class Permissions:
         # neither are the words that matched the allowlist entry.
         skip = max(1, len(matched.split())) if matched is not None and matched.strip() != "*" else 1
         path_verdicts = [self.check_path(arg, "read")
-                         for arg in (_expand_arg(w) for w in words[skip:] if _looks_like_path(w))]
+                         for arg in (_expand_arg(w) for w in words[skip:] if _looks_like_path(w) or _names_home_file(w))]
         denied = next((d for d in path_verdicts if d.verdict == "deny"), None)
         if denied is not None:
             return denied

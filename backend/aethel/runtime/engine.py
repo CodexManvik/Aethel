@@ -399,6 +399,7 @@ class TaskEngine:
                        run: "_RunClock", budget: "_Budget") -> Outcome:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
+        nudged = False
         while True:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
@@ -406,6 +407,11 @@ class TaskEngine:
             calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
+                if not nudged:  # models often narrate a step instead of doing it
+                    nudged = True
+                    convo.append(ChatMessage("user", "If the task is finished, call finish_task with a short summary. "
+                                                     "Otherwise carry on with the tools."))
+                    continue
                 return Outcome(text.strip() or None, False)
             finished: str | None = None
             stop_batch = False
