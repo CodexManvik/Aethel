@@ -48,7 +48,12 @@ class System1Settings(BaseModel):
     # A wrong stop throws away the user's work, a missed one is one click (Cancel, Ctrl+Alt+Esc),
     # so stop favours precision: 0.9 gives P=1.00, R=0.88 on all 56 rows (in-sample, not held out).
     stop_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
-    skill_threshold: float = Field(default=0.6, ge=0.0, le=1.0)  # not yet calibrated
+    # Measured by scripts/eval_s1_skill.py (30 goals, 8 skills): no wrong pick at any threshold; 0.3 chosen
+    # on the dev half; held out: precision 1.00, coverage 0.89.
+    skill_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    # A "none of these" only hides the maybe-helpful skills when this sure: at 0.95 it hid them in 9 of 12
+    # goals with no fitting skill and in none of the 4 where System 1 missed a fitting one (in-sample).
+    skill_none_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     # A judge check fails only below this P(yes). On eval/s1_judge.jsonl (20 author-written pairs, in-sample):
     # 0.2 rejects 9 of 10 false claims and none of the 10 true ones.
     judge_threshold: float = Field(default=0.2, ge=0.0, le=1.0)

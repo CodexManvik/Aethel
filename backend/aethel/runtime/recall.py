@@ -32,7 +32,7 @@ def _skill_block(doc: dict, heading: str) -> str:
     return "\n".join(lines)
 
 
-async def recall(knowledge, system1, goal: str, threshold: float) -> Recall:
+async def recall(knowledge, system1, goal: str, threshold: float, none_threshold: float = 0.95) -> Recall:
     if knowledge is None:
         return Recall()
     skills = await anyio.to_thread.run_sync(knowledge.retrieve_skills, goal, SHORTLIST)
@@ -42,11 +42,10 @@ async def recall(knowledge, system1, goal: str, threshold: float) -> Recall:
         picked = await system1.choice({"goal": goal}, INSTRUCTIONS,
                                       {**{d["id"]: f"{d['title']}: {d['intent']}" for d in skills}, "none": NONE},
                                       "skill_select")
-        if picked is not None and picked[1][picked[0]] >= threshold:
-            if picked[0] == "none":
-                sure_none = True
-            else:
-                chosen = next(d for d in skills if d["id"] == picked[0])
+        if picked is not None and picked[0] == "none":
+            sure_none = picked[1]["none"] >= none_threshold
+        elif picked is not None and picked[1][picked[0]] >= threshold:
+            chosen = next(d for d in skills if d["id"] == picked[0])
     # A confident "none" shows no skills; unsure (or no System 1) offers the shortlist's top as maybes.
     shown = [chosen] if chosen else [] if sure_none else skills[:OFFERED_WITHOUT_A_PICK]
     parts = [_skill_block(d, "A skill you learned for this" if chosen else "A skill that may help") for d in shown]

@@ -459,9 +459,10 @@ class TaskEngine:
                 "Take a fresh look (win_snapshot) and finish the goal from here; the plan above is a guide.")
 
     async def _recall(self, goal: str) -> Recall:
-        threshold = self.settings.get().system1.skill_threshold if self.settings is not None else 0.6
+        s1 = self.settings.get().system1 if self.settings is not None else None
         try:
-            return await recall(self.knowledge, self.system1, goal, threshold)
+            return await recall(self.knowledge, self.system1, goal, s1.skill_threshold if s1 else 0.3,
+                                s1.skill_none_threshold if s1 else 0.95)
         except Exception:
             log.exception("recalling skills failed; planning without them")
             return Recall()
