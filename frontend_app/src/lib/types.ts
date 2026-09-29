@@ -41,6 +41,17 @@ export interface AppSettings {
   max_tokens: number;
   agent_max_tokens: number;
   history_window: number;
+  system1: System1Settings;
+  auto_approve_skills: boolean;
+}
+
+export interface System1Settings {
+  enabled: boolean;
+  auto_tasks: boolean;
+  intent_threshold: number;
+  stop_threshold: number;
+  skill_threshold: number;
+  judge_threshold: number;
 }
 
 export interface ProviderInfo {

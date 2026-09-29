@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { getSocket } from "../../lib/session";
 import { useSession } from "../../stores/session";
 import { useTasks } from "../../stores/tasks";
@@ -23,6 +24,10 @@ export function useSessionEvents() {
         void qc.invalidateQueries({ queryKey: ["conversations"] });
       }
       if (ownsMessage) void refreshOpenConversation().catch(() => {});
+      if (ev.type === "skill_learned") {
+        toast(ev.created ? `Learned a new skill: ${ev.title}` : `Got better at: ${ev.title}`);
+        void qc.invalidateQueries({ queryKey: ["memory"] });
+      }
     });
     const offStatus = socket.onStatus((s) => {
       useSession.getState().setSocketStatus(s);

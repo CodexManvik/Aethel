@@ -4,6 +4,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from ..auth import origin_allowed
+from ..chat.router import route
+from ..runtime.store import TERMINAL_STATES
 from ..protocol import ApprovalDecision, ErrorEvent, KillSwitch, StartTask, StopGeneration, TaskControl, UserMessage, \
     client_event_adapter
 
@@ -47,6 +49,17 @@ async def session_socket(websocket: WebSocket) -> None:
                 await send(ErrorEvent(message="Invalid event.", code="bad_request").model_dump_json())
                 continue
             if isinstance(event, UserMessage):
+                running = [t for t in services.tasks.list_for_conversation(event.conversation_id)
+                           if t.state not in TERMINAL_STATES]
+                decision = await route(services.system1, services.settings, event.text,
+                                       running[-1].goal if running else None)
+                if decision == "task":
+                    await services.engine.start(conversation_id=event.conversation_id, goal=event.text,
+                                                client_id=event.client_id)
+                    continue
+                if decision == "stop_task":
+                    for t in running:
+                        await services.engine.cancel(t.id)
                 services.chat.start_turn(event)
             elif isinstance(event, StopGeneration):
                 await services.chat.stop(event.message_id)

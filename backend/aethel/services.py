@@ -18,7 +18,10 @@ from .safety.approvals import ApprovalBroker
 from .safety.changes import ChangeLog
 from .safety.permissions import Permissions
 from .settings import SettingsService
+from .memory.embed import embed
+from .memory.rsm import KnowledgeStore
 from .store.db import Database
+from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
 from .tools.desktop import Desktop, desktop_spec
 from .tools.file_commander import FileCommander, file_commander_spec
@@ -52,6 +55,8 @@ class Services:
     tasks: TaskRepo
     engine: TaskEngine
     mcp: McpHub
+    system1: System1
+    knowledge: KnowledgeStore
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -81,15 +86,19 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     for tool in [*fs_tools(permissions, changes), shell_tool(permissions)]:
         registry.register(tool)
     approvals = ApprovalBroker(hub)
+    system1 = System1(db, settings)
+    knowledge = KnowledgeStore(aethel_home() / "knowledge", embed)
     engine = TaskEngine(tasks=tasks, messages=messages, conversations=conversations, router=router,
-                        registry=registry, approvals=approvals, hub=hub, settings=settings)
+                        registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
+                        system1=system1)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat)
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
-        approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry),
+        approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
+        knowledge=knowledge,
         mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
     )
 

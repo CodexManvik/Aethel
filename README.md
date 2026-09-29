@@ -37,6 +37,17 @@ and process tools are never offered, since they would bypass `permissions.yaml`.
 land in; anything that sends, buys, deletes or closes always asks, and Aethel never operates its own window or sign-in
 prompts. **Ctrl+Alt+Esc** stops every task at once, from any app. Set `AETHEL_MCP=0` to turn computer control off.
 
+**Learning:** after each task Aethel keeps notes on the apps it used and writes down how it did the job as a
+*skill* (`~/.aethel/knowledge/{apps,skills}/*.md`: plain Markdown you can read and edit). The next similar task
+starts from that skill, and skills are credited or retired by whether their tasks actually passed their checks.
+**Memory** (in the rail) shows every skill with its runs, success rate and a duration sparkline, and lets you edit
+app notes. Small, fast judgments (does this message ask for a task? which skill fits? does this file match the
+goal?) come from **System 1**: [Laya](https://huggingface.co/convaiinnovations/laya), a local decision model running
+on the CPU (about 0.2 s a judgment). It downloads once (~1.7 GB, to `~/.aethel/models/laya`) and never blocks
+anything: until it's ready, Aethel behaves as before. With it, a message that clearly asks for something to be done
+starts a task on its own, and "stop" stops one (**Settings → Learning**). The thresholds come from labelled sets
+you can extend and re-measure: `py -3.11 scripts/eval_s1_intent.py`, `py -3.11 scripts/eval_s1_judge.py`.
+
 **Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
 
 **Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run

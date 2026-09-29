@@ -38,3 +38,30 @@ def test_word_counts_read_the_text_of_a_docx(tmp_path):
     result = run_check(Check(kind="min_words", path=str(doc), count=20))
     assert result.passed and result.detail == "20 words"   # runs split mid-word don't inflate the count
     assert run_check(Check(kind="file_contains", path=str(doc), text="falls softly")).passed
+
+
+@pytest.mark.anyio
+async def test_judge_checks_ask_system1_and_are_not_measured_without_it(tmp_path):
+    from aethel.runtime.checks import Check, run_checks_with
+    poem = tmp_path / "haiku.txt"
+    poem.write_text("Soft rain on the roof", encoding="utf-8")
+    check = Check(kind="judge", path=str(poem), text="is a haiku about rain")
+    asked = []
+
+    class S1:
+        def __init__(self, p):
+            self.p = p
+
+        async def choice(self, state, instructions, options, purpose):
+            asked.append((state, instructions))
+            return ("yes" if self.p >= 0.5 else "no"), {"yes": self.p, "no": 1 - self.p}, 0.5
+
+    passed = (await run_checks_with([check], S1(0.8), 0.2))[0]
+    failed = (await run_checks_with([check], S1(0.1), 0.2))[0]
+    unmeasured = (await run_checks_with([check], None, 0.5))[0]
+    assert (passed.passed, passed.detail) == (True, "p=0.80") and not failed.passed
+    assert (await run_checks_with([check], S1(0.3), 0.2))[0].passed  # unsure is not a confident "no"
+    assert unmeasured.passed and unmeasured.detail.startswith("not measured")
+    assert asked[0][0] == {"document": "Soft rain on the roof"} and "is a haiku about rain" in asked[0][1]
+    missing = (await run_checks_with([Check(kind="judge", path=str(tmp_path / "no.txt"), text="x")], S1(0.9), 0.5))[0]
+    assert not missing.passed and missing.detail == "file not found"

@@ -146,10 +146,19 @@ class TaskState(Event):
     message_text: str | None = None
 
 
+class SkillLearned(Event):
+    """After a task, reflection wrote or reinforced a skill (spec §6.3)."""
+    type: Literal["skill_learned"] = "skill_learned"
+    task_id: str
+    skill_id: str
+    title: str
+    created: bool  # False: an existing skill was reinforced
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, StepStarted, StepFinished, ApprovalNeeded, ApprovalResolved,
-          VerificationResult, TaskState],
+          VerificationResult, TaskState, SkillLearned],
     Field(discriminator="type"),
 ]
 

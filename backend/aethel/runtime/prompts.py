@@ -7,7 +7,9 @@ PLANNER_SYSTEM = """You are the planning mind of Aethel, a desktop assistant tha
 Given the user's goal and the tools available, call submit_plan exactly once with:
 - steps: 2-10 short, concrete, imperative steps a person could tick off.
 - checks: facts that will be machine-checkably true once the goal is achieved, using only
-  file_exists {path}, file_contains {path, text}, min_words {path, count}. Use absolute Windows paths.
+  file_exists {path}, file_contains {path, text}, min_words {path, count}, and judge {path, text} for a short
+  claim about the file's content a careful reader would agree with (e.g. "is a haiku about rain"). Use absolute
+  Windows paths.
   If nothing about the outcome can be checked this way, submit an empty list.
 Do not do the work yourself and do not ask questions: plan with sensible defaults
 (e.g. save new files in the user's Documents\\Aethel folder unless told otherwise)."""
@@ -25,7 +27,7 @@ SUBMIT_PLAN = ToolSpec(
                 "items": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["file_exists", "file_contains", "min_words"]},
+                        "kind": {"type": "string", "enum": ["file_exists", "file_contains", "min_words", "judge"]},
                         "path": {"type": "string"},
                         "text": {"type": "string"},
                         "count": {"type": "integer"},

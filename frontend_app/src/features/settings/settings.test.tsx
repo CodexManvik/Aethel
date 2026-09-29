@@ -23,6 +23,8 @@ const settings: AppSettings = {
   max_tokens: 1024,
   agent_max_tokens: 8192,
   history_window: 24,
+  system1: { enabled: true, auto_tasks: true, intent_threshold: 0.5, stop_threshold: 0.9, skill_threshold: 0.6, judge_threshold: 0.5 },
+  auto_approve_skills: true,
 };
 const providers: ProviderInfo[] = [
   { id: "groq", label: "Groq", needs_key: true, has_key: true, base_url: "" },
@@ -120,4 +122,11 @@ test("computer control shows each server's connection", async () => {
   expect(await screen.findByText("Desktop control")).toBeInTheDocument();
   expect(screen.getByText("Connected")).toBeInTheDocument();
   expect(screen.getByText("Not available: no Office")).toBeInTheDocument();
+});
+
+test("learning switches patch settings", async () => {
+  renderSettings();
+  await userEvent.click(await screen.findByRole("switch", { name: "Start tasks from messages" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Use new skills straight away" }));
+  await waitFor(() => expect(patches).toEqual([{ system1: { auto_tasks: false } }, { auto_approve_skills: false }]));
 });

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .api import ws
-from .api.routes import conversations, health, keys, providers, settings, tasks, tools
+from .api.routes import conversations, health, keys, memory, providers, settings, tasks, tools
 from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
@@ -21,6 +21,8 @@ def create_app(services: Services | None = None) -> FastAPI:
         svc = services or build_services()
         app.state.services = svc
         svc.mcp.start(svc.mcp_servers)
+        if os.environ.get("AETHEL_SYSTEM1") != "0":
+            svc.system1.start()  # downloads (~1.7 GB, first run only) and loads in the background
         try:
             yield
         finally:
@@ -58,5 +60,6 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(providers.router)
     app.include_router(tasks.router)
     app.include_router(tools.router)
+    app.include_router(memory.router)
     app.include_router(ws.router)
     return app

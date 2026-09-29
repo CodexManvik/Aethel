@@ -773,3 +773,108 @@ async def test_a_text_only_turn_gets_one_nudge_before_it_counts_as_the_answer(h)
     await engine.wait_idle()
     assert h.tasks.get(task_id).summary == "Nothing to write after all."
     assert any("finish_task" in m.content for m in provider.calls[2] if m.role == "user")
+
+
+async def test_a_learned_skill_reaches_planner_and_executor_as_untrusted_hints(h, tmp_path):
+    from aethel.memory.rsm import KnowledgeStore
+    from tests.test_rsm import HAIKU, fake_embed
+
+    store = KnowledgeStore(tmp_path / "k", fake_embed)
+    skill, _ = store.upsert_skill(HAIKU, "approved")
+
+    class S1:
+        async def choice(self, state, instructions, options, purpose):
+            return skill["id"], {k: (0.9 if k == skill["id"] else 0.1) for k in options}, 0.8
+
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]])
+    engine.knowledge, engine.system1 = store, S1()
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write a haiku in notepad")
+    await engine.wait_idle()
+    planner_user = provider.calls[0][1].content
+    assert '<untrusted source="learned skills and notes">' in planner_user
+    assert "A skill you learned for this: Write a haiku in Notepad" in planner_user
+    executor = [m.content for m in provider.calls[1] if m.role == "user"]
+    assert any("A skill you learned for this" in c and "hints only" in c for c in executor)
+    assert h.tasks.get(task_id).knowledge == [skill["id"]]
+
+
+async def test_recall_failure_never_blocks_a_task(h):
+    class Broken:
+        def retrieve_skills(self, *a):
+            raise RuntimeError("index corrupt")
+
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]])
+    engine.knowledge = Broken()
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done" and "untrusted" not in provider.calls[0][1].content
+
+
+def _learning_engine(h, tmp_path, turns):
+    from aethel.memory.rsm import KnowledgeStore
+    from tests.test_rsm import fake_embed
+    engine, provider = h.make(turns)
+    engine.knowledge = KnowledgeStore(tmp_path / "k", fake_embed)
+    return engine, provider
+
+
+SKILL = {"title": "Write a text file", "intent": "Save some text to a file", "apps": [],
+         "steps": ["Call fs_write with the path and text"], "pitfalls": []}
+
+
+async def test_a_successful_task_teaches_a_skill_and_notes(h, tmp_path):
+    engine, _ = _learning_engine(h, tmp_path, [
+        [plan(["Write"])],
+        [tool_call("fs_write", path=str(h.out / "a.txt"), content="hi")],
+        [tool_call("finish_task", summary="Done.")],
+        [tool_call("record_learning", app_notes=[{"app": "notepad", "facts": ["Ctrl+S saves"]}], skill=SKILL)],
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write hi to a file")
+    await engine.wait_idle()
+    learned = next(e for e in h.events if e["type"] == "skill_learned")
+    assert learned["created"] and learned["task_id"] == task_id and learned["title"] == "Write a text file"
+    assert engine.knowledge.get(learned["skill_id"])["status"] == "approved"
+    assert engine.knowledge.notes()[0]["facts"] == ["Ctrl+S saves"]
+    assert h.tasks.get(task_id).state == "done"
+
+
+async def test_used_skills_are_credited_by_outcome_and_failures_teach_no_skill(h, tmp_path):
+    engine, _ = _learning_engine(h, tmp_path, [
+        [plan(["Write"], [{"kind": "file_exists", "path": str(h.out / "never.txt")}])],
+        [tool_call("fs_list", path=str(h.tmp))],
+        [tool_call("finish_task", summary="Done?")],
+        [tool_call("finish_task", summary="Still not.")],  # the one repair round
+        [tool_call("record_learning", app_notes=[{"app": "notepad", "facts": ["It was slow"]}], skill=SKILL)],
+    ])
+    used, _ = engine.knowledge.upsert_skill({**SKILL, "title": "Old way"}, "approved")
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write a file")
+    h.tasks.set_knowledge(task_id, [used["id"]])
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "failed"
+    after = engine.knowledge.get(used["id"])
+    assert (after["runs"], after["successes"]) == (1, 0)
+    assert [s["title"] for s in engine.knowledge.skills()] == ["Old way"]  # no skill from a failure
+    assert engine.knowledge.notes()[0]["facts"] == ["It was slow"]         # but notes still count
+
+
+async def test_cancelled_tasks_teach_nothing_and_reflection_errors_are_harmless(h, tmp_path):
+    engine, provider = _learning_engine(h, tmp_path, [[plan(["Write"])],
+                                                      [tool_call("fs_write", path=str(h.tmp / "x.txt"), content="x")]])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await until(h.events, lambda e: e["type"] == "approval_needed")
+    await engine.cancel(task_id)
+    await engine.wait_idle()
+    assert len(provider.calls) == 2 and engine.knowledge.skills() == []
+
+    engine, _ = _learning_engine(h, tmp_path, [
+        [plan(["Write"])], [tool_call("fs_write", path=str(h.out / "b.txt"), content="x")],
+        [tool_call("finish_task", summary="Done.")],
+        [TextDelta("I won't call the tool.")]])
+    task_id = await engine.start(conversation_id=conv.id, goal="y")
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done" and not any(e["type"] == "skill_learned" for e in h.events)

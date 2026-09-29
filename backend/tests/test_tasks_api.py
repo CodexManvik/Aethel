@@ -111,3 +111,44 @@ def test_tools_status_lists_servers_and_tools(tmp_path):
         body = client.get("/api/tools").json()
     assert body["servers"] == {}  # tests run without MCP servers
     assert "fs_write" in body["tools"] and "shell_run" in body["tools"]
+
+
+def test_a_message_routed_as_a_task_starts_one(tmp_path):
+    client, svc = _client(tmp_path, [
+        [tool_call("submit_plan", steps=["Write"], checks=[])],
+        [tool_call("finish_task", summary="Done it.")],
+    ])
+
+    async def ask(state, questions, purpose):
+        return {"act": {"noul": 0.97}} if "act" in questions else None
+
+    svc.system1.ask = ask
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "open notepad",
+                          "client_id": "c1"})
+            created = _until(ws, lambda e: e["type"] == "task_created")[-1]
+            assert created["client_id"] == "c1" and created["goal"] == "open notepad"
+            _until(ws, lambda e: e["type"] == "task_state" and e["state"] == "done")
+
+
+def test_memory_api_lists_and_edits_skills_and_notes(tmp_path):
+    from tests.test_rsm import HAIKU, fake_embed
+    client, svc = _client(tmp_path, [])
+    svc.knowledge.embed = fake_embed
+    skill, _ = svc.knowledge.upsert_skill(HAIKU, "quarantined")
+    svc.knowledge.record_outcome([skill["id"]], True, 12.5)
+    svc.knowledge.upsert_note("notepad", ["Ctrl+S saves"])
+    with client:
+        skills = client.get("/api/memory/skills").json()
+        assert skills[0]["id"] == skill["id"] and skills[0]["duration_history"] == [12.5]
+        assert skills[0]["runs"] == 1 and skills[0]["steps"][0] == "Open Notepad with win_app"
+        patched = client.patch(f"/api/memory/skills/{skill['id']}", json={"status": "approved"}).json()
+        assert patched["status"] == "approved"
+        assert client.patch("/api/memory/skills/nope", json={"status": "approved"}).status_code == 404
+        assert client.patch(f"/api/memory/skills/{skill['id']}", json={"status": "bogus"}).status_code == 422
+        assert client.get("/api/memory/notes").json()[0]["facts"] == ["Ctrl+S saves"]
+        saved = client.put("/api/memory/notes/notepad", json={"body": "- Edited by hand"}).json()
+        assert saved["facts"] == ["Edited by hand"]
+        assert client.get("/api/memory/system1").json() == {"status": "not loaded"}

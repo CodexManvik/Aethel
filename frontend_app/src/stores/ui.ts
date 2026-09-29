@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Screen = "conversation" | "settings";
+export type Screen = "conversation" | "memory" | "settings";
 export type ThemePref = "light" | "dark" | "system";
 export type MotionPref = "system" | "full" | "reduced";
 
