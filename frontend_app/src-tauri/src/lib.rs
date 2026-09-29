@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -41,29 +42,61 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
-/// Resolve the real interpreter path. Killing the `py` launcher does not kill
-/// the python.exe it starts, so we must spawn python.exe directly.
-fn python_executable(repo: &Path) -> String {
+/// The backend needs its own packages, so a candidate interpreter only counts if
+/// it can import them. Otherwise an active conda env (whose `python` comes first
+/// on PATH) silently starts the backend under a Python that can't run it.
+/// It also reports its real sys.executable: `py`, `python3` and the Python
+/// Install Manager's WindowsApps aliases are launchers that start python.exe as
+/// a child, and killing a launcher doesn't stop the backend behind it.
+const PROBE: &str = "import fastapi, uvicorn, openai, pydantic, yaml, sys; print(sys.executable)";
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn quiet(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    // A conda or venv activation must not leak its library paths into our Python.
+    cmd.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// The real python.exe behind `program args…`, if it can run the backend.
+fn resolve_python(program: &str, args: &[&str]) -> Option<String> {
+    let out = quiet(program).args(args).args(["-c", PROBE]).stderr(Stdio::null()).output().ok()?;
+    let path = String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or("").trim().to_string();
+    (out.status.success() && !path.is_empty() && Path::new(&path).exists()).then_some(path)
+}
+
+/// Returns the interpreter to spawn (always a real python.exe) and how it was
+/// found, or what was tried.
+fn python_executable(repo: &Path) -> Result<(String, String), String> {
+    let mut candidates: Vec<(String, Vec<&str>, String)> = Vec::new();
     if let Ok(p) = std::env::var("AETHEL_PYTHON") {
-        return p;
+        candidates.push((p.clone(), vec![], format!("AETHEL_PYTHON={p}")));
     }
     let venv = repo.join(".venv").join("Scripts").join("python.exe");
     if venv.exists() {
-        return venv.to_string_lossy().into_owned();
+        candidates.push((venv.to_string_lossy().into_owned(), vec![], "the repo's .venv".into()));
     }
     if cfg!(windows) {
-        if let Ok(out) = Command::new("py")
-            .args(["-3.11", "-c", "import sys; print(sys.executable)"])
-            .output()
-        {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !path.is_empty() {
-                return path;
-            }
-        }
-        return "python".into();
+        candidates.push(("py".into(), vec!["-3.11"], "py -3.11".into()));
     }
-    "python3".into()
+    candidates.push(("python".into(), vec![], "python on PATH".into()));
+    candidates.push(("python3".into(), vec![], "python3 on PATH".into()));
+    let mut tried = Vec::new();
+    for (program, args, how) in candidates {
+        if let Some(real) = resolve_python(&program, &args) {
+            return Ok((real, how));
+        }
+        tried.push(how);
+    }
+    Err(format!(
+        "No Python that can run Aethel was found. Tried: {}.\nInstall the packages with:\n    py -3.11 -m pip install -r requirements.txt\nor point AETHEL_PYTHON at a Python that has them.",
+        tried.join("; ")
+    ))
 }
 
 fn spawn_backend(token: &str, port: u16) -> std::io::Result<Child> {
@@ -73,9 +106,17 @@ fn spawn_backend(token: &str, port: u16) -> std::io::Result<Child> {
         .unwrap_or_else(|_| repo.join("backend"));
     let logs = aethel_home().join("logs");
     fs::create_dir_all(&logs)?;
-    let log = File::create(logs.join("backend.log"))?;
+    let mut log = File::create(logs.join("backend.log"))?;
+    let (python, how) = match python_executable(&repo) {
+        Ok(found) => found,
+        Err(why) => {
+            writeln!(log, "Aethel could not start its backend.\n\n{why}")?;
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, why));
+        }
+    };
+    writeln!(log, "Aethel backend log\npython: {python} (found via {how})\nbackend: {}\n", backend_dir.display())?;
 
-    let mut cmd = Command::new(python_executable(&repo));
+    let mut cmd = quiet(&python);
     cmd.args(["-m", "aethel"])
         .current_dir(backend_dir)
         .env("AETHEL_TOKEN", token)
@@ -83,12 +124,62 @@ fn spawn_backend(token: &str, port: u16) -> std::io::Result<Child> {
         .env("AETHEL_PARENT_PID", std::process::id().to_string())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
     cmd.spawn()
+}
+
+fn backend_log_path() -> PathBuf {
+    aethel_home().join("logs").join("backend.log")
+}
+
+/// The end of backend.log, for the boot screen when the backend won't start.
+#[tauri::command]
+fn backend_log_tail(lines: Option<usize>) -> String {
+    let text = fs::read_to_string(backend_log_path()).unwrap_or_else(|e| format!("(couldn't read the log: {e})"));
+    let all: Vec<&str> = text.lines().collect();
+    let n = lines.unwrap_or(60).min(all.len());
+    format!("{}\n\n(full log: {})", all[all.len() - n..].join("\n"), backend_log_path().display())
+}
+
+/// Open the logs folder with the backend log selected.
+#[tauri::command]
+fn open_backend_logs() -> Result<(), String> {
+    let path = backend_log_path();
+    #[cfg(windows)]
+    let result = Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg("-R").arg(&path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(path.parent().unwrap_or(&path)).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Some(exit description) once the backend process has exited (or never started).
+#[tauri::command]
+fn backend_exited(process: tauri::State<BackendProcess>) -> Option<String> {
+    if std::env::var("AETHEL_EXTERNAL_BACKEND").as_deref() == Ok("1") {
+        return None; // someone else runs the backend; nothing of ours to watch
+    }
+    let mut guard = process.0.lock().ok()?;
+    match guard.as_mut() {
+        None => Some("it didn't start".into()),
+        Some(child) => match child.try_wait() {
+            Ok(Some(status)) => Some(format!("it stopped ({status})")),
+            _ => None,
+        },
+    }
+}
+
+/// Stop the backend if it's running and start it again (the boot screen's Try again).
+#[tauri::command]
+fn restart_backend(info: tauri::State<BackendInfo>, process: tauri::State<BackendProcess>) -> Result<(), String> {
+    let port: u16 = info.url.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(8765);
+    let mut guard = process.0.lock().map_err(|e| e.to_string())?;
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *guard = Some(spawn_backend(&info.token, port).map_err(|e| e.to_string())?);
+    Ok(())
 }
 
 #[tauri::command]
@@ -129,7 +220,6 @@ fn secret_get_all() -> Result<HashMap<String, String>, String> {
     Ok(out)
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// The ghost cursor (spec §4.4): a transparent, always-on-top window over the
 /// primary monitor that never takes clicks or focus. It's always "shown" but
 /// draws nothing until a task points somewhere, so showing it can't steal focus
@@ -180,6 +270,7 @@ fn register_kill_switch(app: &mut tauri::App) {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let port: u16 = std::env::var("AETHEL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8765);
     let token = std::env::var("AETHEL_TOKEN").unwrap_or_else(|_| uuid::Uuid::new_v4().simple().to_string());
@@ -188,7 +279,10 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![get_backend_info, secret_set, secret_delete, secret_get_all])
+        .invoke_handler(tauri::generate_handler![
+            get_backend_info, secret_set, secret_delete, secret_get_all, backend_log_tail, open_backend_logs,
+            backend_exited, restart_backend
+        ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
