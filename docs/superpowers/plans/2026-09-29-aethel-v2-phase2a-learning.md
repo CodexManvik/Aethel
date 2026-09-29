@@ -160,6 +160,18 @@ Legacy skill files (`times_succeeded` and similar) are read tolerantly and left 
   - **Stop.** A choice with the running task in the state (without it, precision fell to 0.57). The threshold of 0.9 was chosen by cost, because a wrong stop destroys work. On all rows it gives P=1.00, R=0.88. **In-sample:** the dev half had too few near-misses to choose it fairly.
   - Routing costs about 0.5 s per message while auto-tasks is on, plus about 0.5 s more while a task runs.
 
+- **Task 3:** importing sentence-transformers alone took about 30 s here. bge-small now runs through ONNX Runtime instead (the official `onnx/model.onnx`, same revision): vectors are identical (cosine 1.000000) and it loads in about 1 s. bge puts unrelated text near 0.5, so app notes need a similarity of 0.6 or more.
+- **Task 5:** a real race turned up. `start /b` could spawn a child before `cmd.exe` joined its job. Fixed by creating shell commands suspended and resuming them only once they're in the job.
+- **Task 6 (measured):** an end-to-end run on the real model failed a correct task, because a rain haiku scored 0.365 for "is a short poem about rain".
+  - Of 5 phrasings, a yes/no choice worked best: 0.90 on 20 labelled pairs, in-sample.
+  - Judge checks now fail only on a confident no (P(yes) < 0.2). That rejects 9 of 10 false claims and none of the 10 true ones.
+  - `scripts/eval_s1_judge.py` reproduces the numbers.
+- **End to end on the real models** (scripted LLM):
+  - Run 1 wrote an approved skill.
+  - Run 2, a differently worded goal, retrieved it. System 1 picked it at 0.69, and the run credited it.
+  - The second reflection reinforced the same skill instead of duplicating it.
+- `skill_threshold` (0.6) is still **not calibrated**. It needs labelled skill-selection cases, and it's the first E2 follow-up in 2b.
+
 ## Deferred to 2b
 - Compiled macros, drift Noul, repair and `broken` status
 - Element grounding and window targeting through System 1
