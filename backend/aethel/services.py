@@ -87,8 +87,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         registry.register(tool)
     approvals = ApprovalBroker(hub)
     system1 = System1(db, settings)
+    knowledge = KnowledgeStore(aethel_home() / "knowledge", embed)
     engine = TaskEngine(tasks=tasks, messages=messages, conversations=conversations, router=router,
-                        registry=registry, approvals=approvals, hub=hub, settings=settings)
+                        registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
+                        system1=system1)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat)
     return Services(
@@ -96,7 +98,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
-        knowledge=KnowledgeStore(aethel_home() / "knowledge", embed),
+        knowledge=knowledge,
         mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
     )
 

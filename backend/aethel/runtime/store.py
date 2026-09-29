@@ -23,6 +23,7 @@ class TaskRecord(BaseModel):
     created_at: str
     updated_at: str
     active_seconds: float = 0.0
+    knowledge: list[str] = []  # ids of the learned skills shown to this task
 
 
 class StepRecord(BaseModel):
@@ -42,8 +43,9 @@ class StepRecord(BaseModel):
 
 def _task(row) -> TaskRecord:
     d = dict(row)
-    for key in ("plan", "plan_done", "checks"):
-        d[key] = json.loads(d[key])
+    for key in ("plan", "plan_done", "checks", "knowledge"):
+        if key in d:
+            d[key] = json.loads(d[key])
     return TaskRecord(**d)
 
 
@@ -88,6 +90,9 @@ class TaskRepo:
             "UPDATE tasks SET active_seconds = active_seconds + ?, updated_at = ? WHERE id = ?",
             (seconds, now_iso(), task_id),
         )
+
+    def set_knowledge(self, task_id: str, ids: list[str]) -> None:
+        self.db.execute("UPDATE tasks SET knowledge = ? WHERE id = ?", (json.dumps(ids), task_id))
 
     def set_plan(self, task_id: str, steps: list[str], checks: list[dict]) -> None:
         self.db.execute(

@@ -773,3 +773,40 @@ async def test_a_text_only_turn_gets_one_nudge_before_it_counts_as_the_answer(h)
     await engine.wait_idle()
     assert h.tasks.get(task_id).summary == "Nothing to write after all."
     assert any("finish_task" in m.content for m in provider.calls[2] if m.role == "user")
+
+
+async def test_a_learned_skill_reaches_planner_and_executor_as_untrusted_hints(h, tmp_path):
+    from aethel.memory.rsm import KnowledgeStore
+    from tests.test_rsm import HAIKU, fake_embed
+
+    store = KnowledgeStore(tmp_path / "k", fake_embed)
+    skill, _ = store.upsert_skill(HAIKU, "approved")
+
+    class S1:
+        async def choice(self, state, instructions, options, purpose):
+            return skill["id"], {k: (0.9 if k == skill["id"] else 0.1) for k in options}, 0.8
+
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]])
+    engine.knowledge, engine.system1 = store, S1()
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write a haiku in notepad")
+    await engine.wait_idle()
+    planner_user = provider.calls[0][1].content
+    assert '<untrusted source="learned skills and notes">' in planner_user
+    assert "A skill you learned for this: Write a haiku in Notepad" in planner_user
+    executor = [m.content for m in provider.calls[1] if m.role == "user"]
+    assert any("A skill you learned for this" in c and "hints only" in c for c in executor)
+    assert h.tasks.get(task_id).knowledge == [skill["id"]]
+
+
+async def test_recall_failure_never_blocks_a_task(h):
+    class Broken:
+        def retrieve_skills(self, *a):
+            raise RuntimeError("index corrupt")
+
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]])
+    engine.knowledge = Broken()
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert h.tasks.get(task_id).state == "done" and "untrusted" not in provider.calls[0][1].content
