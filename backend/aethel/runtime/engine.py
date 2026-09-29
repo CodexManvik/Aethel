@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from ..chat.service import make_title
 from ..hub import EventHub
+from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
                         SkillLearned, StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState,
                         VerificationResult)
@@ -463,7 +464,8 @@ class TaskEngine:
                 return Outcome(finished, False)
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
-                      seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False) -> str:
+                      seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False,
+                      decider: str = "agent") -> str:
         args = _parse_args(call.arguments)
         if args is None:
             if call.name != "finish_task":
@@ -498,7 +500,7 @@ class TaskEngine:
         if inspect.isawaitable(assessment):
             assessment = await assessment
         verdict = decide(tool, assessment, tainted=ctx.tainted, grants=grants, scope=scope)
-        step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict)
+        step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict, decider)
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
                                            summary=verdict.target, verdict=verdict.verdict))
         if verdict.verdict == "deny":
@@ -532,7 +534,18 @@ class TaskEngine:
 
     async def _end_step(self, task_id: str, step_id: str, tool_name: str, result: ToolResult, duration_ms: int,
                         ctx: ToolContext) -> str:
-        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms, result.untrusted)
+        thumb = None
+        if result.thumbnail:
+            thumb = f"tasks/{task_id}/{step_id}.jpg"
+            try:
+                path = aethel_home() / "media" / thumb
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(result.thumbnail)
+            except OSError:
+                log.warning("couldn't save the thumbnail for step %s", step_id)
+                thumb = None
+        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms, result.untrusted,
+                               result.meta, thumb)
         await self.hub.publish(StepFinished(task_id=task_id, step_id=step_id, ok=result.ok,
                                             detail=_first_line(result.content), duration_ms=duration_ms))
         content = result.content

@@ -65,6 +65,7 @@ class AppSettings(BaseModel):
     agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
+    replay_thumbnails: bool = True  # a small screenshot after each on-screen step, kept only on this PC
     auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
 
 

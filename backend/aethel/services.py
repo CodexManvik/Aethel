@@ -99,14 +99,15 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge,
-        mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes, router, settings) if mcp_servers is None else mcp_servers,
     )
 
 
-def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter) -> list[ServerSpec]:
+def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter,
+                        settings: SettingsService) -> list[ServerSpec]:
     """Desktop, Office and Desktop Commander. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes)),
+    specs = [desktop_spec(Desktop(vision=router, thumbnails=lambda: settings.get().replay_thumbnails)), office_spec(Office(permissions, changes)),
              file_commander_spec(FileCommander(permissions, changes))]
     return [spec for spec in specs if spec is not None]

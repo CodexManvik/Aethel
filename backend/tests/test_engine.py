@@ -878,3 +878,24 @@ async def test_cancelled_tasks_teach_nothing_and_reflection_errors_are_harmless(
     task_id = await engine.start(conversation_id=conv.id, goal="y")
     await engine.wait_idle()
     assert h.tasks.get(task_id).state == "done" and not any(e["type"] == "skill_learned" for e in h.events)
+
+
+async def test_step_meta_decider_and_thumbnail_are_kept(h):
+    from aethel.paths import aethel_home
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def click(args, ctx):
+        return ToolResult(True, "Clicked.", meta={"element": {"role": "button", "name": "Go", "window": "W"}},
+                          thumbnail=b"\xff\xd8jpeg")
+
+    engine, _ = h.make([[plan(["Click"])], [tool_call("fake_click")], [tool_call("finish_task", summary="ok")]])
+    engine.registry.register(Tool("fake_click", "", {"type": "object"}, "read", click,
+                                  lambda a: Assessment("allow", "", "Click Go")))
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    engine.registry.unregister("fake_click")
+    step = h.tasks.steps(task_id)[0]
+    assert step.meta["element"]["name"] == "Go" and step.decider == "agent"
+    assert step.thumbnail == f"tasks/{task_id}/{step.id}.jpg"
+    assert (aethel_home() / "media" / step.thumbnail).read_bytes() == b"\xff\xd8jpeg"

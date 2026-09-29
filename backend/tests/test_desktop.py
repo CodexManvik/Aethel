@@ -157,3 +157,50 @@ async def test_win_locate_asks_the_vision_role_and_scales_back_to_the_screen():
     missing = await tools["win_locate"].handler({"description": "a unicorn"}, None)
     assert not missing.ok
     assert "win_locate" not in {t.name for t in Desktop().adapt(Hub(), [_remote("Screenshot")])}  # no vision role
+
+
+def _png(w=1920, h=1080):
+    import base64
+    import io
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (w, h), (200, 180, 160)).save(out, "PNG")
+    return base64.b64encode(out.getvalue()).decode()
+
+
+class ReplayHub:
+    def __init__(self):
+        self.raw_calls = []
+
+    async def call(self, server, tool, args):
+        from aethel.tools.base import ToolResult
+        return ToolResult(True, "Clicked.", untrusted=True)
+
+    async def call_raw(self, server, tool, args):
+        self.raw_calls.append(tool)
+        return mt.CallToolResult(content=[mt.ImageContent(type="image", data=_png(), mimeType="image/png")])
+
+
+async def test_screen_steps_record_the_element_and_a_small_thumbnail():
+    import io
+    from PIL import Image
+    hub = ReplayHub()
+    dk = Desktop(window_at=lambda x, y: App(10, "outlook"), foreground=lambda: App(11, "notepad"),
+                 thumbnails=lambda: True)
+    tools = {t.name: t for t in dk.adapt(hub, [_remote(n) for n in ALL])}
+    dk.elements = parse_snapshot(SNAPSHOT)
+    r = await tools["win_click"].handler({"loc": [902, 612]}, None)
+    assert r.meta == {"app": "outlook", "element": {"role": "button", "name": "Send", "window": "Inbox - Outlook"}}
+    assert r.thumbnail[:2] == b"\xff\xd8"
+    assert Image.open(io.BytesIO(r.thumbnail)).size == (480, 270)
+    app = await tools["win_app"].handler({"mode": "launch", "name": "Notepad"}, None)
+    assert app.meta == {"app": "notepad"}
+    assert (await tools["win_snapshot"].handler({}, None)).thumbnail is None  # observing doesn't change the screen
+
+
+async def test_no_screenshots_when_thumbnails_are_off():
+    hub = ReplayHub()
+    dk = Desktop(window_at=lambda x, y: App(10, "outlook"), foreground=lambda: App(11, "notepad"))
+    tools = {t.name: t for t in dk.adapt(hub, [_remote(n) for n in ALL])}
+    r = await tools["win_click"].handler({"loc": [5, 5]}, None)
+    assert r.thumbnail is None and hub.raw_calls == [] and r.meta["element"] is None
