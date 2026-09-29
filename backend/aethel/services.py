@@ -18,6 +18,8 @@ from .safety.approvals import ApprovalBroker
 from .safety.changes import ChangeLog
 from .safety.permissions import Permissions
 from .settings import SettingsService
+from .memory.embed import embed
+from .memory.rsm import KnowledgeStore
 from .store.db import Database
 from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
@@ -54,6 +56,7 @@ class Services:
     engine: TaskEngine
     mcp: McpHub
     system1: System1
+    knowledge: KnowledgeStore
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -93,6 +96,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
+        knowledge=KnowledgeStore(aethel_home() / "knowledge", embed),
         mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
     )
 
