@@ -24,6 +24,7 @@ class TaskRecord(BaseModel):
     updated_at: str
     active_seconds: float = 0.0
     knowledge: list[str] = []  # ids of the learned skills shown to this task
+    skill_id: str | None = None  # the one System 1 chose, if any
 
 
 class StepRecord(BaseModel):
@@ -39,6 +40,9 @@ class StepRecord(BaseModel):
     duration_ms: int | None
     created_at: str
     untrusted: bool = False
+    meta: dict | None = None
+    decider: str = "agent"         # agent | macro
+    thumbnail: str | None = None   # path under ~/.aethel/media
 
 
 def _task(row) -> TaskRecord:
@@ -54,6 +58,7 @@ def _step(row) -> StepRecord:
     d["args"] = json.loads(d["args"])
     d["ok"] = None if d["ok"] is None else bool(d["ok"])
     d["untrusted"] = bool(d.get("untrusted"))
+    d["meta"] = json.loads(d["meta"]) if d.get("meta") else None
     return StepRecord(**d)
 
 
@@ -73,6 +78,10 @@ class TaskRepo:
         row = self.db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         return _task(row) if row else None
 
+    def recent(self, limit: int = 50) -> list[TaskRecord]:
+        return [_task(r) for r in self.db.query("SELECT * FROM tasks ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                                                (limit,))]
+
     def list_for_conversation(self, conversation_id: str) -> list[TaskRecord]:
         rows = self.db.query("SELECT * FROM tasks WHERE conversation_id = ? ORDER BY rowid", (conversation_id,))
         return [_task(r) for r in rows]
@@ -91,8 +100,8 @@ class TaskRepo:
             (seconds, now_iso(), task_id),
         )
 
-    def set_knowledge(self, task_id: str, ids: list[str]) -> None:
-        self.db.execute("UPDATE tasks SET knowledge = ? WHERE id = ?", (json.dumps(ids), task_id))
+    def set_knowledge(self, task_id: str, ids: list[str], chosen: str | None = None) -> None:
+        self.db.execute("UPDATE tasks SET knowledge = ?, skill_id = ? WHERE id = ?", (json.dumps(ids), chosen, task_id))
 
     def set_plan(self, task_id: str, steps: list[str], checks: list[dict]) -> None:
         self.db.execute(
@@ -110,19 +119,22 @@ class TaskRepo:
                             (json.dumps(done), now_iso(), task_id))
         return True
 
-    def add_step(self, task_id: str, tool: str, args: dict, summary: str, verdict: str) -> StepRecord:
+    def add_step(self, task_id: str, tool: str, args: dict, summary: str, verdict: str,
+                 decider: str = "agent") -> StepRecord:
         step_id = new_id("step")
         idx = self.db.query_one("SELECT COUNT(*) AS n FROM steps WHERE task_id = ?", (task_id,))["n"]
         self.db.execute(
-            "INSERT INTO steps (id, task_id, idx, tool, args, summary, verdict, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (step_id, task_id, idx, tool, json.dumps(args), summary, verdict, now_iso()),
+            "INSERT INTO steps (id, task_id, idx, tool, args, summary, verdict, created_at, decider)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (step_id, task_id, idx, tool, json.dumps(args), summary, verdict, now_iso(), decider),
         )
         return _step(self.db.query_one("SELECT * FROM steps WHERE id = ?", (step_id,)))
 
-    def finish_step(self, step_id: str, ok: bool, result: str, duration_ms: int, untrusted: bool = False) -> None:
-        self.db.execute("UPDATE steps SET ok = ?, result = ?, duration_ms = ?, untrusted = ? WHERE id = ?",
-                        (int(ok), result, duration_ms, int(untrusted), step_id))
+    def finish_step(self, step_id: str, ok: bool, result: str, duration_ms: int, untrusted: bool = False,
+                    meta: dict | None = None, thumbnail: str | None = None) -> None:
+        self.db.execute("UPDATE steps SET ok = ?, result = ?, duration_ms = ?, untrusted = ?, meta = ?, thumbnail = ?"
+                        " WHERE id = ?", (int(ok), result, duration_ms, int(untrusted),
+                                          json.dumps(meta) if meta else None, thumbnail, step_id))
 
     def steps(self, task_id: str) -> list[StepRecord]:
         return [_step(r) for r in self.db.query("SELECT * FROM steps WHERE task_id = ? ORDER BY idx", (task_id,))]

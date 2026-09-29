@@ -3,6 +3,7 @@
 One asyncio runner per task. State is persisted after every change, so a
 restart leaves unfinished tasks 'paused' and resumable."""
 import asyncio
+import difflib
 import inspect
 import json
 import logging
@@ -17,6 +18,7 @@ from pydantic import ValidationError
 
 from ..chat.service import make_title
 from ..hub import EventHub
+from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
                         SkillLearned, StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState,
                         VerificationResult)
@@ -27,8 +29,10 @@ from ..safety.policy import decide
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
+from ..tools.desktop import parse_snapshot
 from ..tools.registry import ToolRegistry
 from .checks import Check, CheckResult, run_checks_with
+from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
 from .reflect import learn
 from .prompts import COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt, resume_note
@@ -147,6 +151,10 @@ def _wrap_untrusted(source: str, content: str) -> str:
     safe_source = source.replace('"', "&quot;")
     safe_content = _CLOSE_UNTRUSTED_RE.sub("&lt;/untrusted", content)
     return f'<untrusted source="{safe_source}">\n{safe_content}\n</untrusted>'
+
+
+def _similar(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a, b).ratio()
 
 
 def _learned_block(text: str) -> str:
@@ -302,13 +310,18 @@ class TaskEngine:
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
+            replay: tuple[dict, dict] | None = None  # (skill, parameter values) when a compiled macro fits
             if not record.plan:
                 await self._set_state(task_id, "planning")
                 hints = await self._recall(record.goal)
                 if hints.skill_ids:
-                    self.tasks.set_knowledge(task_id, hints.skill_ids)
+                    self.tasks.set_knowledge(task_id, hints.skill_ids, hints.chosen)
                 learned = _learned_block(hints.text) if hints.text else None
-                steps, checks = await self._plan(task_id, record.goal, learned)
+                replay = self._macro_for(hints.chosen, record.goal)
+                if replay is not None:  # the learned steps are the plan: no planning call at all
+                    steps, checks = [describe(s, replay[1]) for s in replay[0]["macro_def"]["steps"]], []
+                else:
+                    steps, checks = await self._plan(task_id, record.goal, learned)
                 self.tasks.set_plan(task_id, steps, [c.model_dump() for c in checks])
                 await self.hub.publish(TaskPlan(task_id=task_id, steps=steps, checks=[c.describe() for c in checks]))
                 record = self.tasks.get(task_id)
@@ -329,7 +342,15 @@ class TaskEngine:
                 convo.append(ChatMessage("user", note))
             grants: set[tuple[str, str]] = set()  # (tool name, scope) the user allowed for this task
             budget = _Budget(calls_made=len(self.tasks.steps(task_id)))
-            outcome = await self._execute(task_id, convo, ctx, grants, run, budget)
+            handover = None
+            if replay is not None:
+                handover = await self._run_macro(task_id, replay[0], replay[1], ctx, grants, run, budget)
+            if replay is not None and handover is None:
+                outcome = Outcome(f"Done. I used the steps I learned for “{replay[0]['title']}”.", False)
+            else:
+                if handover:
+                    convo.append(ChatMessage("user", handover))
+                outcome = await self._execute(task_id, convo, ctx, grants, run, budget)
             if outcome.budget_exhausted:
                 active_time.write()
                 await self._finish(task_id, "failed", outcome.summary,
@@ -375,10 +396,73 @@ class TaskEngine:
                 active_time.write()
             await self._finish(task_id, "failed", None, error="something went wrong while working on this")
 
+    # ---- macros (spec §6.3 tier 3) -----------------------------------------------
+    def _macro_for(self, skill_id: str | None, goal: str) -> tuple[dict, dict] | None:
+        """The chosen skill's compiled macro and this goal's parameter values, if both exist."""
+        if not skill_id or self.knowledge is None:
+            return None
+        skill = self.knowledge.get(skill_id)
+        if skill is None or skill.get("macro") != "compiled" or not skill.get("macro_def"):
+            return None
+        values = bind(skill["macro_def"].get("template", ""), goal)
+        return (skill, values) if values is not None else None
+
+    async def _snapshot(self, ctx: ToolContext) -> list | None:
+        tool = self.registry.get("win_snapshot")
+        if tool is None:
+            return None
+        result = await tool.handler({}, ctx)
+        return parse_snapshot(result.content) if result.ok else None
+
+    async def _run_macro(self, task_id: str, skill: dict, values: dict, ctx: ToolContext, grants: set,
+                         run: "_RunClock", budget: "_Budget") -> str | None:
+        """Replay the macro through the normal tool path (same tiers, approvals, step log).
+        None when every step went through; otherwise a note for the LLM to carry on from."""
+        threshold = self.settings.get().system1.ground_threshold if self.settings is not None else 0.6
+        steps = skill["macro_def"]["steps"]
+        done: list[str] = []
+        for i, step in enumerate(steps):
+            await self._gate(task_id, run)
+            args = fill(step.get("args") or {}, values)
+            if step.get("target"):
+                elements = await self._snapshot(ctx)
+                if elements is None:
+                    return self._handover_note(skill, done, describe(step, values), "desktop control isn't connected")
+                element, how = await ground(step["target"], elements, self.system1, threshold, _similar)
+                if element is None:
+                    return self._handover_note(skill, done, describe(step, values), how)
+                args["loc"] = [element.x, element.y]
+            seen: Counter = Counter()
+            call = ToolCall(id=f"macro-{i}", name=step["tool"], arguments=json.dumps(args))
+            # A replayed step's output is read by no model (the next step comes from the macro,
+            # not the screen), so it doesn't taint the task: taint guards the LLM against
+            # injected text, and here there is no LLM to inject into.
+            tainted = ctx.tainted
+            result = await self._handle(task_id, call, ctx, grants, seen, run, budget, decider="macro")
+            ctx.tainted = tainted
+            last = self.tasks.steps(task_id)[-1:]
+            if not last or last[0].tool != step["tool"] or not last[0].ok:
+                # Its error text does reach the LLM, in the handover note: from here on, tainted.
+                ctx.tainted = True
+                reason = result if result.startswith("<untrusted") else _wrap_untrusted(step["tool"], result)
+                return self._handover_note(skill, done, describe(step, values), reason)
+            done.append(describe(step, values))
+            if self.tasks.mark_plan_step(task_id, i):
+                await self.hub.publish(PlanProgress(task_id=task_id, index=i))
+        return None
+
+    @staticmethod
+    def _handover_note(skill: dict, done: list[str], step: str, reason: str) -> str:
+        finished = "\n".join(f"- {d}" for d in done) or "- (nothing yet)"
+        return (f"I started by replaying the steps I learned for “{skill['title']}”. These went through:\n{finished}\n"
+                f"Then this step couldn't be done: {step} ({reason}). The screen may look different from last time. "
+                "Take a fresh look (win_snapshot) and finish the goal from here; the plan above is a guide.")
+
     async def _recall(self, goal: str) -> Recall:
-        threshold = self.settings.get().system1.skill_threshold if self.settings is not None else 0.6
+        s1 = self.settings.get().system1 if self.settings is not None else None
         try:
-            return await recall(self.knowledge, self.system1, goal, threshold)
+            return await recall(self.knowledge, self.system1, goal, s1.skill_threshold if s1 else 0.3,
+                                s1.skill_none_threshold if s1 else 0.95)
         except Exception:
             log.exception("recalling skills failed; planning without them")
             return Recall()
@@ -463,7 +547,8 @@ class TaskEngine:
                 return Outcome(finished, False)
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
-                      seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False) -> str:
+                      seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False,
+                      decider: str = "agent") -> str:
         args = _parse_args(call.arguments)
         if args is None:
             if call.name != "finish_task":
@@ -498,7 +583,7 @@ class TaskEngine:
         if inspect.isawaitable(assessment):
             assessment = await assessment
         verdict = decide(tool, assessment, tainted=ctx.tainted, grants=grants, scope=scope)
-        step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict)
+        step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict, decider)
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
                                            summary=verdict.target, verdict=verdict.verdict))
         if verdict.verdict == "deny":
@@ -532,7 +617,18 @@ class TaskEngine:
 
     async def _end_step(self, task_id: str, step_id: str, tool_name: str, result: ToolResult, duration_ms: int,
                         ctx: ToolContext) -> str:
-        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms, result.untrusted)
+        thumb = None
+        if result.thumbnail:
+            thumb = f"tasks/{task_id}/{step_id}.jpg"
+            try:
+                path = aethel_home() / "media" / thumb
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(result.thumbnail)
+            except OSError:
+                log.warning("couldn't save the thumbnail for step %s", step_id)
+                thumb = None
+        self.tasks.finish_step(step_id, result.ok, result.content[:4000], duration_ms, result.untrusted,
+                               result.meta, thumb)
         await self.hub.publish(StepFinished(task_id=task_id, step_id=step_id, ok=result.ok,
                                             detail=_first_line(result.content), duration_ms=duration_ms))
         content = result.content

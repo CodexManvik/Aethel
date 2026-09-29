@@ -25,6 +25,7 @@ const settings: AppSettings = {
   history_window: 24,
   system1: { enabled: true, auto_tasks: true, intent_threshold: 0.5, stop_threshold: 0.9, skill_threshold: 0.6, judge_threshold: 0.5 },
   auto_approve_skills: true,
+  replay_thumbnails: true,
 };
 const providers: ProviderInfo[] = [
   { id: "groq", label: "Groq", needs_key: true, has_key: true, base_url: "" },

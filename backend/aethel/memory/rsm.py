@@ -57,11 +57,26 @@ def _section(body: str, name: str) -> list[str]:
             for line in m.group(1).splitlines() if line.strip()]
 
 
-def _skill_body(steps: list[str], pitfalls: list[str]) -> str:
+_MACRO_RE = re.compile(r"```macro\s*\n(.*?)```", re.DOTALL)
+
+
+def _skill_body(steps: list[str], pitfalls: list[str], macro_def: dict | None = None) -> str:
     out = "## Steps\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(steps, 1))
     if pitfalls:
         out += "\n\n## Pitfalls\n" + "\n".join(f"- {p}" for p in pitfalls)
+    if macro_def:
+        out += ("\n\n## Macro\nCompiled from runs that went the same way; replayed without the language model.\n\n"
+                "```macro\n" + yaml.safe_dump(macro_def, sort_keys=False, allow_unicode=True) + "```")
     return out
+
+
+def _macro_def(body: str) -> dict | None:
+    m = _MACRO_RE.search(body)
+    try:
+        value = yaml.safe_load(m.group(1)) if m else None
+    except yaml.YAMLError:
+        return None
+    return value if isinstance(value, dict) and isinstance(value.get("steps"), list) else None
 
 
 def _normalise_skill(doc: dict) -> dict:
@@ -76,6 +91,8 @@ def _normalise_skill(doc: dict) -> dict:
             "runs": runs, "successes": succ, "duration_history": list(doc.get("duration_history") or []),
             "avg_duration_s": doc.get("avg_duration_s"), "confidence": float(doc.get("confidence", 0.5) or 0.5),
             "last_used": doc.get("last_used"), "macro": doc.get("macro") or "none",
+            "macro_def": _macro_def(doc["body"]), "recent_structures": list(doc.get("recent_structures") or []),
+            "repairs_failed": int(doc.get("repairs_failed", 0) or 0),
             "steps": _section(doc["body"], "Steps"), "pitfalls": _section(doc["body"], "Pitfalls")}
 
 
@@ -177,8 +194,30 @@ class KnowledgeStore:
 
     def _save_skill(self, doc: dict, steps: list[str], pitfalls: list[str]) -> None:
         keep = ("id", "type", "title", "apps", "intent", "params", "preconditions", "status", "runs", "successes",
-                "avg_duration_s", "duration_history", "confidence", "last_used", "macro", "created")
-        _write(Path(doc["path"]), {k: doc[k] for k in keep if k in doc}, _skill_body(steps, pitfalls))
+                "avg_duration_s", "duration_history", "confidence", "last_used", "macro", "recent_structures",
+                "repairs_failed", "created")
+        _write(Path(doc["path"]), {k: doc[k] for k in keep if k in doc},
+               _skill_body(steps, pitfalls, doc.get("macro_def")))
+
+    def record_structure(self, skill_id: str, key: str, keep: int = 3) -> list[str]:
+        """Remember how a successful run went; returns the most recent keys."""
+        with self._lock:
+            doc = next((d for d in self.skills() if d["id"] == skill_id), None)
+            if doc is None:
+                return []
+            recent = (doc["recent_structures"] + [key])[-keep:]
+            self._save_skill({**doc, "recent_structures": recent}, doc["steps"], doc["pitfalls"])
+            return recent
+
+    def set_macro(self, skill_id: str, macro_def: dict | None, status: str, repairs_failed: int = 0) -> dict | None:
+        """status: none | compiled | broken."""
+        with self._lock:
+            doc = next((d for d in self.skills() if d["id"] == skill_id), None)
+            if doc is None:
+                return None
+            self._save_skill({**doc, "macro": status, "macro_def": macro_def, "repairs_failed": repairs_failed},
+                             doc["steps"], doc["pitfalls"])
+        return self.get(skill_id)
 
     def upsert_note(self, app: str, facts: list[str]) -> dict:
         """Add facts to an app's note. Notes are observations, so they're always live."""

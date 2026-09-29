@@ -24,6 +24,8 @@ export function SkillCard({ skill }: { skill: Skill }) {
         <span>{skill.runs === 0 ? "not used yet" : `${skill.runs} run${skill.runs === 1 ? "" : "s"} · ${rate}% worked`}</span>
         {skill.avg_duration_s != null && <span>about {Math.round(skill.avg_duration_s)} s lately</span>}
         {skill.apps.length > 0 && <span>{skill.apps.join(", ")}</span>}
+        {skill.macro === "compiled" && <span className="text-accent">replays without thinking</span>}
+        {skill.macro === "broken" && <span>replay stopped working, thinking it through again</span>}
         <Sparkline values={history} label={`Durations, first to latest: ${history.map((d) => `${Math.round(d)} s`).join(", ")}`} />
       </div>
       <details className="mt-3 text-[13px] text-ink-2">

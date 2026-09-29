@@ -9,6 +9,7 @@ from .auth import AuthConfig
 from .chat.service import ChatService
 from .hub import EventHub
 from .keys import KeyStore
+from .protocol import CursorIntent
 from .paths import LEGACY_SETTINGS_PATH, aethel_home, db_path
 from .providers.local_llama import LocalLlama
 from .providers.router import ProviderFactory, RoleRouter, make_provider_factory
@@ -99,14 +100,22 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge,
-        mcp_servers=default_mcp_servers(permissions, changes, router) if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub) if mcp_servers is None else mcp_servers,
     )
 
 
-def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter) -> list[ServerSpec]:
+def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter,
+                        settings: SettingsService, hub: EventHub) -> list[ServerSpec]:
     """Desktop, Office and Desktop Commander. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    specs = [desktop_spec(Desktop(vision=router)), office_spec(Office(permissions, changes)),
+    specs = [desktop_spec(Desktop(vision=router, thumbnails=lambda: settings.get().replay_thumbnails,
+                                 on_pointer=_cursor(hub))), office_spec(Office(permissions, changes)),
              file_commander_spec(FileCommander(permissions, changes))]
     return [spec for spec in specs if spec is not None]
+
+
+def _cursor(hub: EventHub):
+    async def publish(task_id: str | None, x: int, y: int, label: str) -> None:
+        await hub.publish(CursorIntent(task_id=task_id, x=x, y=y, label=label))
+    return publish

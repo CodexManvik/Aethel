@@ -34,7 +34,8 @@ export type Server =
   | ApprovalResolved
   | VerificationResult
   | TaskState
-  | SkillLearned;
+  | SkillLearned
+  | CursorIntent;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -119,6 +120,11 @@ export type SkillId = string;
 export type TaskId11 = string;
 export type Title1 = string;
 export type Type21 = "skill_learned";
+export type Label = string;
+export type TaskId12 = string | null;
+export type Type22 = "cursor_intent";
+export type X = number;
+export type Y = number;
 
 export interface AethelProtocol {
   client: Client;
@@ -276,4 +282,14 @@ export interface SkillLearned {
   task_id: TaskId11;
   title: Title1;
   type: Type21;
+}
+/**
+ * Where the next pointer action lands, for the ghost cursor overlay (spec §4.4). Physical pixels.
+ */
+export interface CursorIntent {
+  label: Label;
+  task_id: TaskId12;
+  type: Type22;
+  x: X;
+  y: Y;
 }

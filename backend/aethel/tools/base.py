@@ -16,6 +16,8 @@ class ToolResult:
     ok: bool
     content: str             # what the model sees (wrapped as untrusted by the engine if flagged)
     untrusted: bool = False  # came from outside: file contents, command output, apps, web
+    meta: dict | None = None        # what the step touched, e.g. {"element": {role, name, window}, "app": ...}
+    thumbnail: bytes | None = None  # a small JPEG of the screen after the step (replay, spec §4.5)
 
 
 @dataclass

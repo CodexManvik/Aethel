@@ -19,7 +19,7 @@ beforeEach(() => {
   calls = [];
   apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
     calls.push({ path, init });
-    if (path === "/api/memory/skills") return [skill(), skill({ id: "skill-new", title: "Play lofi", status: "quarantined", runs: 0, duration_history: [] })];
+    if (path === "/api/memory/skills") return [skill(), skill({ id: "skill-new", title: "Play lofi", status: "quarantined", runs: 0, duration_history: [], macro: "compiled" })];
     if (path === "/api/memory/notes") return notes;
     if (path === "/api/memory/system1") return { status: "ready" };
     return init?.body ? { ...JSON.parse(String(init.body)) } : {};
@@ -32,8 +32,10 @@ test("skill cards show runs, success and a duration sparkline; waiting skills co
   renderMemory();
   const cards = await screen.findAllByRole("article");
   expect(within(cards[0]).getByText("Play lofi")).toBeInTheDocument();
+  expect(within(cards[0]).getByText("replays without thinking")).toBeInTheDocument();
   const haiku = cards[1];
   expect(within(haiku).getByText("3 runs · 67% worked")).toBeInTheDocument();
+  expect(within(haiku).queryByText("replays without thinking")).not.toBeInTheDocument();
   expect(within(haiku).getByRole("img", { name: "Durations, first to latest: 48 s, 12 s, 4 s" })).toBeInTheDocument();
   expect(screen.getByText(/System 1 is ready/)).toBeInTheDocument();
 });

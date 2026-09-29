@@ -155,10 +155,19 @@ class SkillLearned(Event):
     created: bool  # False: an existing skill was reinforced
 
 
+class CursorIntent(Event):
+    """Where the next pointer action lands, for the ghost cursor overlay (spec §4.4). Physical pixels."""
+    type: Literal["cursor_intent"] = "cursor_intent"
+    task_id: str | None = None
+    x: int
+    y: int
+    label: str
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, StepStarted, StepFinished, ApprovalNeeded, ApprovalResolved,
-          VerificationResult, TaskState, SkillLearned],
+          VerificationResult, TaskState, SkillLearned, CursorIntent],
     Field(discriminator="type"),
 ]
 

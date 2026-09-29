@@ -4,7 +4,10 @@ Windows-MCP also ships PowerShell, FileSystem, Registry and Process tools that
 would walk straight past the permission manifest, so only the UI tools below
 are exposed. Every action is scoped to the app it lands in; Aethel's own
 window and the system's credential prompts are never touched."""
+import asyncio
+import base64
 import ctypes
+import io
 import math
 import os
 import re
@@ -12,6 +15,7 @@ import shutil
 from contextlib import aclosing
 from dataclasses import dataclass
 
+import anyio
 import psutil
 from mcp import types as mt
 
@@ -53,6 +57,9 @@ IRREVERSIBLE_KEYS = {"alt+f4", "ctrl+w", "shift+delete", "ctrl+shift+delete"}
 _ELEMENT_RE = re.compile(r'\((-?\d+),(-?\d+)\)\s+(\S+)\s+"(.*)"\s+\[action:')
 _WINDOW_RE = re.compile(r'^window "(.*)"\s*$')
 _SCALE_RE = re.compile(r"Screenshot Coordinate Scale:\s*([\d.]+)")
+SCREEN_TOOLS = {"App", "Click", "Type", "Scroll", "Move", "Shortcut", "MultiSelect", "MultiEdit"}  # change the screen
+THUMB_WIDTH = 480
+CURSOR_LEAD_S = 0.2
 
 
 @dataclass
@@ -97,15 +104,43 @@ def _app_of(hwnd) -> App | None:
     return App(pid, name[:-4].lower() if name.lower().endswith(".exe") else name.lower())
 
 
+WS_EX_TRANSPARENT = 0x20
+GWL_EXSTYLE = -20
+GW_HWNDNEXT = 2
+
+
+def _click_through(hwnd) -> bool:
+    import win32gui
+    return bool(win32gui.GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT)
+
+
+def _window_under(x: int, y: int):
+    """The top-level window a click at (x, y) reaches: click-through windows,
+    such as Aethel's own ghost cursor overlay, are looked through."""
+    import win32gui
+    hwnd = win32gui.WindowFromPoint((x, y))
+    root = win32gui.GetAncestor(hwnd, 2) if hwnd else 0
+    while root and _click_through(root):
+        root = win32gui.GetWindow(root, GW_HWNDNEXT)
+        while root and not (win32gui.IsWindowVisible(root) and not _click_through(root)
+                            and _contains(win32gui.GetWindowRect(root), x, y)):
+            root = win32gui.GetWindow(root, GW_HWNDNEXT)
+    return root
+
+
+def _contains(rect, x: int, y: int) -> bool:
+    left, top, right, bottom = rect
+    return left <= x < right and top <= y < bottom
+
+
 def window_at(x: int, y: int) -> App | None:
     if os.name != "nt":
         return None
-    import win32gui
     user32 = ctypes.windll.user32
     # Windows-MCP works in physical pixels; see the screen the same way.
     previous = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
     try:
-        return _app_of(win32gui.WindowFromPoint((x, y)))
+        return _app_of(_window_under(x, y))
     except Exception:
         return None
     finally:
@@ -141,9 +176,12 @@ def _app_name(name) -> str:
 
 
 class Desktop:
-    def __init__(self, window_at=window_at, foreground=foreground_window, vision=None):
+    def __init__(self, window_at=window_at, foreground=foreground_window, vision=None, thumbnails=lambda: False,
+                 on_pointer=None):
+        self.on_pointer = on_pointer  # async (task_id, x, y, label): the ghost cursor, before each pointer action
         self.window_at = window_at
         self.foreground = foreground
+        self.thumbnails = thumbnails  # whether to keep a replay thumbnail after each on-screen step
         self.vision = vision  # a RoleRouter: win_locate asks its "vision" role
         self.hub = None
         self.elements: list[Element] = []  # from the latest snapshot
@@ -220,6 +258,36 @@ class Desktop:
             return Assessment("allow", "This looks like it sends, buys or deletes something.", target, "irreversible")
         return Assessment("allow", "", target)
 
+    # ---- replay: what a step touched, and the screen after it ------------------
+    def _meta(self, kind: str, args: dict) -> dict:
+        if kind == "app":
+            return {"app": _app_name(args.get("name"))}
+        pt = self._points(kind, args)[0]
+        app = self._target_app(pt)
+        el = self._near(pt)
+        return {"app": app.name if app else None,
+                "element": {"role": el.role, "name": el.name, "window": el.window} if el else None}
+
+    async def _thumbnail(self) -> bytes | None:
+        shot = await self.hub.call_raw(SERVER, "Screenshot", {"use_annotation": False})
+        image = None if isinstance(shot, str) else next(
+            (c for c in shot.content if isinstance(c, mt.ImageContent)), None)
+        if image is None:
+            return None
+
+        def shrink() -> bytes:
+            from PIL import Image
+            with Image.open(io.BytesIO(base64.b64decode(image.data))) as im:
+                im.thumbnail((THUMB_WIDTH, THUMB_WIDTH * 4))
+                out = io.BytesIO()
+                im.convert("RGB").save(out, "JPEG", quality=70)
+                return out.getvalue()
+
+        try:
+            return await anyio.to_thread.run_sync(shrink)
+        except Exception:
+            return None
+
     # ---- tools ----------------------------------------------------------------
     def _tool(self, remote: mt.Tool) -> Tool:
         name, tier, kind = EXPOSED[remote.name]
@@ -232,9 +300,21 @@ class Desktop:
             args = {k: v for k, v in args.items() if k not in HIDDEN_PARAMS}
             if remote.name == "Snapshot":
                 args["use_vision"] = False
+            touches = remote.name in SCREEN_TOOLS
+            meta = self._meta(kind, args) if touches and kind is not None else None  # before the screen changes
+            if self.on_pointer is not None and kind in ("pointer", "multi"):
+                pt = self._points(kind, args)[0]
+                if pt is not None:
+                    await self.on_pointer(ctx.task_id if ctx else None, pt[0], pt[1],
+                                          self._assess(kind, remote.name, args).target)
+                    await asyncio.sleep(CURSOR_LEAD_S)  # let the cursor arrive before the click
             result = await self.hub.call(SERVER, remote.name, args)
             if remote.name == "Snapshot" and result.ok:
                 self.elements = parse_snapshot(result.content)
+            if touches and result.ok:
+                result.meta = meta
+                if self.thumbnails():
+                    result.thumbnail = await self._thumbnail()
             return result
 
         if kind is None:

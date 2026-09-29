@@ -43,6 +43,7 @@ export interface AppSettings {
   history_window: number;
   system1: System1Settings;
   auto_approve_skills: boolean;
+  replay_thumbnails: boolean;
 }
 
 export interface System1Settings {
@@ -85,6 +86,8 @@ export interface TaskRecord {
   created_at: string;
   updated_at: string;
   active_seconds?: number;
+  knowledge?: string[];
+  skill_id?: string | null;
 }
 
 export interface StepRecord {
@@ -99,6 +102,10 @@ export interface StepRecord {
   result: string | null;
   duration_ms: number | null;
   created_at: string;
+  untrusted?: boolean;
+  meta?: { app?: string | null; element?: { role: string; name: string; window: string } | null } | null;
+  decider?: "agent" | "macro";
+  thumbnail?: string | null;
 }
 
 export interface PendingApproval {
