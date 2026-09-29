@@ -60,6 +60,7 @@ export interface ProviderInfo {
   label: string;
   needs_key: boolean;
   has_key: boolean;
+  key_optional?: boolean;
   base_url: string;
 }
 

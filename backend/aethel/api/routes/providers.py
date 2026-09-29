@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...providers.base import ChatMessage, ProviderError, TextDelta
-from ...providers.catalog import PROVIDERS, base_url_for
+from ...providers.catalog import KEY_OPTIONAL, PROVIDERS, api_key_for, base_url_for
 from ...providers.router import LOCAL_API_KEY
 from ...services import Services
 from ...settings import ProviderId, RouteEntry
@@ -27,6 +27,7 @@ class ProviderInfo(BaseModel):
     id: str
     label: str
     needs_key: bool
+    key_optional: bool = False
     has_key: bool
     base_url: str
 
@@ -49,6 +50,7 @@ def list_providers(svc: Services = Depends(get_services)) -> list[ProviderInfo]:
     return [
         ProviderInfo(id=m.id, label=m.label, needs_key=m.needs_key,
                      has_key=(not m.needs_key) or svc.keys.get(m.id) is not None,
+                     key_optional=m.id in KEY_OPTIONAL,
                      base_url=base_url_for(m.id, s))
         for m in PROVIDERS.values()
     ]
@@ -64,9 +66,9 @@ async def list_models(provider_id: str, svc: Services = Depends(get_services)) -
             return {"models": []}
         api_key = LOCAL_API_KEY
     else:
-        api_key = svc.keys.get(provider_id)
-        if not api_key:
-            raise HTTPException(status_code=400, detail="No API key saved for this provider.")
+        api_key, why = api_key_for(provider_id, svc.keys, svc.settings.get())
+        if api_key is None:
+            raise HTTPException(status_code=400, detail=why[0].upper() + why[1:] + ".")
     lister = svc.provider_factory(RouteEntry(provider=provider_id, model="_list"), api_key, svc.settings.get())
     try:
         return {"models": await lister.list_models()}
@@ -84,9 +86,9 @@ async def test_provider(body: TestIn, svc: Services = Depends(get_services)) -> 
             return TestOut(ok=False, latency_ms=0, error=str(exc))
         api_key = LOCAL_API_KEY
     else:
-        api_key = svc.keys.get(body.provider)
-        if not api_key:
-            return TestOut(ok=False, latency_ms=0, error="No API key saved for this provider.")
+        api_key, why = api_key_for(body.provider, svc.keys, svc.settings.get())
+        if api_key is None:
+            return TestOut(ok=False, latency_ms=0, error=why[0].upper() + why[1:] + ".")
     provider = svc.provider_factory(RouteEntry(provider=body.provider, model=body.model), api_key,
                                     svc.settings.get())
     started = time.perf_counter()

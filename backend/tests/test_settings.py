@@ -61,3 +61,21 @@ def test_legacy_import_runs_once(service, tmp_path):
 
 def test_legacy_import_tolerates_missing_file(service, tmp_path):
     assert service.import_legacy(tmp_path / "nope.json") is False
+
+
+def test_custom_endpoint_url_is_validated_and_normalised():
+    import pytest
+    from pydantic import ValidationError
+    from aethel.paths import db_path
+    from aethel.settings import SettingsService
+    from aethel.store.db import Database
+    db = Database(db_path())
+    s = SettingsService(db)
+    assert s.update({"custom_base_url": " http://127.0.0.1:1234/v1/ "}).custom_base_url == "http://127.0.0.1:1234/v1"
+    with pytest.raises(ValidationError):
+        s.update({"custom_base_url": "localhost:1234"})
+    assert s.update({"custom_base_url": ""}).custom_base_url == ""
+    # a bad value saved by an older version doesn't break loading
+    db.execute("UPDATE settings SET value = json_set(value, '$.custom_base_url', 'nonsense') WHERE key = 'app'")
+    assert s.get().custom_base_url == ""
+    db.close()

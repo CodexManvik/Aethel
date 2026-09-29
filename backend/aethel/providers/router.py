@@ -8,7 +8,7 @@ import httpx
 from ..keys import KeyStore
 from ..settings import AppSettings, RouteEntry, SettingsService
 from .base import ChatMessage, LLMProvider, ProviderError, StreamEvent, ToolSpec
-from .catalog import base_url_for
+from .catalog import api_key_for, base_url_for
 from .openai_compat import OpenAICompatProvider
 
 ProviderFactory = Callable[[RouteEntry, str, AppSettings], LLMProvider]
@@ -82,9 +82,9 @@ class RoleRouter:
                     continue
                 api_key = LOCAL_API_KEY
             else:
-                api_key = self.keys.get(entry.provider)
-                if not api_key:
-                    errors.append(f"{label}: no API key")
+                api_key, why = api_key_for(entry.provider, self.keys, s)
+                if api_key is None:
+                    errors.append(f"{label}: {why}")
                     continue
             provider = self.factory(entry, api_key, s)
             if failed_label is not None and on_switch is not None:

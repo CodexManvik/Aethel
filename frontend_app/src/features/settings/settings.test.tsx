@@ -131,3 +131,21 @@ test("learning switches patch settings", async () => {
   await userEvent.click(screen.getByRole("switch", { name: "Use new skills straight away" }));
   await waitFor(() => expect(patches).toEqual([{ system1: { auto_tasks: false } }, { auto_approve_skills: false }]));
 });
+
+test("saving the custom endpoint confirms it, and a bad URL says why", async () => {
+  const { ProvidersSection, saveError } = await import("./ProvidersSection");
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ProvidersSection settings={settings} />
+    </QueryClientProvider>,
+  );
+  const saveUrl = () => screen.getAllByRole("button", { name: "Save" }).slice(-1)[0]; // the last Save is the URL's
+  expect(saveUrl()).toBeDisabled(); // nothing changed yet
+  await userEvent.type(screen.getByLabelText("Custom endpoint URL"), "http://127.0.0.1:1234/v1");
+  expect(saveUrl()).toBeEnabled();
+  await userEvent.click(saveUrl());
+  await waitFor(() => expect(patches).toContainEqual({ custom_base_url: "http://127.0.0.1:1234/v1" }));
+  expect(saveError(new Error('[{"msg":"Value error, must start with http:// or https://, e.g. http://127.0.0.1:1234/v1"}]')))
+    .toBe("That URL doesn't look right: it must start with http:// or https://, e.g. http://127.0.0.1:1234/v1.");
+  expect(saveError(new Error("boom"))).toBe("Couldn't save: boom");
+});
