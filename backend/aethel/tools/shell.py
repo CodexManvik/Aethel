@@ -11,6 +11,7 @@ from ..safety.permissions import Permissions
 from .base import Assessment, Tool, ToolContext, ToolResult
 
 TIMEOUT_S = 60
+CREATE_SUSPENDED = 0x00000004
 MAX_OUTPUT = 8000
 _SECRET_NAMES = {"AETHEL_TOKEN", "AETHEL_PARENT_PID"}
 _SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
@@ -69,7 +70,9 @@ def shell_tool(perms: Permissions) -> Tool:
     async def run(args: dict, ctx: ToolContext) -> ToolResult:
         command = args["command"]
         argv = ["cmd", "/c", command] if os.name == "nt" else ["/bin/sh", "-c", command]
-        extra: dict = ({"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
+        # Suspended until it's in its job: a `start /b` child can't be spawned outside it.
+        extra: dict = ({"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                                         | CREATE_SUSPENDED}
                        if os.name == "nt" else {"start_new_session": True})
         spawn = asyncio.ensure_future(asyncio.create_subprocess_exec(
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
@@ -85,9 +88,9 @@ def shell_tool(perms: Permissions) -> Tool:
                 with contextlib.suppress(Exception):
                     await _kill_tree(await spawn)
                 raise
-            # ponytail: added after spawn, so a child started in cmd.exe's first
-            # milliseconds can escape the job; taskkill /T still gets it via cmd.
-            group.add(proc.pid)
+            if os.name == "nt" and not group.add_and_resume(proc.pid):
+                await asyncio.shield(_kill_tree(proc, group))
+                return ToolResult(False, "Couldn't start the command safely.")
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
             except asyncio.TimeoutError:

@@ -20,6 +20,7 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9  # JobObjectExtendedLimitInformation
 PROCESS_SET_QUOTA = 0x0100
 PROCESS_TERMINATE = 0x0001
+PROCESS_SUSPEND_RESUME = 0x0800
 
 _lock = threading.Lock()
 _job = None  # the job HANDLE; intentionally lives until the process dies
@@ -75,6 +76,9 @@ if SUPPORTED:
     _k32.CloseHandle.restype = wintypes.BOOL
     _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     _k32.TerminateJobObject.restype = wintypes.BOOL
+    _ntdll = ctypes.WinDLL("ntdll")
+    _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    _ntdll.NtResumeProcess.restype = ctypes.c_long
 
     def _create_job():
         job = _k32.CreateJobObjectW(None, None)
@@ -146,6 +150,18 @@ class ProcessGroup:
             return False
         try:
             return bool(_k32.AssignProcessToJobObject(self._job, handle))
+        finally:
+            _k32.CloseHandle(handle)
+
+    def add_and_resume(self, pid: int) -> bool:
+        """For a process created with CREATE_SUSPENDED: join the job first, then
+        let it run, so nothing it starts can be spawned outside the job."""
+        added = self.add(pid)
+        handle = _k32.OpenProcess(PROCESS_SUSPEND_RESUME, False, int(pid)) if SUPPORTED else None
+        if not handle:
+            return False
+        try:
+            return added and _ntdll.NtResumeProcess(handle) == 0
         finally:
             _k32.CloseHandle(handle)
 
