@@ -85,15 +85,26 @@ def run_checks(checks: list[Check]) -> list[CheckResult]:
     return [run_check(c) for c in checks]
 
 
+JUDGE_OPTIONS = {"yes": "the description fits the document", "no": "the description does not fit the document"}
+
+
+def judge_question(claim: str) -> str:
+    return f'Does this document fit the description "{claim}"?'  # measured best of 5 phrasings (eval_s1_judge.py)
+
+
 async def run_checks_with(checks: list[Check], system1, threshold: float) -> list[CheckResult]:
     """Like run_checks, but "judge" checks (fuzzy claims about a file's content,
-    spec §5.2) are answered by System 1. Without it they pass as not measured."""
+    spec §5.2) are answered by System 1: they fail only on a confident "no"
+    (P(yes) below the threshold), since failing good work costs more than
+    missing a bad result the other checks may still catch. Without System 1
+    they pass as not measured."""
     results = []
     for check in checks:
         text = _read(check.path) if check.kind == "judge" else None
         p = None
         if text is not None and system1 is not None:
-            p = await system1.noul({"document": text[:4000]}, f"Is this true of the document? {check.text}", "judge")
+            answer = await system1.choice({"document": text[:4000]}, judge_question(check.text), JUDGE_OPTIONS, "judge")
+            p = answer[1]["yes"] if answer is not None else None
         if check.kind != "judge" or text is None or p is None:
             results.append(run_check(check))
         else:

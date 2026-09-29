@@ -1,0 +1,20 @@
+{"id": "j000", "document": "Soft rain on the roof\nquiet puddles hold the sky\nthe street hums again", "claim": "is a short poem about rain", "label": true}
+{"id": "j001", "document": "Soft rain on the roof\nquiet puddles hold the sky\nthe street hums again", "claim": "is a haiku", "label": true}
+{"id": "j002", "document": "Soft rain on the roof\nquiet puddles hold the sky\nthe street hums again", "claim": "is about the sea", "label": false}
+{"id": "j003", "document": "Soft rain on the roof\nquiet puddles hold the sky\nthe street hums again", "claim": "is a shopping list", "label": false}
+{"id": "j004", "document": "Climate change is the long-term shift in temperatures and weather patterns. Since the 1800s, human activities have been the main driver, primarily due to burning fossil fuels like coal, oil and gas, which produces heat-trapping gases.", "claim": "is about climate change", "label": true}
+{"id": "j005", "document": "Climate change is the long-term shift in temperatures and weather patterns. Since the 1800s, human activities have been the main driver, primarily due to burning fossil fuels like coal, oil and gas, which produces heat-trapping gases.", "claim": "is written in a formal tone", "label": true}
+{"id": "j006", "document": "Climate change is the long-term shift in temperatures and weather patterns. Since the 1800s, human activities have been the main driver, primarily due to burning fossil fuels like coal, oil and gas, which produces heat-trapping gases.", "claim": "is a poem", "label": false}
+{"id": "j007", "document": "Climate change is the long-term shift in temperatures and weather patterns. Since the 1800s, human activities have been the main driver, primarily due to burning fossil fuels like coal, oil and gas, which produces heat-trapping gases.", "claim": "is about cooking", "label": false}
+{"id": "j008", "document": "- buy milk\n- email Priya about the report\n- book dentist for Friday", "claim": "is a to-do list", "label": true}
+{"id": "j009", "document": "- buy milk\n- email Priya about the report\n- book dentist for Friday", "claim": "mentions a dentist appointment", "label": true}
+{"id": "j010", "document": "- buy milk\n- email Priya about the report\n- book dentist for Friday", "claim": "is a formal letter", "label": false}
+{"id": "j011", "document": "- buy milk\n- email Priya about the report\n- book dentist for Friday", "claim": "is about climate change", "label": false}
+{"id": "j012", "document": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))", "claim": "is Python code", "label": true}
+{"id": "j013", "document": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))", "claim": "defines a function that adds two numbers", "label": true}
+{"id": "j014", "document": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))", "claim": "is a poem about rain", "label": false}
+{"id": "j015", "document": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))", "claim": "is written in Java", "label": false}
+{"id": "j016", "document": "Dear Mr Shah,\nI am writing to apply for the summer internship at your firm. I am a final-year computer science student.\nYours sincerely,\nManvik", "claim": "is a cover letter for an internship", "label": true}
+{"id": "j017", "document": "Dear Mr Shah,\nI am writing to apply for the summer internship at your firm. I am a final-year computer science student.\nYours sincerely,\nManvik", "claim": "is signed by Manvik", "label": true}
+{"id": "j018", "document": "Dear Mr Shah,\nI am writing to apply for the summer internship at your firm. I am a final-year computer science student.\nYours sincerely,\nManvik", "claim": "is a haiku", "label": false}
+{"id": "j019", "document": "Dear Mr Shah,\nI am writing to apply for the summer internship at your firm. I am a final-year computer science student.\nYours sincerely,\nManvik", "claim": "is addressed to a woman named Priya", "label": false}

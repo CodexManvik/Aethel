@@ -49,7 +49,9 @@ class System1Settings(BaseModel):
     # so stop favours precision: 0.9 gives P=1.00, R=0.88 on all 56 rows (in-sample, not held out).
     stop_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
     skill_threshold: float = Field(default=0.6, ge=0.0, le=1.0)  # not yet calibrated
-    judge_threshold: float = Field(default=0.5, ge=0.0, le=1.0)  # not yet calibrated
+    # A judge check fails only below this P(yes). On eval/s1_judge.jsonl (20 author-written pairs, in-sample):
+    # 0.2 rejects 9 of 10 false claims and none of the 10 true ones.
+    judge_threshold: float = Field(default=0.2, ge=0.0, le=1.0)
 
 
 class AppSettings(BaseModel):
