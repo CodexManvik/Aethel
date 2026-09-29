@@ -130,6 +130,32 @@ fn secret_get_all() -> Result<HashMap<String, String>, String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The ghost cursor (spec §4.4): a transparent, always-on-top window over the
+/// primary monitor that never takes clicks or focus. It's always "shown" but
+/// draws nothing until a task points somewhere, so showing it can't steal focus
+/// from the app being driven.
+fn create_cursor_overlay(app: &mut tauri::App) -> tauri::Result<()> {
+    let window = tauri::WebviewWindowBuilder::new(app, "overlay", tauri::WebviewUrl::App("overlay.html".into()))
+        .title("Aethel cursor")
+        .transparent(true)
+        .decorations(false)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .focusable(false)
+        .visible(false)
+        .build()?;
+    if let Some(monitor) = window.primary_monitor()? {
+        window.set_position(*monitor.position())?;
+        window.set_size(*monitor.size())?;
+    }
+    window.set_ignore_cursor_events(true)?;
+    window.show()?;
+    Ok(())
+}
+
 /// Ctrl+Alt+Esc anywhere cancels every task (spec §4.3). The window turns the
 /// event into a `kill_switch` message on its socket.
 fn register_kill_switch(app: &mut tauri::App) {
@@ -170,6 +196,9 @@ pub fn run() {
                 )?;
             }
             register_kill_switch(app);
+            if let Err(e) = create_cursor_overlay(app) {
+                log::warn!("ghost cursor overlay unavailable: {e}");
+            }
             if std::env::var("AETHEL_EXTERNAL_BACKEND").as_deref() != Ok("1") {
                 match spawn_backend(&token, port) {
                     Ok(child) => *app.state::<BackendProcess>().0.lock().unwrap() = Some(child),

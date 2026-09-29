@@ -11,5 +11,7 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(root, "./src") } },
   clearScreen: false,
   server: { port: 5173, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
+  // The ghost cursor overlay is its own page, shown in a second, click-through Tauri window.
+  build: { rollupOptions: { input: { main: path.resolve(root, "index.html"), overlay: path.resolve(root, "overlay.html") } } },
   test: { environment: "jsdom", globals: true, setupFiles: ["./src/test/setup.ts"], css: false },
 });

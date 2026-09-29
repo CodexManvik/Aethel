@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from mcp import types as mt
 
@@ -204,3 +206,52 @@ async def test_no_screenshots_when_thumbnails_are_off():
     tools = {t.name: t for t in dk.adapt(hub, [_remote(n) for n in ALL])}
     r = await tools["win_click"].handler({"loc": [5, 5]}, None)
     assert r.thumbnail is None and hub.raw_calls == [] and r.meta["element"] is None
+
+
+async def test_the_ghost_cursor_hears_about_a_click_before_it_happens():
+    from aethel.tools.base import ToolContext
+    order = []
+
+    class Hub(ReplayHub):
+        async def call(self, server, tool, args):
+            order.append(("click", tool))
+            return await super().call(server, tool, args)
+
+    async def on_pointer(task_id, x, y, label):
+        order.append(("cursor", task_id, x, y, label))
+
+    dk = Desktop(window_at=lambda x, y: App(10, "outlook"), foreground=lambda: App(11, "notepad"),
+                 on_pointer=on_pointer)
+    tools = {t.name: t for t in dk.adapt(Hub(), [_remote(n) for n in ALL])}
+    dk.elements = parse_snapshot(SNAPSHOT)
+    await tools["win_click"].handler({"loc": [902, 612]}, ToolContext(task_id="t1"))
+    await tools["win_shortcut"].handler({"shortcut": "ctrl+s"}, ToolContext(task_id="t1"))
+    assert order[0] == ("cursor", "t1", 902, 612, "Click “Send” in outlook")
+    assert order[1] == ("click", "Click") and len(order) == 3  # a shortcut has no cursor position
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Win32 windows")
+def test_window_lookup_sees_through_click_through_windows():
+    """Aethel's overlay covers the screen: it must never be mistaken for the window being clicked."""
+    import win32api
+    import win32con
+    import win32gui
+    wc = win32gui.WNDCLASS()
+    wc.lpszClassName = "AethelTestClickThrough"
+    wc.lpfnWndProc = lambda hwnd, msg, wp, lp: win32gui.DefWindowProc(hwnd, msg, wp, lp)
+    wc.hInstance = win32api.GetModuleHandle(None)
+    try:
+        win32gui.RegisterClass(wc)
+    except win32gui.error:
+        pass  # registered by an earlier run in this process
+    ex = (win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_TOPMOST
+          | win32con.WS_EX_TOOLWINDOW | win32con.WS_EX_NOACTIVATE)
+    hwnd = win32gui.CreateWindowEx(ex, wc.lpszClassName, "click-through", win32con.WS_POPUP, 0, 0, 300, 300,
+                                   0, 0, wc.hInstance, None)
+    try:
+        win32gui.SetLayeredWindowAttributes(hwnd, 0, 1, win32con.LWA_ALPHA)  # effectively invisible
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOWNOACTIVATE)
+        assert desktop._click_through(hwnd)
+        assert desktop._window_under(100, 100) != hwnd
+    finally:
+        win32gui.DestroyWindow(hwnd)

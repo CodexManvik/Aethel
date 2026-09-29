@@ -173,6 +173,51 @@
       "title": "ConversationUpdated",
       "type": "object"
     },
+    "CursorIntent": {
+      "additionalProperties": false,
+      "description": "Where the next pointer action lands, for the ghost cursor overlay (spec \u00a74.4). Physical pixels.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "type": {
+          "const": "cursor_intent",
+          "default": "cursor_intent",
+          "title": "Type",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "x",
+        "y",
+        "label"
+      ],
+      "title": "CursorIntent",
+      "type": "object"
+    },
     "ErrorEvent": {
       "additionalProperties": false,
       "properties": {
@@ -952,6 +997,7 @@
           "approval_needed": "#/$defs/ApprovalNeeded",
           "approval_resolved": "#/$defs/ApprovalResolved",
           "conversation_updated": "#/$defs/ConversationUpdated",
+          "cursor_intent": "#/$defs/CursorIntent",
           "error": "#/$defs/ErrorEvent",
           "message_end": "#/$defs/MessageEnd",
           "message_start": "#/$defs/MessageStart",
@@ -1016,6 +1062,9 @@
         },
         {
           "$ref": "#/$defs/SkillLearned"
+        },
+        {
+          "$ref": "#/$defs/CursorIntent"
         }
       ],
       "title": "Server"

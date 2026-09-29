@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "the ghost cursor overlay: reads backend info and listens on the session socket only",
+  "windows": ["overlay"],
+  "permissions": ["core:default"]
+}
