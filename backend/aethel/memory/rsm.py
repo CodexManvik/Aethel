@@ -142,7 +142,8 @@ class KnowledgeStore:
         scored = [(sim * effective_confidence(d), d) for sim, d in self._rank(query, live, self.skill_text)]
         return [d for _, d in sorted(scored, key=lambda t: t[0], reverse=True)[:k]]
 
-    def retrieve_notes(self, query: str, k: int = 3, min_sim: float = 0.6)  # bge puts unrelated text near 0.5 -> list[dict]:
+    # bge puts unrelated text near 0.5, so a note must clear 0.6 to count as relevant.
+    def retrieve_notes(self, query: str, k: int = 3, min_sim: float = 0.6) -> list[dict]:
         return [d for sim, d in self._rank(query, self.notes(), self.note_text)[:k] if sim >= min_sim]
 
     # ---- writing ----------------------------------------------------------------
