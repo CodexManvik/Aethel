@@ -418,6 +418,43 @@
       "title": "ProviderSwitched",
       "type": "object"
     },
+    "SkillLearned": {
+      "additionalProperties": false,
+      "description": "After a task, reflection wrote or reinforced a skill (spec \u00a76.3).",
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        },
+        "skill_id": {
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "skill_learned",
+          "default": "skill_learned",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "skill_id",
+        "title",
+        "created"
+      ],
+      "title": "SkillLearned",
+      "type": "object"
+    },
     "StartTask": {
       "additionalProperties": false,
       "properties": {
@@ -920,6 +957,7 @@
           "message_start": "#/$defs/MessageStart",
           "plan_progress": "#/$defs/PlanProgress",
           "provider_switched": "#/$defs/ProviderSwitched",
+          "skill_learned": "#/$defs/SkillLearned",
           "step_finished": "#/$defs/StepFinished",
           "step_started": "#/$defs/StepStarted",
           "task_created": "#/$defs/TaskCreated",
@@ -975,6 +1013,9 @@
         },
         {
           "$ref": "#/$defs/TaskState"
+        },
+        {
+          "$ref": "#/$defs/SkillLearned"
         }
       ],
       "title": "Server"

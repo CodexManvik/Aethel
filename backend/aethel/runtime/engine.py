@@ -18,7 +18,8 @@ from pydantic import ValidationError
 from ..chat.service import make_title
 from ..hub import EventHub
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
-                        StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState, VerificationResult)
+                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState,
+                        VerificationResult)
 from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady, ToolSpec
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..safety.approvals import ApprovalBroker
@@ -29,6 +30,7 @@ from ..tools.base import ToolContext, ToolResult
 from ..tools.registry import ToolRegistry
 from .checks import Check, CheckResult, run_checks
 from .recall import Recall, recall
+from .reflect import learn
 from .prompts import COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt, resume_note
 from .store import TERMINAL_STATES, TaskRepo
 
@@ -175,6 +177,7 @@ class TaskEngine:
         self._gates: dict[str, asyncio.Event] = {}  # set = may proceed, clear = paused
         self._cancel_requested: set[str] = set()
         self._underlying: dict[str, str] = {}  # task_id -> state to restore on resume, while paused
+        self._learning: set[asyncio.Task] = set()  # reflection passes still running after their task ended
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -263,14 +266,14 @@ class TaskEngine:
                 "how it is going; they can pause or cancel it from the task panel.")
 
     async def wait_idle(self) -> None:
-        while self._runners:
-            await asyncio.gather(*list(self._runners.values()), return_exceptions=True)
+        while self._runners or self._learning:
+            await asyncio.gather(*list(self._runners.values()), *list(self._learning), return_exceptions=True)
 
     async def shutdown(self, timeout: float = 5.0) -> None:
         """Stop every runner now; interrupted tasks are left 'paused'."""
-        runners = list(self._runners.values())
+        runners = list(self._runners.values()) + list(self._learning)
         for runner in runners:
-            runner.cancel()
+            runner.cancel()  # an unfinished reflection is simply lost; the task itself is already saved
         if runners:
             await asyncio.wait(runners, timeout=timeout)
 
@@ -597,3 +600,29 @@ class TaskEngine:
         self.tasks.set_state(task_id, state, summary=summary, error=error)
         await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state,
                                          summary=summary, error=error, message_id=msg.id, message_text=text))
+        if state in ("done", "failed") and self.knowledge is not None:
+            learning = asyncio.get_running_loop().create_task(self._learn(task_id))
+            self._learning.add(learning)
+            learning.add_done_callback(self._learning.discard)
+
+    async def _learn(self, task_id: str) -> None:
+        """Credit the skills used and reflect, after the user already has the result."""
+        task = self.tasks.get(task_id)
+        if task is None:
+            return
+
+        async def complete(messages, tools):
+            calls, _, _ = await self._complete(task_id, messages, tools)
+            return calls
+
+        try:
+            learned = await learn(task=task, steps=self.tasks.steps(task_id), knowledge=self.knowledge,
+                                  complete=complete, wrap=_wrap_untrusted,
+                                  auto_approve=self.settings.get().auto_approve_skills if self.settings else True)
+        except Exception:
+            log.exception("learning from task %s failed", task_id)  # never touches the task itself
+            return
+        if learned is not None:
+            skill, created = learned
+            await self.hub.publish(SkillLearned(task_id=task_id, skill_id=skill["id"], title=skill["title"],
+                                                created=created))

@@ -33,7 +33,8 @@ export type Server =
   | ApprovalNeeded
   | ApprovalResolved
   | VerificationResult
-  | TaskState;
+  | TaskState
+  | SkillLearned;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -113,6 +114,11 @@ export type State =
 export type Summary2 = string | null;
 export type TaskId10 = string;
 export type Type20 = "task_state";
+export type Created = boolean;
+export type SkillId = string;
+export type TaskId11 = string;
+export type Title1 = string;
+export type Type21 = "skill_learned";
 
 export interface AethelProtocol {
   client: Client;
@@ -260,4 +266,14 @@ export interface TaskState {
   summary: Summary2;
   task_id: TaskId10;
   type: Type20;
+}
+/**
+ * After a task, reflection wrote or reinforced a skill (spec §6.3).
+ */
+export interface SkillLearned {
+  created: Created;
+  skill_id: SkillId;
+  task_id: TaskId11;
+  title: Title1;
+  type: Type21;
 }
