@@ -175,10 +175,37 @@ def _app_name(name) -> str:
     return name[:-4] if name.endswith(".exe") else name
 
 
+class WindowsClipboard:
+    """The clipboard's text, read and written in-process (exact, unlike a round trip through Windows-MCP)."""
+
+    @staticmethod
+    def get() -> str | None:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+                return win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+            return None
+        finally:
+            win32clipboard.CloseClipboard()
+
+    @staticmethod
+    def set(text: str | None) -> None:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            if text is not None:
+                win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, text)
+        finally:
+            win32clipboard.CloseClipboard()
+
+
 class Desktop:
     def __init__(self, window_at=window_at, foreground=foreground_window, vision=None, thumbnails=lambda: False,
-                 on_pointer=None):
-        self.on_pointer = on_pointer  # async (task_id, x, y, label): the ghost cursor, before each pointer action
+                 on_pointer=None, clipboard=None):
+        self.on_pointer = on_pointer
+        self.clipboard = clipboard or WindowsClipboard()  # async (task_id, x, y, label): the ghost cursor, before each pointer action
         self.window_at = window_at
         self.foreground = foreground
         self.thumbnails = thumbnails  # whether to keep a replay thumbnail after each on-screen step
@@ -274,6 +301,28 @@ class Desktop:
         return {"app": app.name if app else None,
                 "element": {"role": el.role, "name": el.name, "window": el.window} if el else None}
 
+    async def _paste(self, args: dict) -> ToolResult:
+        """Type into the focused field without a screen location. Windows-MCP's Type
+        needs one, so paste instead, then put the user's clipboard back as it was.
+        ponytail: only text is restored; an image or files on the clipboard are lost."""
+        text = str(args.get("text") or "")
+        saved = await anyio.to_thread.run_sync(self.clipboard.get)
+        try:
+            await anyio.to_thread.run_sync(self.clipboard.set, text)
+            if args.get("clear"):
+                await self.hub.call(SERVER, "Shortcut", {"shortcut": "ctrl+a"})
+            pasted = await self.hub.call(SERVER, "Shortcut", {"shortcut": "ctrl+v"})
+            if pasted.ok and args.get("press_enter"):
+                await asyncio.sleep(0.1)
+                await self.hub.call(SERVER, "Shortcut", {"shortcut": "enter"})
+        finally:
+            await asyncio.sleep(0.2)  # let the paste read the clipboard before restoring it
+            await anyio.to_thread.run_sync(self.clipboard.set, saved)
+        if not pasted.ok:
+            return pasted
+        return ToolResult(True, f"Typed {len(text)} characters into the focused field"
+                                + (" and pressed Enter." if args.get("press_enter") else "."), untrusted=True)
+
     async def _thumbnail(self) -> bytes | None:
         shot = await self.hub.call_raw(SERVER, "Screenshot", {"use_annotation": False})
         image = None if isinstance(shot, str) else next(
@@ -314,7 +363,10 @@ class Desktop:
                     await self.on_pointer(ctx.task_id if ctx else None, pt[0], pt[1],
                                           self._assess(kind, remote.name, args).target)
                     await asyncio.sleep(CURSOR_LEAD_S)  # let the cursor arrive before the click
-            result = await self.hub.call(SERVER, remote.name, args)
+            if remote.name == "Type" and _point(args.get("loc")) is None:
+                result = await self._paste(args)
+            else:
+                result = await self.hub.call(SERVER, remote.name, args)
             if remote.name == "App" and result.ok and (args.get("mode") or "launch").startswith("launch") \
                     and args.get("name"):
                 # Windows often keeps focus on the window the request came from (Aethel), so a

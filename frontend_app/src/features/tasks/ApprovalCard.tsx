@@ -8,6 +8,7 @@ const VERBS: Record<string, string> = {
   fs_list: "look inside a folder",
   shell_run: "run a command",
   win_app: "open or switch apps",
+  open_url: "open a web page",
   win_click: "click",
   win_type: "type",
   win_shortcut: "press a shortcut",

@@ -280,3 +280,33 @@ async def test_a_launched_app_is_brought_to_the_front():
     calls.clear()
     await tools["win_app"].handler({"mode": "resize", "name": "Firefox"}, None)
     assert len(calls) == 1  # only launches get the extra switch
+
+
+async def test_typing_without_a_location_pastes_and_restores_the_clipboard():
+    calls = []
+
+    class Hub(ReplayHub):
+        async def call(self, server, tool, args):
+            calls.append((tool, args))
+            return await super().call(server, tool, args)
+
+    class Clip:
+        value, history = "the user's own text", []
+
+        def get(self):
+            return self.value
+
+        def set(self, text):
+            self.history.append(text)
+            self.value = text
+
+    clip = Clip()
+    dk = Desktop(window_at=lambda x, y: App(10, "firefox"), foreground=lambda: App(11, "firefox"), clipboard=clip)
+    tools = {t.name: t for t in dk.adapt(Hub(), [_remote(n) for n in ALL])}
+    r = await tools["win_type"].handler({"text": "youtube.com", "press_enter": True}, None)
+    assert r.ok and "pressed Enter" in r.content
+    assert calls == [("Shortcut", {"shortcut": "ctrl+v"}), ("Shortcut", {"shortcut": "enter"})]
+    assert clip.history == ["youtube.com", "the user's own text"] and clip.value == "the user's own text"
+    calls.clear()
+    await tools["win_type"].handler({"text": "x", "loc": [5, 5]}, None)
+    assert calls == [("Type", {"text": "x", "loc": [5, 5]})]  # with a location, Windows-MCP types it
