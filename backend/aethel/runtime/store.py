@@ -78,6 +78,10 @@ class TaskRepo:
         row = self.db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         return _task(row) if row else None
 
+    def recent(self, limit: int = 50) -> list[TaskRecord]:
+        return [_task(r) for r in self.db.query("SELECT * FROM tasks ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                                                (limit,))]
+
     def list_for_conversation(self, conversation_id: str) -> list[TaskRecord]:
         rows = self.db.query("SELECT * FROM tasks WHERE conversation_id = ? ORDER BY rowid", (conversation_id,))
         return [_task(r) for r in rows]

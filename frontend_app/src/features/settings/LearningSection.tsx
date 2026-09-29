@@ -16,6 +16,10 @@ export function LearningSection({ settings }: { settings: AppSettings }) {
         <Switch label="Start tasks from messages" checked={s1.auto_tasks} disabled={!s1.enabled}
           onCheckedChange={(v) => update.mutate({ system1: { auto_tasks: v } })} />
       </Field>
+      <Field label="Replay pictures" hint="A small screenshot after each on-screen step, for the replay in Tasks. Kept only on this PC.">
+        <Switch label="Replay pictures" checked={settings.replay_thumbnails}
+          onCheckedChange={(v) => update.mutate({ replay_thumbnails: v })} />
+      </Field>
       <Field label="Use new skills straight away" hint="Off: new skills wait in Memory until you approve them.">
         <Switch label="Use new skills straight away" checked={settings.auto_approve_skills}
           onCheckedChange={(v) => update.mutate({ auto_approve_skills: v })} />

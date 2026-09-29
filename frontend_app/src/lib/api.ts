@@ -9,7 +9,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const { url, token } = await getBackendInfo();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -25,8 +25,18 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
     throw new ApiError(res.status, detail);
   }
+  return res;
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await request(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** Binary responses (thumbnails, exports): <img> and <a> can't send the auth header themselves. */
+export async function apiBlob(path: string): Promise<Blob> {
+  return (await request(path)).blob();
 }
 
 /** Resolves once /api/health answers (the backend takes a few seconds to boot). */

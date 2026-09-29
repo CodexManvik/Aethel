@@ -152,3 +152,37 @@ def test_memory_api_lists_and_edits_skills_and_notes(tmp_path):
         saved = client.put("/api/memory/notes/notepad", json={"body": "- Edited by hand"}).json()
         assert saved["facts"] == ["Edited by hand"]
         assert client.get("/api/memory/system1").json() == {"status": "not loaded"}
+
+
+def test_replay_routes_recent_thumbnail_and_export(tmp_path):
+    import io
+    import zipfile
+    from aethel.paths import aethel_home
+    client, svc = _client(tmp_path, [])
+    conv = svc.conversations.create()
+    task = svc.tasks.create(conv.id, "play lofi")
+    step = svc.tasks.add_step(task.id, "win_click", {"loc": [1, 2]}, "Click “Play”", "allow", decider="macro")
+    thumb = f"tasks/{task.id}/{step.id}.jpg"
+    (aethel_home() / "media" / "tasks" / task.id).mkdir(parents=True)
+    (aethel_home() / "media" / thumb).write_bytes(b"\xff\xd8jpeg")
+    svc.tasks.finish_step(step.id, True, "ok", 40, True, {"app": "firefox"}, thumb)
+    bare = svc.tasks.add_step(task.id, "win_wait", {}, "Wait", "allow")
+    svc.tasks.finish_step(bare.id, True, "ok", 1000)
+    with client:
+        recent = client.get("/api/tasks/recent").json()
+        assert [t["id"] for t in recent] == [task.id]
+        detail = client.get(f"/api/tasks/{task.id}").json()
+        assert detail["steps"][0]["decider"] == "macro" and detail["steps"][0]["thumbnail"] == thumb
+        img = client.get(f"/api/tasks/{task.id}/steps/{step.id}/thumbnail")
+        assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg" and img.content == b"\xff\xd8jpeg"
+        assert client.get(f"/api/tasks/{task.id}/steps/{bare.id}/thumbnail").status_code == 404
+        zipped = client.get(f"/api/tasks/{task.id}/export")
+        with zipfile.ZipFile(io.BytesIO(zipped.content)) as z:
+            assert sorted(z.namelist()) == ["task.json", "thumbnails/000-win_click.jpg"]
+            data = __import__("json").loads(z.read("task.json"))
+            assert data["task"]["goal"] == "play lofi" and len(data["steps"]) == 2
+        assert client.get("/api/tasks/nope/export").status_code == 404
+    # a stored path that points outside media/ is never served
+    svc.db.execute("UPDATE steps SET thumbnail = ? WHERE id = ?", ("../../permissions.yaml", step.id))
+    with client:
+        assert client.get(f"/api/tasks/{task.id}/steps/{step.id}/thumbnail").status_code == 404
