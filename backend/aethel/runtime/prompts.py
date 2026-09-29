@@ -10,7 +10,8 @@ Given the user's goal and the tools available, call submit_plan exactly once wit
   file_exists {path}, file_contains {path, text}, min_words {path, count}, and judge {path, text} for a short
   claim about the file's content a careful reader would agree with (e.g. "is a haiku about rain"). Use absolute
   Windows paths.
-  If nothing about the outcome can be checked this way, submit an empty list.
+  Checks are only about files on disk. If the goal doesn't produce or change a file (opening an app, playing
+  music or video, browsing, changing a setting), or nothing can be checked this way, submit an empty list.
 Do not do the work yourself and do not ask questions: plan with sensible defaults
 (e.g. save new files in the user's Documents\\Aethel folder unless told otherwise)."""
 
