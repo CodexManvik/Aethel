@@ -28,7 +28,7 @@ from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
 from ..tools.registry import ToolRegistry
-from .checks import Check, CheckResult, run_checks
+from .checks import Check, CheckResult, run_checks_with
 from .recall import Recall, recall
 from .reflect import learn
 from .prompts import COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt, resume_note
@@ -545,7 +545,8 @@ class TaskEngine:
 
     async def _verify(self, task_id: str, checks: list[Check]) -> list[CheckResult]:
         await self._set_state(task_id, "verifying")
-        results = run_checks(checks)
+        threshold = self.settings.get().system1.judge_threshold if self.settings is not None else 0.5
+        results = await run_checks_with(checks, self.system1, threshold)
         await self.hub.publish(VerificationResult(task_id=task_id, results=[
             CheckOutcome(description=r.description, passed=r.passed, detail=r.detail) for r in results]))
         return results

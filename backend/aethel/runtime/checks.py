@@ -12,15 +12,15 @@ from ..tools.paths import resolve_user_path
 
 
 class Check(BaseModel):
-    kind: Literal["file_exists", "file_contains", "min_words"]
+    kind: Literal["file_exists", "file_contains", "min_words", "judge"]
     path: str
     text: str | None = None
     count: int | None = None
 
     @model_validator(mode="after")
     def _needs_fields(self) -> "Check":
-        if self.kind == "file_contains" and not self.text:
-            raise ValueError("file_contains needs text")
+        if self.kind in ("file_contains", "judge") and not self.text:
+            raise ValueError(f"{self.kind} needs text")
         if self.kind == "min_words" and (self.count is None or self.count < 1):
             raise ValueError("min_words needs a positive count")
         return self
@@ -30,6 +30,8 @@ class Check(BaseModel):
             return f"{self.path} exists"
         if self.kind == "file_contains":
             return f'{self.path} mentions "{self.text}"'
+        if self.kind == "judge":
+            return f"{self.path}: {self.text}"
         return f"{self.path} has at least {self.count} words"
 
 
@@ -70,6 +72,8 @@ def run_check(check: Check) -> CheckResult:
         return CheckResult(check.describe(), False, "file not found")
     if check.kind == "file_exists":
         return CheckResult(check.describe(), True, "")
+    if check.kind == "judge":  # needs System 1: see run_checks_with
+        return CheckResult(check.describe(), True, "not measured (System 1 unavailable)")
     if check.kind == "file_contains":
         found = check.text.lower() in text.lower()
         return CheckResult(check.describe(), found, "" if found else "text not found in file")
@@ -79,3 +83,19 @@ def run_check(check: Check) -> CheckResult:
 
 def run_checks(checks: list[Check]) -> list[CheckResult]:
     return [run_check(c) for c in checks]
+
+
+async def run_checks_with(checks: list[Check], system1, threshold: float) -> list[CheckResult]:
+    """Like run_checks, but "judge" checks (fuzzy claims about a file's content,
+    spec §5.2) are answered by System 1. Without it they pass as not measured."""
+    results = []
+    for check in checks:
+        text = _read(check.path) if check.kind == "judge" else None
+        p = None
+        if text is not None and system1 is not None:
+            p = await system1.noul({"document": text[:4000]}, f"Is this true of the document? {check.text}", "judge")
+        if check.kind != "judge" or text is None or p is None:
+            results.append(run_check(check))
+        else:
+            results.append(CheckResult(check.describe(), p >= threshold, f"p={p:.2f}"))
+    return results
