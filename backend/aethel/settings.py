@@ -52,6 +52,8 @@ class System1Settings(BaseModel):
     # A judge check fails only below this P(yes). On eval/s1_judge.jsonl (20 author-written pairs, in-sample):
     # 0.2 rejects 9 of 10 false claims and none of the 10 true ones.
     judge_threshold: float = Field(default=0.2, ge=0.0, le=1.0)
+    # A macro step's element, when it isn't an exact match: not yet calibrated (the E2 grounding set).
+    ground_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
 class AppSettings(BaseModel):

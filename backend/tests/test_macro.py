@@ -82,3 +82,21 @@ def test_a_different_run_resets_the_count(tmp_path):
     maybe_compile(store, skill["id"], "play lofi on YouTube in Firefox", lofi_run()[:3])  # went differently
     assert not maybe_compile(store, skill["id"], "play lofi on YouTube in Firefox", lofi_run())
     assert store.get(skill["id"])["macro"] == "none"
+
+
+def test_repair_rebuilds_after_a_rescued_run_and_breaks_after_two_failures(tmp_path):
+    from aethel.runtime.reflect import repair
+    store = KnowledgeStore(tmp_path / "k", fake_embed)
+    skill, _ = store.upsert_skill({"title": "Play a YouTube video in Firefox", "apps": ["firefox"],
+                                   "intent": "Play a video on YouTube matching a search query", "steps": ["x"]},
+                                  "approved")
+    goal = "play lofi on YouTube in Firefox"
+    store.set_macro(skill["id"], macro.compile_macro(goal, lofi_run(), STABLE), "compiled")
+    clean = [s.model_copy(update={"decider": "macro"}) for s in lofi_run()]
+    rescued = [s.model_copy(update={"decider": "macro"}) for s in lofi_run()[:4]] + \
+              [s.model_copy(update={"decider": "agent"}) for s in lofi_run()[4:]]
+    assert repair(store, skill["id"], goal, clean, True) == "clean"
+    assert repair(store, skill["id"], goal, rescued, True) == "repaired"
+    assert repair(store, skill["id"], goal, rescued, False) == "repair failed"
+    assert repair(store, skill["id"], goal, rescued, False) == "broken"
+    assert store.get(skill["id"])["macro"] == "broken"

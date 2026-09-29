@@ -117,3 +117,49 @@ def fill(args: dict, values: dict[str, str]) -> dict:
             return m.group(0)
         return value.replace(" ", "+") if m.group(2) else value
     return {k: (re.sub(r"\{(p\d+)(\+)?\}", one, v) if isinstance(v, str) else v) for k, v in args.items()}
+
+
+# ---- replay ---------------------------------------------------------------------
+GROUND_CANDIDATES = 15
+GROUND_INSTRUCTIONS = "Which element on the screen now is the one this step of a learned procedure needs?"
+
+
+def describe(step: dict, values: dict[str, str]) -> str:
+    """A plan line for a macro step."""
+    args, target = fill(step.get("args") or {}, values), step.get("target")
+    what = f"“{target['name']}”" if target and target.get("name") else ""
+    if step["tool"] == "win_app":
+        return f"Open {args.get('name', 'the app')}"
+    if step["tool"] == "win_type":
+        return f"Type “{args.get('text', '')}”" + (f" into {what}" if what else "")
+    if step["tool"] == "win_shortcut":
+        return f"Press {args.get('shortcut', '')}"
+    if step["tool"] == "win_wait":
+        return f"Wait {args.get('duration', 1)} s"
+    verb = {"win_click": "Click", "win_move": "Move to", "win_scroll": "Scroll", "win_multi_select": "Select"}
+    return f"{verb.get(step['tool'], step['tool'])} {what}".strip()
+
+
+async def ground(target: dict, elements: list, system1, threshold: float, similarity) -> tuple[object | None, str]:
+    """The live element a macro step means, and how it was found (or why not).
+    Exact role+name first; otherwise System 1 picks among the most similar
+    elements, with "none of these" as a real answer (that's drift)."""
+    name, role = str(target.get("name", "")).lower(), str(target.get("role", "")).lower()
+    exact = [e for e in elements if e.role.lower() == role and e.name.lower() == name]
+    if exact:
+        same_window = [e for e in exact if target.get("window") and e.window == target["window"]]
+        return (same_window or exact)[0], "exact"
+    if system1 is None or not elements:
+        return None, f"“{target.get('name')}” isn't on the screen"
+    ranked = sorted(elements, key=lambda e: similarity(f"{role} {name}", f"{e.role} {e.name}".lower()),
+                    reverse=True)[:GROUND_CANDIDATES]
+    options = {f"e{i}": f'{e.role} "{e.name}" in {e.window}' for i, e in enumerate(ranked)}
+    picked = await system1.choice({"looking_for": f'{target.get("role")} "{target.get("name")}"',
+                                   "was_in_window": target.get("window", "")}, GROUND_INSTRUCTIONS,
+                                  {**options, "none": "none of these is that element"}, "ground")
+    if picked is None:
+        return None, f"“{target.get('name')}” isn't on the screen"
+    choice, probs, _ = picked
+    if choice == "none" or probs[choice] < threshold:
+        return None, f"couldn't find “{target.get('name')}” on the screen (System 1: {choice} {probs[choice]:.2f})"
+    return ranked[int(choice[1:])], f"System 1 {probs[choice]:.2f}"

@@ -87,6 +87,32 @@ def maybe_compile(knowledge, skill_id: str, goal: str, steps: list[StepRecord]) 
     return True
 
 
+REPAIRS_BEFORE_BROKEN = 2
+
+
+def repair(knowledge, skill_id: str, goal: str, steps: list[StepRecord], succeeded: bool) -> str:
+    """After a run that replayed a macro (spec §6.3 step 4). A clean replay changes
+    nothing. If it drifted and the LLM finished the job, the macro is rebuilt from
+    this whole run; if that can't be done (or the task failed), it's a failed
+    repair, and two in a row mark the macro broken so the skill runs LLM-guided."""
+    doc = knowledge.get(skill_id)
+    if doc is None or doc["macro"] != "compiled":
+        return "none"
+    replayed = sum(1 for s in steps if s.decider == "macro" and s.ok)
+    drifted = replayed < len(doc["macro_def"]["steps"]) or any(s.decider == "agent" for s in steps)
+    if succeeded and not drifted:
+        return "clean"
+    if succeeded:
+        rebuilt = compile_macro(goal, steps, stable=f"{doc['title']} {doc['intent']} {' '.join(doc['apps'])}")
+        if rebuilt is not None:
+            knowledge.set_macro(skill_id, rebuilt, "compiled", repairs_failed=0)
+            return "repaired"
+    failures = doc["repairs_failed"] + 1
+    broken = failures >= REPAIRS_BEFORE_BROKEN
+    knowledge.set_macro(skill_id, doc["macro_def"], "broken" if broken else "compiled", repairs_failed=failures)
+    return "broken" if broken else "repair failed"
+
+
 async def learn(*, task: TaskRecord, steps: list[StepRecord], knowledge, complete, wrap,
                 auto_approve: bool) -> tuple[dict, bool] | None:
     """Credit, reflect, maybe compile. `complete(messages, tools)` runs one agent
@@ -108,6 +134,8 @@ async def learn(*, task: TaskRecord, steps: list[StepRecord], knowledge, complet
                                                  "approved" if auto_approve else "quarantined")
     # The skill this run followed (chosen by System 1) or, on a first run, the one it just taught.
     target = task.skill_id or (learned[0]["id"] if learned else None)
-    if task.state == "done" and target:
+    if task.skill_id and any(s.decider == "macro" for s in steps):
+        await anyio.to_thread.run_sync(repair, knowledge, task.skill_id, task.goal, steps, task.state == "done")
+    elif task.state == "done" and target:
         await anyio.to_thread.run_sync(maybe_compile, knowledge, target, task.goal, steps)
     return learned
