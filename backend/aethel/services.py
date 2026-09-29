@@ -26,6 +26,7 @@ from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
 from .tools.desktop import Desktop, desktop_spec
 from .tools.file_commander import FileCommander, file_commander_spec
+from .tools.launcher import open_url_tool
 from .tools.local_fs import fs_tools
 from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.office import Office, office_spec
@@ -84,7 +85,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     permissions = Permissions(permissions_path or aethel_home() / "permissions.yaml")
     changes = ChangeLog(db)
     registry = ToolRegistry()
-    for tool in [*fs_tools(permissions, changes), shell_tool(permissions)]:
+    for tool in [*fs_tools(permissions, changes), shell_tool(permissions), *([open_url_tool()] if os.name == "nt" else [])]:
         registry.register(tool)
     approvals = ApprovalBroker(hub)
     system1 = System1(db, settings)
