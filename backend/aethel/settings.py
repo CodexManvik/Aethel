@@ -1,9 +1,10 @@
 """User settings: one validated JSON document in the SQLite settings table."""
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .store.db import Database
 
@@ -61,9 +62,16 @@ class System1Settings(BaseModel):
     ground_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
+def _check_base_url(value: str) -> str:
+    value = value.strip().rstrip("/")
+    if value and not re.match(r"^https?://[^\s/]+", value):
+        raise ValueError("must start with http:// or https://, e.g. http://127.0.0.1:1234/v1")
+    return value
+
+
 class AppSettings(BaseModel):
     roles: dict[str, list[RouteEntry]] = Field(default_factory=default_roles)
-    custom_base_url: str = ""
+    custom_base_url: str = ""  # empty, or an http(s) URL of an OpenAI-compatible API (usually ending in /v1)
     private_mode: bool = False
     internet: bool = False
     local_llm: LocalLLMSettings = Field(default_factory=LocalLLMSettings)
@@ -72,6 +80,11 @@ class AppSettings(BaseModel):
     agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
+
+    @field_validator("custom_base_url")
+    @classmethod
+    def _base_url(cls, value: str) -> str:
+        return _check_base_url(value)
     replay_thumbnails: bool = True  # a small screenshot after each on-screen step, kept only on this PC
     auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
 
@@ -96,7 +109,15 @@ class SettingsService:
 
     def get(self) -> AppSettings:
         row = self.db.query_one("SELECT value FROM settings WHERE key = ?", (self.KEY,))
-        return AppSettings.model_validate_json(row["value"]) if row else AppSettings()
+        if not row:
+            return AppSettings()
+        try:
+            return AppSettings.model_validate_json(row["value"])
+        except ValidationError:
+            # A custom URL saved before it was validated mustn't lock the user out of every setting.
+            data = json.loads(row["value"])
+            data["custom_base_url"] = ""
+            return AppSettings.model_validate(data)
 
     def update(self, patch: dict) -> AppSettings:
         merged = _deep_merge(self.get().model_dump(), patch)

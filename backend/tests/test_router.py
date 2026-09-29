@@ -52,3 +52,15 @@ async def test_stop_only_while_a_task_runs_and_only_when_sure(settings):
 
 async def test_without_system1_everything_is_chat(settings):
     assert await router.route(FakeS1(), settings, "open notepad", "Write a haiku") == "chat"
+
+
+async def test_a_custom_endpoint_needs_a_url_but_not_a_key(settings):
+    from aethel.keys import KeyStore
+    from aethel.providers.catalog import NO_KEY, api_key_for
+    keys = KeyStore()
+    assert api_key_for("custom", keys, settings.get()) == (None, "no custom endpoint URL set (Settings → Providers)")
+    settings.update({"custom_base_url": "http://127.0.0.1:1234/v1"})
+    assert api_key_for("custom", keys, settings.get()) == (NO_KEY, None)   # local servers take no key
+    keys.set_many({"custom": "sk-real"})
+    assert api_key_for("custom", keys, settings.get()) == ("sk-real", None)
+    assert api_key_for("groq", keys, settings.get()) == (None, "no API key")
