@@ -39,6 +39,16 @@ def default_roles() -> dict[str, list[RouteEntry]]:
     }
 
 
+class System1Settings(BaseModel):
+    enabled: bool = True
+    # Messages become tasks without the Task pill only when routing was measured
+    # accurate enough on eval/s1_intent.jsonl (see scripts/eval_s1_intent.py).
+    auto_tasks: bool = False
+    intent_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
+    skill_threshold: float = Field(default=0.6, ge=0.0, le=1.0)  # not yet calibrated
+    judge_threshold: float = Field(default=0.5, ge=0.0, le=1.0)  # not yet calibrated
+
+
 class AppSettings(BaseModel):
     roles: dict[str, list[RouteEntry]] = Field(default_factory=default_roles)
     custom_base_url: str = ""
@@ -49,6 +59,8 @@ class AppSettings(BaseModel):
     max_tokens: int = Field(default=1024, ge=16, le=32768)
     agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
+    system1: System1Settings = Field(default_factory=System1Settings)
+    auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

@@ -21,6 +21,8 @@ def create_app(services: Services | None = None) -> FastAPI:
         svc = services or build_services()
         app.state.services = svc
         svc.mcp.start(svc.mcp_servers)
+        if os.environ.get("AETHEL_SYSTEM1") != "0":
+            svc.system1.start()  # downloads (~1.7 GB, first run only) and loads in the background
         try:
             yield
         finally:
