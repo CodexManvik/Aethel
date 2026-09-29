@@ -23,6 +23,8 @@ class Check(BaseModel):
             raise ValueError(f"{self.kind} needs text")
         if self.kind == "min_words" and (self.count is None or self.count < 1):
             raise ValueError("min_words needs a positive count")
+        if resolve_user_path(self.path) is None:
+            raise ValueError("checks are about files: path must be a local absolute path")  # not a URL
         return self
 
     def describe(self) -> str:

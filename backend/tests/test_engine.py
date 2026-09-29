@@ -899,3 +899,29 @@ async def test_step_meta_decider_and_thumbnail_are_kept(h):
     assert step.meta["element"]["name"] == "Go" and step.decider == "agent"
     assert step.thumbnail == f"tasks/{task_id}/{step.id}.jpg"
     assert (aethel_home() / "media" / step.thumbnail).read_bytes() == b"\xff\xd8jpeg"
+
+
+async def test_repeatedly_refused_actions_end_the_task_with_the_reason(h):
+    engine, _ = h.make([
+        [plan(["Write"])],
+        [tool_call("fs_write", path="relative/a.txt", content="1")],   # denied: not absolute
+        [tool_call("fs_write", path="relative/b.txt", content="2")],
+        [tool_call("fs_write", path="relative/c.txt", content="3")],
+        [TextDelta("I couldn't write there.")],                         # the closing summary
+    ])
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    task = h.tasks.get(task_id)
+    assert task.state == "failed" and task.error.startswith("what I tried kept being refused")
+    assert len(h.tasks.steps(task_id)) == 3  # stopped at the third refusal
+
+
+def test_checks_must_point_at_local_files():
+    import pydantic
+    from aethel.runtime.checks import Check
+    with pytest.raises(pydantic.ValidationError):
+        Check(kind="judge", path="about:blank", text="shows lofi")
+    with pytest.raises(pydantic.ValidationError):
+        Check(kind="file_exists", path="https://youtube.com")
+    assert Check(kind="file_exists", path="~/Documents/x.txt").path == "~/Documents/x.txt"

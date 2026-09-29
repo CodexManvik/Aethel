@@ -42,6 +42,7 @@ log = logging.getLogger("aethel.tasks")
 MAX_TOOL_RESULT_CHARS = 12_000
 MAX_IDENTICAL_CALLS = 2
 MAX_CONSECUTIVE_LOOPS = 3
+MAX_CONSECUTIVE_DENIALS = 3
 _CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
 CUT_OFF_MESSAGE = ("Error: your tool call was cut off because it was too long. "
                    "Write the content in smaller parts (use mode 'append').")
@@ -114,6 +115,8 @@ class _Budget:
     unknown-tool and bad-JSON calls all still cost a step)."""
     calls_made: int = 0
     consecutive_loops: int = 0
+    consecutive_denials: int = 0  # the model retrying things the rules refuse
+    stop_reason: str | None = None
 
 
 def _parse_args(raw: str) -> dict | None:
@@ -354,7 +357,7 @@ class TaskEngine:
             if outcome.budget_exhausted:
                 active_time.write()
                 await self._finish(task_id, "failed", outcome.summary,
-                                   error="I ran out of steps or time before finishing.")
+                                   error=budget.stop_reason or "I ran out of steps or time before finishing.")
                 return
             if checks:
                 failed = [r for r in await self._verify(task_id, checks) if not r.passed]
@@ -587,7 +590,13 @@ class TaskEngine:
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
                                            summary=verdict.target, verdict=verdict.verdict))
         if verdict.verdict == "deny":
+            budget.consecutive_denials += 1
+            if budget.consecutive_denials >= MAX_CONSECUTIVE_DENIALS:
+                # Rephrasing a refused action doesn't make it allowed: stop and explain instead.
+                budget.consecutive_loops = MAX_CONSECUTIVE_LOOPS
+                budget.stop_reason = f"what I tried kept being refused ({verdict.reason})"
             return await self._end_step(task_id, step.id, tool.name, ToolResult(False, f"Denied: {verdict.reason}"), 0, ctx)
+        budget.consecutive_denials = 0
         if verdict.verdict == "ask":
             await self._set_state(task_id, "waiting_approval")
             run.pause()

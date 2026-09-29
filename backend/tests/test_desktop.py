@@ -255,3 +255,28 @@ def test_window_lookup_sees_through_click_through_windows():
         assert desktop._window_under(100, 100) != hwnd
     finally:
         win32gui.DestroyWindow(hwnd)
+
+
+def test_typing_into_aethels_own_focused_window_explains_how_to_recover(d):
+    _, tools, apps = d
+    apps["fg"] = App(98, "aethel")
+    a = tools["win_type"].assess({"text": "lofi music"})
+    assert a.verdict == "deny" and 'mode "switch"' in a.reason and "Aethel itself" in a.reason
+
+
+async def test_a_launched_app_is_brought_to_the_front():
+    calls = []
+
+    class Hub(ReplayHub):
+        async def call(self, server, tool, args):
+            calls.append((tool, args))
+            return await super().call(server, tool, args)
+
+    dk = Desktop(window_at=lambda x, y: App(10, "firefox"), foreground=lambda: App(11, "firefox"))
+    tools = {t.name: t for t in dk.adapt(Hub(), [_remote(n) for n in ALL])}
+    r = await tools["win_app"].handler({"mode": "launch", "name": "Firefox"}, None)
+    assert calls == [("App", {"mode": "launch", "name": "Firefox"}), ("App", {"mode": "switch", "name": "Firefox"})]
+    assert "Firefox is now the focused window." in r.content
+    calls.clear()
+    await tools["win_app"].handler({"mode": "resize", "name": "Firefox"}, None)
+    assert len(calls) == 1  # only launches get the extra switch

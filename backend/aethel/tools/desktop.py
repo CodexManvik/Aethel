@@ -234,6 +234,12 @@ class Desktop:
         points = self._points(kind, args)
         apps = [self._target_app(pt) for pt in points]
         if any(self._off_limits(a) for a in apps):
+            if points[0] is None and apps[0] is not None and apps[0].name.lower() == "aethel":
+                # Keys go to the focused window, and that's Aethel itself (the user just typed the request).
+                return Assessment("deny", "The focused window is Aethel itself, so typing or keys would land there. "
+                                  "Bring the app you want to the front first (win_app with mode \"switch\" and its "
+                                  "name), or pass loc to click into the exact field you mean.",
+                                  f"{remote} into Aethel's own window")
             return Assessment("deny", "Aethel doesn't operate its own window or the system's sign-in prompts.",
                               f"{remote} in a protected window")
         where = apps[0].name if apps[0] else "the active window"
@@ -309,6 +315,13 @@ class Desktop:
                                           self._assess(kind, remote.name, args).target)
                     await asyncio.sleep(CURSOR_LEAD_S)  # let the cursor arrive before the click
             result = await self.hub.call(SERVER, remote.name, args)
+            if remote.name == "App" and result.ok and (args.get("mode") or "launch").startswith("launch") \
+                    and args.get("name"):
+                # Windows often keeps focus on the window the request came from (Aethel), so a
+                # freshly launched app would never get the keys typed next. Bring it forward.
+                switched = await self.hub.call(SERVER, "App", {"mode": "switch", "name": args["name"]})
+                if switched.ok:
+                    result.content += f"\n{args['name']} is now the focused window."
             if remote.name == "Snapshot" and result.ok:
                 self.elements = parse_snapshot(result.content)
             if touches and result.ok:
