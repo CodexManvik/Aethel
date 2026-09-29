@@ -117,6 +117,18 @@
 - End-to-end run on the real models with a scripted LLM, a fake desktop and real compilation.
 - Manual demo: run "play lofi on YouTube in Firefox" 4 times. Runs 1–3 are LLM-guided with the skill; the macro compiles after run 3; run 4 replays it with the ghost cursor visible and a falling duration in Memory.
 
+## Execution notes
+- **Task 2:** the overlay is an Aethel window that covers the screen, so the "never operate Aethel's own window" rule would have denied every click. Window lookup now looks through click-through (`WS_EX_TRANSPARENT`) windows; this is tested against a real Win32 window. The overlay is created hidden and shown only after click-through is applied, so a failure can't cover the screen.
+- **Task 3 (parameters):** typed text is rarely the goal verbatim (a search URL, for example). A parameter is therefore a run of goal words that isn't part of the skill's own title, intent or apps and that was typed. URL-like text uses the `+` form.
+- **Task 4 (taint):** a replayed step's result is read by no model, so it no longer taints the next macro step. Without this change every replayed write asked for approval. A failed step's error text does reach the LLM in the handover, so it is wrapped as untrusted and taints from then on.
+- **Task 4 (checks):** macro runs don't call the planner, so they have no checks. A replay counts as succeeded when every step went through.
+- **Task 5 (measured):** Laya never picked a wrong skill at any threshold. 0.3 was chosen on dev; held out, precision is 1.00 and coverage 0.89. Its misses are confident "none"s, so a separate 0.95 bar decides when "none" hides the maybe-helpful skills: that hid 9 of 12 no-fit goals and 0 fitting ones (in-sample).
+- **End to end on the real models** (scripted LLM, the real Desktop adapter over a fake Windows-MCP):
+  - Runs 1–3 of "play … on YouTube in Firefox" took 8 LLM calls each.
+  - The macro compiled after run 3.
+  - Run 4 replayed every step with 1 LLM call (the background reflection) and typed `search_query=study+beats`.
+  - 16 thumbnails were saved.
+
 ## Deferred
 - The 300-case element-grounding set (E2)
 - Fine-tuning Laya on Aethel's labelled decisions

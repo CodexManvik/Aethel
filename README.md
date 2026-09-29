@@ -48,6 +48,16 @@ anything: until it's ready, Aethel behaves as before. With it, a message that cl
 starts a task on its own, and "stop" stops one (**Settings → Learning**). The thresholds come from labelled sets
 you can extend and re-measure: `py -3.11 scripts/eval_s1_intent.py`, `py -3.11 scripts/eval_s1_judge.py`.
 
+**Macros, cursor and replay:** once a skill has worked **3 times the same way**, Aethel compiles it into a *macro*,
+a replayable list of steps stored in the skill file. The next matching task ("play jazz on YouTube in Firefox" after
+three "play … on YouTube" runs) replays it without the language model: each step finds its button or field again on
+the live screen by name (System 1 picks when the name changed), and if the screen doesn't match, the model takes over
+from there and the macro is repaired afterwards. Replayed steps still go through every permission check and approval.
+While a task works on your screen, a soft **ghost cursor** shows where it's about to click (it never takes clicks
+itself; Ctrl+Alt+Esc still stops everything). **Tasks** in the rail replays any past task step by step, with a small
+picture of the screen after each on-screen step (Settings → Learning → Replay pictures), and **Export** saves a task as
+JSON + pictures. Skill selection is measured too: `py -3.11 scripts/eval_s1_skill.py`.
+
 **Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
 
 **Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run
