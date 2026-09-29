@@ -152,6 +152,14 @@ Legacy skill files (`times_succeeded` and similar) are read tolerantly and left 
 - Run every automated check.
 - Manual demo: run "Open Notepad and type a haiku about rain" twice. The second run uses the learned skill and the Notepad note, and Memory → Skills shows 2 runs with a falling duration.
 
+## Execution notes
+- **Task 1:** the Python port matches receptron/laya's reference outputs exactly. On this laptop's CPU it takes about 210 ms per question, loads in 10 s and uses 1.55 GB of RAM.
+- **Task 2 (measured on 2026-09-29):** 56 author-written messages. The user can add more to `eval/s1_intent.jsonl` and re-run the script.
+  - **Zero-shot phrasing matters.** The first 3-way choice ("chat / task / stop_task", state with the running task) called almost everything "task": task precision was 0.77 at best.
+  - **Act.** Tuned on the dev half as a yes/no question with the message alone as state. The threshold was chosen on dev at 0.5. Held out: precision 0.91, recall 0.91, accuracy 0.92. That meets the plan's rule, so `auto_tasks` ships **on**.
+  - **Stop.** A choice with the running task in the state (without it, precision fell to 0.57). The threshold of 0.9 was chosen by cost, because a wrong stop destroys work. On all rows it gives P=1.00, R=0.88. **In-sample:** the dev half had too few near-misses to choose it fairly.
+  - Routing costs about 0.5 s per message while auto-tasks is on, plus about 0.5 s more while a task runs.
+
 ## Deferred to 2b
 - Compiled macros, drift Noul, repair and `broken` status
 - Element grounding and window targeting through System 1

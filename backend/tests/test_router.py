@@ -1,133 +1,54 @@
 import pytest
 
-from aethel.keys import KeyStore
+from aethel.chat import router
 from aethel.paths import db_path
-from aethel.providers.base import ChatMessage, ProviderError, TextDelta
-from aethel.providers.router import NoProviderAvailable, RoleRouter
 from aethel.settings import SettingsService
 from aethel.store.db import Database
-from tests.fakes import FakeLocal, FakeProvider, factory_from, fatal, retryable
 
 pytestmark = pytest.mark.anyio
-MSGS = [ChatMessage("user", "hi")]
+
+
+class FakeS1:
+    def __init__(self, act=None, stop=None):
+        self.act, self.stop, self.calls = act, stop, []
+
+    async def ask(self, state, questions, purpose):
+        self.calls.append((purpose, state))
+        if "act" in questions:
+            return None if self.act is None else {"act": {"noul": self.act}}
+        if self.stop is None:
+            return None
+        choice = max(self.stop, key=self.stop.get)
+        return {"stop": {"choice": choice, "probabilities": self.stop}}
 
 
 @pytest.fixture
 def settings():
     db = Database(db_path())
-    svc = SettingsService(db)
-    svc.update({"roles": {"chat": [
-        {"provider": "groq", "model": "g"},
-        {"provider": "openrouter", "model": "o"},
-        {"provider": "local", "model": "local"},
-    ]}})
-    yield svc
+    yield SettingsService(db)
     db.close()
 
 
-def _keys(**kv):
-    store = KeyStore()
-    store.set_many(kv)
-    return store
+async def test_act_threshold_and_the_auto_tasks_switch(settings):
+    assert await router.route(FakeS1(act=0.8), settings, "open notepad", None) == "task"
+    assert await router.route(FakeS1(act=0.3), settings, "how are you?", None) == "chat"
+    settings.update({"system1": {"auto_tasks": False}})
+    s1 = FakeS1(act=0.99)
+    assert await router.route(s1, settings, "open notepad", None) == "chat" and s1.calls == []  # no call at all
 
 
-async def _collect(router, role="chat", switches=None):
-    async def on_switch(sw):
-        switches.append(sw)
-    text = []
-    async for ev in router.stream(role, MSGS, on_switch=on_switch if switches is not None else None):
-        if isinstance(ev, TextDelta):
-            text.append(ev.text)
-    return "".join(text)
+async def test_stop_only_while_a_task_runs_and_only_when_sure(settings):
+    sure = {"chat": 0.01, "task": 0.02, "stop_task": 0.97}
+    unsure = {"chat": 0.05, "task": 0.3, "stop_task": 0.65}
+    assert await router.route(FakeS1(act=0.1, stop=sure), settings, "stop", "Write a haiku") == "stop_task"
+    assert await router.route(FakeS1(act=0.1, stop=unsure), settings, "open calculator", "Write a haiku") == "chat"
+    s1 = FakeS1(act=0.1, stop=sure)
+    await router.route(s1, settings, "stop", None)
+    assert [p for p, _ in s1.calls] == ["intent_act"]  # no stop question without a running task
+    s1 = FakeS1(act=0.1, stop=sure)
+    await router.route(s1, settings, "stop", "Write a haiku")
+    assert s1.calls[0] == ("intent_stop", {"message": "stop", "task_in_progress": "Write a haiku"})
 
 
-async def test_first_provider_answers(settings):
-    factory = factory_from({"groq:g": FakeProvider(chunks=["hi", "!"])})
-    router = RoleRouter(settings=settings, keys=_keys(groq="kg"), local=FakeLocal(), factory=factory)
-    switches = []
-    assert await _collect(router, switches=switches) == "hi!"
-    assert switches == []
-    assert factory.used == [("groq", "g", "kg")]
-
-
-async def test_retryable_failure_before_tokens_fails_over(settings):
-    factory = factory_from({
-        "groq:g": FakeProvider(label="groq:g", error=retryable()),
-        "openrouter:o": FakeProvider(label="openrouter:o", chunks=["ok"]),
-    })
-    router = RoleRouter(settings=settings, keys=_keys(groq="a", openrouter="b"), local=FakeLocal(), factory=factory)
-    switches = []
-    assert await _collect(router, switches=switches) == "ok"
-    assert [(s.from_label, s.to_label) for s in switches] == [("groq:g", "openrouter:o")]
-    assert "rate limited" in switches[0].reason
-
-
-async def test_failure_after_tokens_is_raised(settings):
-    factory = factory_from({"groq:g": FakeProvider(chunks=["a", "b"], error=retryable(), error_at=1)})
-    router = RoleRouter(settings=settings, keys=_keys(groq="a", openrouter="b"), local=FakeLocal(), factory=factory)
-    with pytest.raises(ProviderError):
-        await _collect(router)
-
-
-async def test_non_retryable_failure_is_raised(settings):
-    factory = factory_from({"groq:g": FakeProvider(error=fatal())})
-    router = RoleRouter(settings=settings, keys=_keys(groq="a", openrouter="b"), local=FakeLocal(), factory=factory)
-    with pytest.raises(ProviderError, match="bad key"):
-        await _collect(router)
-
-
-async def test_entries_without_keys_are_skipped_silently(settings):
-    factory = factory_from({"openrouter:o": FakeProvider(chunks=["x"])})
-    router = RoleRouter(settings=settings, keys=_keys(openrouter="b"), local=FakeLocal(), factory=factory)
-    switches = []
-    assert await _collect(router, switches=switches) == "x"
-    assert switches == []
-
-
-async def test_local_used_last_and_started(settings):
-    local = FakeLocal()
-    factory = factory_from({"local:local": FakeProvider(chunks=["local!"])})
-    router = RoleRouter(settings=settings, keys=_keys(), local=local, factory=factory)
-    assert await _collect(router) == "local!"
-    assert local.ensure_calls == 1
-    assert factory.used == [("local", "local", "sk-local")]
-
-
-async def test_private_mode_uses_only_local(settings):
-    settings.update({"private_mode": True})
-    factory = factory_from({"local:local": FakeProvider(chunks=["private"])})
-    router = RoleRouter(settings=settings, keys=_keys(groq="a", openrouter="b"), local=FakeLocal(), factory=factory)
-    assert await _collect(router) == "private"
-    assert [u[0] for u in factory.used] == ["local"]
-
-
-async def test_private_mode_adds_local_when_chain_has_none(settings):
-    settings.update({"private_mode": True, "roles": {"vision": [{"provider": "gemini", "model": "v"}]}})
-    router = RoleRouter(settings=settings, keys=_keys(), local=FakeLocal(), factory=factory_from({}))
-    assert [e.provider for e in router.chain("vision")] == ["local"]
-
-
-async def test_everything_failing_raises_no_provider_with_reasons(settings):
-    router = RoleRouter(settings=settings, keys=_keys(), local=FakeLocal(fail="no model found"),
-                        factory=factory_from({}))
-    with pytest.raises(NoProviderAvailable) as exc:
-        await _collect(router)
-    text = str(exc.value)
-    assert "groq:g: no API key" in text and "no model found" in text
-
-
-async def test_max_tokens_override_is_passed_to_the_provider(settings):
-    settings.update({"max_tokens": 700})
-    provider = FakeProvider(chunks=["x"])
-    router = RoleRouter(settings=settings, keys=_keys(groq="kg"), local=FakeLocal(),
-                        factory=factory_from({"groq:g": provider}))
-    [e async for e in router.stream("chat", MSGS)]
-    [e async for e in router.stream("chat", MSGS, max_tokens=4096)]
-    assert provider.max_tokens_seen == [700, 4096]
-
-
-def test_agent_max_tokens_setting(settings):
-    assert settings.get().agent_max_tokens == 8192
-    assert settings.update({"agent_max_tokens": 16000}).agent_max_tokens == 16000
-    with pytest.raises(ValueError):
-        settings.update({"agent_max_tokens": 100})
+async def test_without_system1_everything_is_chat(settings):
+    assert await router.route(FakeS1(), settings, "open notepad", "Write a haiku") == "chat"

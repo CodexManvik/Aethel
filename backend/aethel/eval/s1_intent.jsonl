@@ -1,0 +1,56 @@
+{"id": "i000", "text": "how was your day?", "label": "chat", "running_task": null}
+{"id": "i001", "text": "what do you think about rainy weather?", "label": "chat", "running_task": null}
+{"id": "i002", "text": "how do I open Notepad on Windows?", "label": "chat", "running_task": null}
+{"id": "i003", "text": "what's the shortcut to save a file in Word?", "label": "chat", "running_task": null}
+{"id": "i004", "text": "write me a short poem about the sea", "label": "chat", "running_task": null}
+{"id": "i005", "text": "can you explain what a macro is?", "label": "chat", "running_task": null}
+{"id": "i006", "text": "I'm feeling a bit stressed about my exams", "label": "chat", "running_task": null}
+{"id": "i007", "text": "tell me a joke", "label": "chat", "running_task": null}
+{"id": "i008", "text": "what did we talk about yesterday?", "label": "chat", "running_task": null}
+{"id": "i009", "text": "is Excel better than Google Sheets?", "label": "chat", "running_task": null}
+{"id": "i010", "text": "summarise the French revolution in three sentences", "label": "chat", "running_task": null}
+{"id": "i011", "text": "thanks, that was helpful", "label": "chat", "running_task": null}
+{"id": "i012", "text": "why does my laptop fan get so loud?", "label": "chat", "running_task": null}
+{"id": "i013", "text": "recommend a good lofi playlist", "label": "chat", "running_task": null}
+{"id": "i014", "text": "how many words should a dissertation abstract be?", "label": "chat", "running_task": null}
+{"id": "i015", "text": "what's the difference between RAM and storage?", "label": "chat", "running_task": null}
+{"id": "i016", "text": "good morning!", "label": "chat", "running_task": null}
+{"id": "i017", "text": "do you remember my name?", "label": "chat", "running_task": null}
+{"id": "i018", "text": "what would you name a cat?", "label": "chat", "running_task": null}
+{"id": "i019", "text": "translate 'good night' into Hindi", "label": "chat", "running_task": null}
+{"id": "i020", "text": "could you help me plan my revision week?", "label": "chat", "running_task": null}
+{"id": "i021", "text": "what files are usually in the Documents folder?", "label": "chat", "running_task": null}
+{"id": "i022", "text": "open Notepad and write a haiku about rain", "label": "task", "running_task": null}
+{"id": "i023", "text": "create a folder called Invoices on my desktop", "label": "task", "running_task": null}
+{"id": "i024", "text": "save a copy of my notes to Documents\\Aethel", "label": "task", "running_task": null}
+{"id": "i025", "text": "play lofi on YouTube in Firefox", "label": "task", "running_task": null}
+{"id": "i026", "text": "open Word and write a 300 word essay about climate change", "label": "task", "running_task": null}
+{"id": "i027", "text": "list the files in my Downloads folder", "label": "task", "running_task": null}
+{"id": "i028", "text": "rename report.docx on my desktop to report-final.docx", "label": "task", "running_task": null}
+{"id": "i029", "text": "open the calculator", "label": "task", "running_task": null}
+{"id": "i030", "text": "put today's to-do list in a text file on my desktop", "label": "task", "running_task": null}
+{"id": "i031", "text": "make an Excel sheet with my monthly budget", "label": "task", "running_task": null}
+{"id": "i032", "text": "delete the empty folders in Downloads", "label": "task", "running_task": null}
+{"id": "i033", "text": "open Spotify and play my liked songs", "label": "task", "running_task": null}
+{"id": "i034", "text": "check how much space is left on C drive", "label": "task", "running_task": null}
+{"id": "i035", "text": "write a haiku about rain to Documents\\Aethel\\haiku.txt", "label": "task", "running_task": null}
+{"id": "i036", "text": "turn on dark mode in Windows settings", "label": "task", "running_task": null}
+{"id": "i037", "text": "open File Explorer at my Pictures folder", "label": "task", "running_task": null}
+{"id": "i038", "text": "copy the three newest screenshots into a folder called shots", "label": "task", "running_task": null}
+{"id": "i039", "text": "make a PowerPoint with five slides about bees", "label": "task", "running_task": null}
+{"id": "i040", "text": "search my documents for anything about the dissertation", "label": "task", "running_task": null}
+{"id": "i041", "text": "close all the Notepad windows", "label": "task", "running_task": null}
+{"id": "i042", "text": "go to github.com in Edge", "label": "task", "running_task": null}
+{"id": "i043", "text": "type my address into the open form", "label": "task", "running_task": null}
+{"id": "i044", "text": "stop", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i045", "text": "cancel that", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i046", "text": "no wait, don't do that", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i047", "text": "abort the task", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i048", "text": "stop typing please", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i049", "text": "never mind, cancel it", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i050", "text": "halt!", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i051", "text": "please stop what you're doing", "label": "stop_task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i052", "text": "how long will this take?", "label": "chat", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i053", "text": "what are you doing right now?", "label": "chat", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i054", "text": "also save a copy on my desktop", "label": "task", "running_task": "Write a haiku about rain in Notepad"}
+{"id": "i055", "text": "cool, thanks", "label": "chat", "running_task": "Write a haiku about rain in Notepad"}

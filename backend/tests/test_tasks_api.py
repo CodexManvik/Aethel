@@ -111,3 +111,23 @@ def test_tools_status_lists_servers_and_tools(tmp_path):
         body = client.get("/api/tools").json()
     assert body["servers"] == {}  # tests run without MCP servers
     assert "fs_write" in body["tools"] and "shell_run" in body["tools"]
+
+
+def test_a_message_routed_as_a_task_starts_one(tmp_path):
+    client, svc = _client(tmp_path, [
+        [tool_call("submit_plan", steps=["Write"], checks=[])],
+        [tool_call("finish_task", summary="Done it.")],
+    ])
+
+    async def ask(state, questions, purpose):
+        return {"act": {"noul": 0.97}} if "act" in questions else None
+
+    svc.system1.ask = ask
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "open notepad",
+                          "client_id": "c1"})
+            created = _until(ws, lambda e: e["type"] == "task_created")[-1]
+            assert created["client_id"] == "c1" and created["goal"] == "open notepad"
+            _until(ws, lambda e: e["type"] == "task_state" and e["state"] == "done")

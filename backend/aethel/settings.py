@@ -41,10 +41,13 @@ def default_roles() -> dict[str, list[RouteEntry]]:
 
 class System1Settings(BaseModel):
     enabled: bool = True
-    # Messages become tasks without the Task pill only when routing was measured
-    # accurate enough on eval/s1_intent.jsonl (see scripts/eval_s1_intent.py).
-    auto_tasks: bool = False
-    intent_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
+    # Measured by scripts/eval_s1_intent.py on eval/s1_intent.jsonl (2026-09-29, laya@68f27df):
+    # act at 0.5 was chosen on the dev half; held out: precision 0.91, recall 0.91, accuracy 0.92.
+    auto_tasks: bool = True
+    intent_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # A wrong stop throws away the user's work, a missed one is one click (Cancel, Ctrl+Alt+Esc),
+    # so stop favours precision: 0.9 gives P=1.00, R=0.88 on all 56 rows (in-sample, not held out).
+    stop_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
     skill_threshold: float = Field(default=0.6, ge=0.0, le=1.0)  # not yet calibrated
     judge_threshold: float = Field(default=0.5, ge=0.0, le=1.0)  # not yet calibrated
 
