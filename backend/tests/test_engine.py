@@ -796,7 +796,7 @@ async def test_a_learned_skill_reaches_planner_and_executor_as_untrusted_hints(h
     assert "A skill you learned for this: Write a haiku in Notepad" in planner_user
     executor = [m.content for m in provider.calls[1] if m.role == "user"]
     assert any("A skill you learned for this" in c and "hints only" in c for c in executor)
-    assert h.tasks.get(task_id).knowledge == [skill["id"]]
+    assert h.tasks.get(task_id).knowledge == [skill["id"]] and h.tasks.get(task_id).skill_id == skill["id"]
 
 
 async def test_recall_failure_never_blocks_a_task(h):

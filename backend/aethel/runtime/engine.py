@@ -307,7 +307,7 @@ class TaskEngine:
                 await self._set_state(task_id, "planning")
                 hints = await self._recall(record.goal)
                 if hints.skill_ids:
-                    self.tasks.set_knowledge(task_id, hints.skill_ids)
+                    self.tasks.set_knowledge(task_id, hints.skill_ids, hints.chosen)
                 learned = _learned_block(hints.text) if hints.text else None
                 steps, checks = await self._plan(task_id, record.goal, learned)
                 self.tasks.set_plan(task_id, steps, [c.model_dump() for c in checks])

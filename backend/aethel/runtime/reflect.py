@@ -10,6 +10,7 @@ import logging
 import anyio
 
 from ..providers.base import ChatMessage, ToolSpec
+from .macro import REPEATS_TO_COMPILE, compile_macro, structure
 from .store import StepRecord, TaskRecord
 
 log = logging.getLogger("aethel.reflect")
@@ -69,10 +70,27 @@ def parse_learning(raw: str) -> tuple[list[dict], dict | None]:
     return notes, skill
 
 
+def maybe_compile(knowledge, skill_id: str, goal: str, steps: list[StepRecord]) -> bool:
+    """After a verified success: remember how the run went, and compile the
+    skill into a macro once the last runs all went the same way."""
+    key = structure(steps)
+    if not key:
+        return False
+    recent = knowledge.record_structure(skill_id, key, REPEATS_TO_COMPILE)
+    doc = knowledge.get(skill_id)
+    if doc is None or doc["macro"] != "none" or len(recent) < REPEATS_TO_COMPILE or len(set(recent)) != 1:
+        return False
+    compiled = compile_macro(goal, steps, stable=f"{doc['title']} {doc['intent']} {' '.join(doc['apps'])}")
+    if compiled is None:
+        return False
+    knowledge.set_macro(skill_id, compiled, "compiled")
+    return True
+
+
 async def learn(*, task: TaskRecord, steps: list[StepRecord], knowledge, complete, wrap,
                 auto_approve: bool) -> tuple[dict, bool] | None:
-    """Credit, then reflect. `complete(messages, tools)` runs one agent turn and
-    returns its tool calls. Returns (skill, created) when a skill was written."""
+    """Credit, reflect, maybe compile. `complete(messages, tools)` runs one agent
+    turn and returns its tool calls. Returns (skill, created) when a skill was written."""
     if task.knowledge:
         await anyio.to_thread.run_sync(knowledge.record_outcome, task.knowledge, task.state == "done",
                                        task.active_seconds)
@@ -81,12 +99,15 @@ async def learn(*, task: TaskRecord, steps: list[StepRecord], knowledge, complet
     calls = await complete([ChatMessage("system", REFLECT_SYSTEM),
                             ChatMessage("user", task_report(task, steps, wrap))], [RECORD_LEARNING])
     call = next((c for c in calls if c.name == "record_learning"), None)
-    if call is None:
-        return None
-    notes, skill = parse_learning(call.arguments)
+    notes, skill = parse_learning(call.arguments) if call is not None else ([], None)
     for n in notes:
         await anyio.to_thread.run_sync(knowledge.upsert_note, n["app"], [str(f) for f in n["facts"]][:10])
-    if skill is None or task.state != "done":
-        return None
-    return await anyio.to_thread.run_sync(knowledge.upsert_skill, skill,
-                                          "approved" if auto_approve else "quarantined")
+    learned = None
+    if skill is not None and task.state == "done":
+        learned = await anyio.to_thread.run_sync(knowledge.upsert_skill, skill,
+                                                 "approved" if auto_approve else "quarantined")
+    # The skill this run followed (chosen by System 1) or, on a first run, the one it just taught.
+    target = task.skill_id or (learned[0]["id"] if learned else None)
+    if task.state == "done" and target:
+        await anyio.to_thread.run_sync(maybe_compile, knowledge, target, task.goal, steps)
+    return learned

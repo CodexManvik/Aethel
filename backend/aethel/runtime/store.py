@@ -24,6 +24,7 @@ class TaskRecord(BaseModel):
     updated_at: str
     active_seconds: float = 0.0
     knowledge: list[str] = []  # ids of the learned skills shown to this task
+    skill_id: str | None = None  # the one System 1 chose, if any
 
 
 class StepRecord(BaseModel):
@@ -95,8 +96,8 @@ class TaskRepo:
             (seconds, now_iso(), task_id),
         )
 
-    def set_knowledge(self, task_id: str, ids: list[str]) -> None:
-        self.db.execute("UPDATE tasks SET knowledge = ? WHERE id = ?", (json.dumps(ids), task_id))
+    def set_knowledge(self, task_id: str, ids: list[str], chosen: str | None = None) -> None:
+        self.db.execute("UPDATE tasks SET knowledge = ?, skill_id = ? WHERE id = ?", (json.dumps(ids), chosen, task_id))
 
     def set_plan(self, task_id: str, steps: list[str], checks: list[dict]) -> None:
         self.db.execute(
