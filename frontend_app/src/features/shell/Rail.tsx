@@ -1,4 +1,4 @@
-import { MessagesSquare, Moon, PenLine, Settings2, Sun } from "lucide-react";
+import { BookMarked, MessagesSquare, Moon, PenLine, Settings2, Sun } from "lucide-react";
 import { IconButton } from "../../ui/IconButton";
 import { resolveTheme, useUi } from "../../stores/ui";
 import { useSession } from "../../stores/session";
@@ -33,6 +33,9 @@ export function Rail() {
       </IconButton>
       <IconButton label={dark ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme(dark ? "light" : "dark")}>
         {dark ? <Sun size={17} strokeWidth={1.5} /> : <Moon size={17} strokeWidth={1.5} />}
+      </IconButton>
+      <IconButton label="Memory" active={screen === "memory"} onClick={() => setScreen("memory")}>
+        <BookMarked size={17} strokeWidth={1.5} />
       </IconButton>
       <IconButton label="Settings" active={screen === "settings"} onClick={() => setScreen("settings")}>
         <Settings2 size={17} strokeWidth={1.5} />

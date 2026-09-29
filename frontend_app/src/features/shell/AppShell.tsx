@@ -7,6 +7,7 @@ import { resolveMotion, useUi, watchSystemAppearance } from "../../stores/ui";
 import { ConversationView } from "../conversation/ConversationView";
 import { ThreadsPanel } from "../conversation/ThreadsPanel";
 import { SettingsView } from "../settings/SettingsView";
+import { MemoryView } from "../memory/MemoryView";
 
 export function AppShell() {
   const { screen, motion } = useUi();
@@ -19,7 +20,7 @@ export function AppShell() {
         <Rail />
         <main className="relative min-w-0 flex-1">
           <ThreadsPanel />
-          {screen === "conversation" ? <ConversationView /> : <SettingsView />}
+          {screen === "conversation" ? <ConversationView /> : screen === "memory" ? <MemoryView /> : <SettingsView />}
         </main>
         <Toaster
           position="bottom-right"
