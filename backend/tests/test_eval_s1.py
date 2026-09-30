@@ -119,7 +119,7 @@ def test_token_eval_only_approves_the_task_own_windows():
     assert tok.decide("haiku", "win_type", "Type “Pitter patter…” in whatsapp.root", "write") == "deny"
     assert tok.decide("haiku", "win_shortcut", "Press enter in whatsapp.root", "write") == "deny"
     assert tok.decide("haiku", "win_shortcut", "Press ctrl+s", "write") == "deny"   # no window named: no
-    assert tok.decide("haiku", "fs_write", f"{work}\haiku.txt", "write") == "allow_once"
-    assert tok.decide("haiku", "fs_write", "C:\Users\x\Desktop\a.txt", "write") == "deny"
+    assert tok.decide("haiku", "fs_write", work + r"\haiku.txt", "write") == "allow_once"
+    assert tok.decide("haiku", "fs_write", r"C:\Users\x\Desktop\a.txt", "write") == "deny"
     assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
     assert tok.decide("display", "shell", "run something", "write") == "deny"
