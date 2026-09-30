@@ -81,6 +81,13 @@ class MemorySettings(BaseModel):
     episodes_k: int = Field(default=3, ge=0, le=10)
 
 
+class TokenSavingSettings(BaseModel):
+    # Leave stale screen/page snapshots out of a task's context once a newer one exists (token spec §5.1).
+    # On by default; scripts/eval_tokens.py confirms it doesn't cost task success (not yet measured).
+    mask_superseded: bool = True
+    mask_batch: int = Field(default=3, ge=1, le=20)  # rewrite earlier messages at most once per this many
+
+
 def _check_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
     if value and not re.match(r"^https?://[^\s/]+", value):
@@ -100,6 +107,7 @@ class AppSettings(BaseModel):
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    token_saving: TokenSavingSettings = Field(default_factory=TokenSavingSettings)
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
 

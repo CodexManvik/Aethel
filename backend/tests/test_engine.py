@@ -1001,3 +1001,43 @@ async def test_an_unchanged_screen_is_sent_as_a_note(h):
     assert "Button 'Save'" in tool_msgs[0]
     assert tool_msgs[1] == "[unchanged since step 1: same screen as then]"
     assert [s.result for s in h.tasks.steps(task_id)][1].startswith("Window: Notepad")  # the log keeps it all
+
+
+async def test_stale_screens_are_masked_in_one_batch(h):
+    from aethel.tools.base import Assessment, Tool, ToolResult
+    n = {"i": 0}
+
+    async def look(args, ctx):
+        n["i"] += 1
+        return ToolResult(True, f"screen number {n['i']} " + "x" * 600)
+
+    turns = [[plan(["Look around"])]] + [[tool_call("screen_look", call_id=f"l{i}", i=i)] for i in range(5)] + \
+            [[tool_call("finish_task", summary="Done.")]]
+    engine, provider = h.make(turns, settings=h.settings)
+    engine.registry.register(Tool("screen_look", "", {"type": "object"}, "read", look,
+                                  lambda a: Assessment("allow", "", "look"), observes="screen"))
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    last = [m.content for m in provider.calls[-1] if m.role == "tool"]
+    assert [c.startswith("[earlier screen snapshot") for c in last] == [True, True, True, False, False]
+    before_batch = [m.content for m in provider.calls[3] if m.role == "tool"]  # 2 stale: not yet masked
+    assert not any(c.startswith("[earlier") for c in before_batch)
+
+
+async def test_masking_can_be_switched_off(h):
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def look(args, ctx):
+        return ToolResult(True, f"screen {args.get('i')} " + "x" * 600)
+
+    h.settings.update({"token_saving": {"mask_superseded": False}})
+    turns = [[plan(["Look"])]] + [[tool_call("screen_look", call_id=f"l{i}", i=i)] for i in range(5)] + \
+            [[tool_call("finish_task", summary="Done.")]]
+    engine, provider = h.make(turns, settings=h.settings)
+    engine.registry.register(Tool("screen_look", "", {"type": "object"}, "read", look,
+                                  lambda a: Assessment("allow", "", "look"), observes="screen"))
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert not any(m.content.startswith("[earlier") for m in provider.calls[-1] if m.role == "tool")

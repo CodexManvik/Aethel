@@ -18,7 +18,8 @@ from pydantic import ValidationError
 
 from ..chat.service import make_title
 from ..context.builder import budget_for, estimate
-from ..context.observations import StateTracker
+from ..context.observations import Observation, StateTracker, fit_to_budget, mask_superseded
+from ..usage import estimate_breakdown
 from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
@@ -151,6 +152,13 @@ def _first_line(text: str) -> str:
 
 
 _wrap_untrusted = wrap_untrusted
+
+
+def _summary(call: ToolCall) -> str:
+    """What a tool result was, for the stub that may replace it: 'fs_read of C:\\x.txt'."""
+    args = _parse_args(call.arguments) or {}
+    what = next((str(args[k]) for k in ("path", "url", "query", "name") if args.get(k)), "")
+    return f"{call.name} of {what[:120]}" if what else call.name
 
 
 def _similar(a: str, b: str) -> float:
@@ -534,10 +542,12 @@ class TaskEngine:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
         nudged = False
+        obs: list[Observation] = []  # the tool results in convo, for trimming (token spec §5.1)
         while True:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
             await self._gate(task_id, run)
+            self._trim(task_id, convo, obs, specs)
             calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
@@ -559,6 +569,10 @@ class TaskEngine:
                 result = await self._handle(task_id, call, ctx, grants, seen, run, budget,
                                             cut_off=finish_reason == "length")
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
+                tool = self.registry.get(call.name)
+                if tool is not None:
+                    obs.append(Observation(len(convo) - 1, call.name, tool.observes, len(self.tasks.steps(task_id)),
+                                           _summary(call), full=not result.startswith("[unchanged since")))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
                     finished = str(args.get("summary") or text.strip() or "Done.")
@@ -568,6 +582,19 @@ class TaskEngine:
                 return Outcome(await self._final_summary(task_id, convo), True)
             if finished is not None:
                 return Outcome(finished, False)
+
+    def _trim(self, task_id: str, convo: list[ChatMessage], obs: list[Observation], specs: list[ToolSpec]) -> None:
+        """Before each executor call: leave out stale snapshots (in batches, to keep the provider's cached
+        prefix), and if the call would overflow the model's context, older results too, oldest first."""
+        if self.settings is None:
+            return
+        s = self.settings.get()
+        if s.token_saving.mask_superseded:
+            mask_superseded(convo, obs, s.token_saving.mask_batch)
+        limit = budget_for(s, "agent", s.agent_max_tokens, capped=False)
+        dropped = fit_to_budget(convo, obs, limit, extra=sum(estimate_breakdown([], specs).values()))
+        if dropped:
+            log.info("task %s: left out of the context to fit: %s", task_id, "; ".join(dropped))
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
                       seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False,

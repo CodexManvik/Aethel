@@ -68,10 +68,11 @@ def _size(entry, settings: AppSettings) -> int:
     return entry.context_size
 
 
-def budget_for(settings: AppSettings, role: str, reply_tokens: int) -> int:
+def budget_for(settings: AppSettings, role: str, reply_tokens: int, capped: bool = True) -> int:
     """Tokens available for the prompt: the smallest context in the role's failover chain (a switch
-    mid-reply must still fit), capped per role, less the reply and a safety margin."""
+    mid-reply must still fit), capped per role, less the reply and a safety margin. capped=False is the
+    model's real limit, for guards that only act when a call would otherwise fail."""
     sizes = [_size(e, settings) for e in settings.roles.get(role, [])] or [DEFAULT_CONTEXT]
     smallest = min(sizes)
-    base = min(smallest, settings.context_caps.get(role, smallest))
+    base = min(smallest, settings.context_caps.get(role, smallest)) if capped else smallest
     return max(MIN_BUDGET, int(base * SAFETY) - reply_tokens)
