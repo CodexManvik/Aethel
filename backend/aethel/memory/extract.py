@@ -15,9 +15,9 @@ log = logging.getLogger("aethel.memory")
 MAX_OPS = 5
 NEIGHBOURS = 5
 PREVIOUS_REPLY_CHARS = 600
-FACT_Q = ("Does this message tell Aethel something about the user that is worth remembering in future "
-          "conversations, such as their name, life, work, people, plans, likes or dislikes, or a correction "
-          "of something Aethel knew? Questions, requests, commands and small talk are not.")
+# Chosen by scripts/eval_s1_fact.py from 4 wordings on the dev half; the longer, more specific ones did worse
+# (Laya zero-shot prefers short questions, as the 2a intent work found).
+FACT_Q = "Is the user telling Aethel something about themselves?"
 
 SYSTEM = """You maintain the short facts that Aethel, an AI companion, remembers about the user.
 Given the user's latest message (and Aethel's reply before it, for context), decide what to change.

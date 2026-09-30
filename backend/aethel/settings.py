@@ -67,11 +67,16 @@ class System1Settings(BaseModel):
 
 class MemorySettings(BaseModel):
     facts_enabled: bool = True
-    # System 1's P(yes) that a message is worth remembering. Provisional, not yet measured (eval/s1_fact.jsonl).
-    fact_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Measured by scripts/eval_s1_fact.py on eval/s1_fact.jsonl (120 hand-written messages, 2026-09-30,
+    # laya@68f27df): the highest threshold with dev recall >= 0.9 is 0.05; held out: recall 1.00, precision 0.64,
+    # so the gate lets ~78% of messages through and saves only ~22% of extraction calls. Laya is weak zero-shot
+    # here (ECE 0.26); fine-tuning it on this set is the obvious next step.
+    fact_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
     episodic_enabled: bool = True
-    # Exact cosine an earlier exchange must reach to be recalled. Provisional, not yet measured (eval/episodic.json).
-    episodic_min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    # Exact bge cosine an earlier exchange must reach to be recalled. Measured by scripts/eval_episodic.py on
+    # eval/episodic.json (8 scripted conversations, 40 queries, 2026-09-30): 0.63 chosen on the even queries;
+    # held out (20 queries, so rough): recall 0.71, precision 0.67, 1 of 6 unanswerable queries recalled something.
+    episodic_min_score: float = Field(default=0.63, ge=0.0, le=1.0)
     facts_k: int = Field(default=6, ge=0, le=30)
     episodes_k: int = Field(default=3, ge=0, le=10)
 

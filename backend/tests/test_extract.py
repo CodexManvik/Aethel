@@ -64,7 +64,7 @@ async def run(ex, conv, msg):
 
 
 async def test_gate_below_threshold_makes_no_llm_call(make):
-    svc, ex, _, provider, s1, _, conv = make(noul=0.2)
+    svc, ex, _, provider, s1, _, conv = make(noul=0.01)
     assert await run(ex, conv, say(svc, conv, "lol")) == []
     assert provider.calls == [] and s1.calls[0][0] == "fact_gate"
     assert s1.calls[0][2] == {"fact": {"type": "noul", "instructions": FACT_Q}}
