@@ -127,7 +127,8 @@ class ChatService:
             if recalled["facts"] or recalled["episodes"]:
                 self.messages.update(assistant.id, meta={"context": recalled})
                 await publish(ContextUsed(message_id=assistant.id, **recalled))
-            stream = self.router.stream("chat", prompt, on_switch=on_switch)
+            stream = self.router.stream("chat", prompt, on_switch=on_switch, purpose="chat_reply",
+                                        ref={"message_id": assistant.id})
             async with aclosing(stream):
                 async for ev in stream:
                     if isinstance(ev, TextDelta):

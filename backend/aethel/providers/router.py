@@ -1,4 +1,5 @@
 """Picks a provider per role, walking the failover chain from Settings."""
+import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable
 
@@ -7,7 +8,8 @@ import httpx
 
 from ..keys import KeyStore
 from ..settings import AppSettings, RouteEntry, SettingsService
-from .base import ChatMessage, LLMProvider, ProviderError, StreamEvent, ToolSpec
+from ..usage import UsageLog, estimate_breakdown
+from .base import ChatMessage, LLMProvider, ProviderError, StreamDone, StreamEvent, ToolSpec, Usage
 from .catalog import api_key_for, base_url_for
 from .openai_compat import OpenAICompatProvider
 
@@ -43,11 +45,13 @@ class NoProviderAvailable(Exception):
 
 
 class RoleRouter:
-    def __init__(self, *, settings: SettingsService, keys: KeyStore, local, factory: ProviderFactory):
+    def __init__(self, *, settings: SettingsService, keys: KeyStore, local, factory: ProviderFactory,
+                 usage: UsageLog | None = None):
         self.settings = settings
         self.keys = keys
         self.local = local
         self.factory = factory
+        self.usage = usage  # every call is recorded here (token-efficiency spec §3)
 
     def chain(self, role: str) -> list[RouteEntry]:
         s = self.settings.get()
@@ -65,8 +69,11 @@ class RoleRouter:
         on_switch: Callable[[ProviderSwitch], Awaitable[None]] | None = None,
         max_tokens: int | None = None,  # overrides settings.max_tokens (the agent role has its own limit)
         temperature: float | None = None,  # overrides settings.temperature (e.g. low for JSON extraction)
+        purpose: str = "chat_reply",       # what the call is for, in the usage log (usage.PURPOSES)
+        ref: dict | None = None,           # {"task_id"} or {"message_id"} it belongs to
     ) -> AsyncIterator[StreamEvent]:
         s = self.settings.get()
+        breakdown = estimate_breakdown(messages, tools) if self.usage is not None else {}
         limit = max_tokens if max_tokens is not None else s.max_tokens
         temp = temperature if temperature is not None else s.temperature
         errors: list[str] = []
@@ -92,16 +99,31 @@ class RoleRouter:
             if failed_label is not None and on_switch is not None:
                 await on_switch(ProviderSwitch(role, failed_label, label, errors[-1]))
             started = False
+            status = "cancelled"  # the consumer stopped reading (stop button, shutdown), unless set below
+            usage: Usage | None = None
+            t0 = time.perf_counter()
             try:
                 async for event in provider.stream(
                     messages, temperature=temp, max_tokens=limit, tools=tools
                 ):
                     started = True
+                    if isinstance(event, StreamDone):
+                        usage = event.usage
                     yield event
+                status = "ok"
                 return
             except ProviderError as exc:
+                status = "error"
                 if started or not exc.retryable:
                     raise
                 errors.append(str(exc))
                 failed_label = label
+            except Exception:
+                status = "error"
+                raise
+            finally:
+                if self.usage is not None:
+                    self.usage.record(role=role, purpose=purpose, provider=entry.provider, model=entry.model,
+                                      ref=ref, usage=usage, breakdown=breakdown, status=status, started=started,
+                                      latency_ms=int((time.perf_counter() - t0) * 1000))
         raise NoProviderAvailable("; ".join(errors) or f"No providers configured for role '{role}'.")

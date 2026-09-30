@@ -411,7 +411,8 @@ class Desktop:
         reply = []
         stream = self.vision.stream("vision", [ChatMessage("user", prompt,
                                                            images=[f"data:{image.mimeType};base64,{image.data}"])],
-                                    max_tokens=40)
+                                    max_tokens=40, purpose="vision_locate",
+                                    ref={"task_id": ctx.task_id} if ctx is not None and ctx.task_id else None)
         async with aclosing(stream):
             async for event in stream:
                 if isinstance(event, TextDelta):

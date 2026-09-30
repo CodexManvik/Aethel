@@ -35,6 +35,7 @@ from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.office import Office, office_spec
 from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
+from .usage import UsageLog
 
 AUTO = object()
 
@@ -65,6 +66,7 @@ class Services:
     facts: FactStore
     episodic: EpisodicIndex
     extractor: FactExtractor
+    usage: UsageLog
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -91,7 +93,8 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
     http_client = DefaultAsyncHttpxClient()
     factory = provider_factory or make_provider_factory(http_client)
-    router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory)
+    usage = UsageLog(db)
+    router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory, usage=usage)
     hub = EventHub()
     permissions = Permissions(permissions_path or aethel_home() / "permissions.yaml")
     changes = ChangeLog(db)
@@ -115,7 +118,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
-        knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor,
+        knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub) if mcp_servers is None else mcp_servers,
     )
 

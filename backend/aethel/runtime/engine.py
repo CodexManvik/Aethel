@@ -493,7 +493,7 @@ class TaskEngine:
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
         for _ in range(2):
-            calls, text, _ = await self._complete(task_id, messages, [SUBMIT_PLAN])
+            calls, text, _ = await self._complete(task_id, messages, [SUBMIT_PLAN], "plan")
             call = next((c for c in calls if c.name == "submit_plan"), None)
             parsed = _parse_plan(call.arguments) if call is not None else None
             if parsed is not None:
@@ -505,7 +505,7 @@ class TaskEngine:
         raise PlanningError("I couldn't come up with a workable plan for this.")
 
     async def _complete(self, task_id: str, messages: list[ChatMessage],
-                        tools: list[ToolSpec] | None) -> tuple[list[ToolCall], str, str | None]:
+                        tools: list[ToolSpec] | None, purpose: str = "execute") -> tuple[list[ToolCall], str, str | None]:
         """One model turn: its tool calls, its text and the finish reason."""
         async def on_switch(sw: ProviderSwitch) -> None:
             await self.hub.publish(ProviderSwitched(role=sw.role, from_provider=sw.from_label,
@@ -515,7 +515,8 @@ class TaskEngine:
         text: list[str] = []
         finish: str | None = None
         max_tokens = self.settings.get().agent_max_tokens if self.settings is not None else None
-        stream = self.router.stream("agent", messages, tools=tools, on_switch=on_switch, max_tokens=max_tokens)
+        stream = self.router.stream("agent", messages, tools=tools, on_switch=on_switch, max_tokens=max_tokens,
+                                    purpose=purpose, ref={"task_id": task_id})
         async with aclosing(stream):
             async for event in stream:
                 if isinstance(event, TextDelta):
@@ -676,7 +677,7 @@ class TaskEngine:
     async def _final_summary(self, task_id: str, convo: list[ChatMessage]) -> str | None:
         convo.append(ChatMessage("user", "[STEP LIMIT REACHED] Stop using tools. In 1-3 sentences, tell the user "
                                          "what you did and what is left."))
-        _, text, _ = await self._complete(task_id, convo, None)
+        _, text, _ = await self._complete(task_id, convo, None, "final_summary")
         return text.strip() or None
 
     async def _gate(self, task_id: str, run: "_RunClock | None" = None) -> None:
@@ -735,7 +736,7 @@ class TaskEngine:
             return
 
         async def complete(messages, tools):
-            calls, _, _ = await self._complete(task_id, messages, tools)
+            calls, _, _ = await self._complete(task_id, messages, tools, "reflect")
             return calls
 
         try:

@@ -99,9 +99,10 @@ class FactExtractor:
         before = [m for m in history[:idx] if m.role == "assistant" and m.content]
         return before[-1].content if before else None
 
-    async def _complete(self, messages: list[ChatMessage]) -> str:
+    async def _complete(self, messages: list[ChatMessage], message_id: str | None = None) -> str:
         parts = []
-        async for ev in self.router.stream("chat", messages, temperature=0.1):
+        async for ev in self.router.stream("chat", messages, temperature=0.1, purpose="fact_extract",
+                                           ref={"message_id": message_id} if message_id else None):
             if isinstance(ev, TextDelta):
                 parts.append(ev.text)
         return "".join(parts)
@@ -131,7 +132,7 @@ class FactExtractor:
         convo = [ChatMessage("system", SYSTEM), ChatMessage("user", prompt)]
         ops = None
         for _ in range(2):
-            raw = await self._complete(convo)
+            raw = await self._complete(convo, user.id)
             ops = _parse(raw)
             if ops is not None:
                 break
