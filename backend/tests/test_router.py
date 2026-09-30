@@ -64,3 +64,24 @@ async def test_a_custom_endpoint_needs_a_url_but_not_a_key(settings):
     keys.set_many({"custom": "sk-real"})
     assert api_key_for("custom", keys, settings.get()) == ("sk-real", None)
     assert api_key_for("groq", keys, settings.get()) == (None, "no API key")
+
+
+def test_utility_chain_is_its_own_models_then_chats(settings):
+    from aethel.keys import KeyStore
+    from aethel.providers.router import RoleRouter
+    router = RoleRouter(settings=settings, keys=KeyStore(), local=None, factory=lambda *a: None)
+    settings.update({"roles": {"chat": [{"provider": "groq", "model": "big"}, {"provider": "local", "model": "local"}],
+                               "utility": [{"provider": "groq", "model": "small"}]}})
+    assert [e.model for e in router.chain("utility")] == ["small", "big", "local"]
+    settings.update({"roles": {"utility": []}})
+    assert [e.model for e in router.chain("utility")] == ["big", "local"]
+
+
+def test_settings_saved_before_utility_existed_still_route(settings):
+    import json
+    from aethel.keys import KeyStore
+    from aethel.providers.router import RoleRouter
+    old = {"roles": {"chat": [{"provider": "groq", "model": "big"}], "agent": [], "vision": []}}
+    settings.db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('app', ?)", (json.dumps(old),))
+    router = RoleRouter(settings=settings, keys=KeyStore(), local=None, factory=lambda *a: None)
+    assert [e.model for e in router.chain("utility")] == ["big"]

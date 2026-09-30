@@ -64,3 +64,27 @@ def test_episodic_floor_scores_like_chat_recall():
     assert ep.at(rows, 0.90)["precision"] is None
     # net correct - wrong - unwanted: 1 up to 0.60 (b:0 still recalled), -1 at 0.61-0.66, 0 at 0.67-0.70 …
     assert ep.choose_floor(rows) == 0.6  # … and ties go to the higher floor
+
+
+def test_extraction_scoring():
+    ex = _load("eval_extract")
+    case = {"expect": [{"op": "update", "id": "f1", "contains": ["York"]}, {"op": "add", "contains": ["dog", "pip"]}]}
+    assert ex.score(case, [{"op": "add", "scope": "user", "text": "Has a dog called Pip"},
+                           {"op": "update", "id": "f1", "text": "Lives in York"}])
+    assert not ex.score(case, [{"op": "update", "id": "f2", "text": "Lives in York"},
+                               {"op": "add", "text": "Has a dog called Pip"}])        # wrong id
+    assert not ex.score(case, [{"op": "update", "id": "f1", "text": "Lives in York"}])  # one missing
+    assert ex.score({"expect": []}, []) and not ex.score({"expect": []}, [{"op": "add", "text": "x"}])
+    assert ex.score({"expect": []}, None)
+
+
+def test_extraction_fixtures_are_well_formed():
+    import json
+    cases = json.loads((Path(__file__).resolve().parents[1] / "aethel" / "eval" / "extract_fixtures.json")
+                       .read_text(encoding="utf-8"))["cases"]
+    assert len(cases) == 20 and sum(1 for c in cases if c["expect"]) == 12
+    for c in cases:
+        for e in c["expect"]:
+            assert e["op"] in ("add", "update", "delete")
+            if e["op"] != "add":
+                assert e["id"].startswith("f") and int(e["id"][1:]) <= len(c["known"])

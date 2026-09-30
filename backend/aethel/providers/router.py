@@ -15,6 +15,9 @@ from .openai_compat import OpenAICompatProvider
 
 ProviderFactory = Callable[[RouteEntry, str, AppSettings], LLMProvider]
 LOCAL_API_KEY = "sk-local"
+# Background work (fact extraction) runs on a small fast model, and falls back to the chat models:
+# settings saved before the utility role existed, or a missing key, still work (token spec §5.2).
+ROLE_FALLBACK = {"utility": "chat"}
 
 
 def make_provider_factory(http_client: httpx.AsyncClient) -> ProviderFactory:
@@ -56,6 +59,9 @@ class RoleRouter:
     def chain(self, role: str) -> list[RouteEntry]:
         s = self.settings.get()
         entries = list(s.roles.get(role, []))
+        fallback = ROLE_FALLBACK.get(role)
+        if fallback:  # e.g. utility: its own small model first, then whatever chat uses
+            entries += [e for e in s.roles.get(fallback, []) if e not in entries]
         if s.private_mode:
             entries = [e for e in entries if e.provider == "local"] or [RouteEntry(provider="local", model="local")]
         return entries

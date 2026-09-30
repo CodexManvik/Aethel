@@ -182,3 +182,9 @@ test("usage lists the last 7 days by purpose, biggest first, with a total", asyn
   const rows = within(table).getAllByRole("row").slice(1).map((r) => r.textContent);
   expect(rows).toEqual(["Doing tasks12.0k7003.0k6", "Replies≈3.4k20003", "Total15.4k9003.0k9"]);
 });
+
+test("the Background role is listed with the other models", async () => {
+  renderSettings();
+  expect(await screen.findByText("Background")).toBeInTheDocument();
+  expect(screen.getByText(/Remembering facts and other housekeeping/)).toBeInTheDocument();
+});
