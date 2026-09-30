@@ -14,6 +14,9 @@ ProviderId = Literal["groq", "gemini", "openrouter", "custom", "local"]
 class RouteEntry(BaseModel):
     provider: ProviderId
     model: str = Field(min_length=1)
+    # The model's context window in tokens, for the context builder's budget. Conservative by default:
+    # raise it for long-context models (Settings → Models).
+    context_size: int = Field(default=8192, ge=1024, le=2_000_000)
 
 
 class LocalLLMSettings(BaseModel):
@@ -92,6 +95,8 @@ class AppSettings(BaseModel):
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
+    context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
 
     @field_validator("custom_base_url")
     @classmethod

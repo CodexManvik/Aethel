@@ -7,7 +7,6 @@ import difflib
 import inspect
 import json
 import logging
-import re
 import time
 from collections import Counter
 from contextlib import aclosing
@@ -26,6 +25,7 @@ from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, 
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..safety.approvals import ApprovalBroker
 from ..safety.policy import decide
+from ..safety.untrusted import wrap_untrusted
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
@@ -43,7 +43,6 @@ MAX_TOOL_RESULT_CHARS = 12_000
 MAX_IDENTICAL_CALLS = 2
 MAX_CONSECUTIVE_LOOPS = 3
 MAX_CONSECUTIVE_DENIALS = 3
-_CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
 CUT_OFF_MESSAGE = ("Error: your tool call was cut off because it was too long. "
                    "Write the content in smaller parts (use mode 'append').")
 
@@ -147,13 +146,7 @@ def _first_line(text: str) -> str:
     return (text.strip().splitlines() or [""])[0][:200]
 
 
-def _wrap_untrusted(source: str, content: str) -> str:
-    """Wrap content the model must treat as data, not instructions. Any
-    closing tag inside the content is neutralised so it can't escape early,
-    and the source name is quote-escaped defensively."""
-    safe_source = source.replace('"', "&quot;")
-    safe_content = _CLOSE_UNTRUSTED_RE.sub("&lt;/untrusted", content)
-    return f'<untrusted source="{safe_source}">\n{safe_content}\n</untrusted>'
+_wrap_untrusted = wrap_untrusted
 
 
 def _similar(a: str, b: str) -> float:
