@@ -15,10 +15,12 @@ def db():
 
 
 def test_migrations_are_idempotent(db):
-    assert db.schema_version() == 9
+    from aethel.store.db import _migrations
+    latest = max(v for v, _ in _migrations())
+    assert latest >= 10 and db.schema_version() == latest
     db.close()
     reopened = Database(db_path())
-    assert reopened.schema_version() == 9
+    assert reopened.schema_version() == latest
     reopened.close()
 
 

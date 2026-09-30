@@ -1,7 +1,9 @@
 """Thin sqlite3 wrapper: one connection, a lock, numbered .sql migrations."""
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -45,6 +47,19 @@ class Database:
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock:
             return self._conn.execute(sql, params)
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Everything inside commits together or not at all (the connection is otherwise in autocommit
+        mode). Holds the lock throughout, so other threads' statements wait rather than interleave."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+            self._conn.execute("COMMIT")
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:

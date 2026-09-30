@@ -1,19 +1,7 @@
-import hashlib
-import re
-
-import numpy as np
 import pytest
 
 from aethel.memory.rsm import KnowledgeStore, effective_confidence
-
-
-def fake_embed(texts):
-    """Bag of words hashed into 256 dims: shared words mean similar vectors."""
-    out = np.zeros((len(texts), 256), dtype=np.float32)
-    for i, t in enumerate(texts):
-        for w in re.findall(r"[a-z0-9]+", t.lower()):
-            out[i, int(hashlib.md5(w.encode()).hexdigest(), 16) % 256] += 1
-    return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
+from tests.conftest import fake_embed  # noqa: F401  (other test modules import it from here)
 
 
 @pytest.fixture
