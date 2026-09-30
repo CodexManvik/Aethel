@@ -26,6 +26,14 @@ export async function openConversation(id: string): Promise<void> {
   await hydrateTasks(id).catch(() => {});
 }
 
+/** Open a conversation from elsewhere (a remembered fact's source, a recalled moment) and, when a
+ * message is given, scroll to it and highlight it. */
+export async function showInConversation(conversationId: string, messageId?: string | null): Promise<void> {
+  await openConversation(conversationId);
+  useUi.getState().setScreen("conversation");
+  useUi.getState().setFocusMessage(messageId ?? null);
+}
+
 /** Re-read the open conversation (after a reply ends or the socket reconnects)
  * so the view always converges on what the server persisted. */
 export async function refreshOpenConversation(): Promise<void> {

@@ -6,6 +6,7 @@ import { LocalModelSection } from "./LocalModelSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ToolsSection } from "./ToolsSection";
 import { LearningSection } from "./LearningSection";
+import { MemorySection } from "./MemorySection";
 
 export function SettingsView() {
   const { data: settings, error } = useSettings();
@@ -22,6 +23,7 @@ export function SettingsView() {
             <LocalModelSection settings={settings} />
             <ToolsSection />
             <LearningSection settings={settings} />
+            <MemorySection settings={settings} />
             <AppearanceSection />
           </>
         )}

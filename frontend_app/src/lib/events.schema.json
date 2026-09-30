@@ -147,6 +147,44 @@
       "title": "CheckOutcome",
       "type": "object"
     },
+    "ContextUsed": {
+      "additionalProperties": false,
+      "description": "What memory went into a reply, sent before its first token (Phase 3 spec \u00a74.1, \u00a75.3).",
+      "properties": {
+        "episodes": {
+          "items": {
+            "$ref": "#/$defs/RecalledEpisode"
+          },
+          "title": "Episodes",
+          "type": "array"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/RecalledFact"
+          },
+          "title": "Facts",
+          "type": "array"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "context_used",
+          "default": "context_used",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id",
+        "facts",
+        "episodes"
+      ],
+      "title": "ContextUsed",
+      "type": "object"
+    },
     "ConversationUpdated": {
       "additionalProperties": false,
       "properties": {
@@ -274,6 +312,102 @@
         "conversation_id"
       ],
       "title": "ErrorEvent",
+      "type": "object"
+    },
+    "FactChange": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_id": {
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "old_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Old Text"
+        },
+        "op": {
+          "enum": [
+            "add",
+            "update",
+            "delete"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "undone": {
+          "default": false,
+          "title": "Undone",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fact_id",
+        "op",
+        "scope",
+        "text",
+        "old_text",
+        "undone"
+      ],
+      "title": "FactChange",
+      "type": "object"
+    },
+    "FactsChanged": {
+      "additionalProperties": false,
+      "description": "Fact extraction changed what Aethel remembers, from this user message (Phase 3 spec \u00a72.3).",
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/FactChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "facts_changed",
+          "default": "facts_changed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "message_id",
+        "changes"
+      ],
+      "title": "FactsChanged",
       "type": "object"
     },
     "KillSwitch": {
@@ -461,6 +595,54 @@
         "task_id"
       ],
       "title": "ProviderSwitched",
+      "type": "object"
+    },
+    "RecalledEpisode": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "conversation_id",
+        "text",
+        "created_at"
+      ],
+      "title": "RecalledEpisode",
+      "type": "object"
+    },
+    "RecalledFact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "RecalledFact",
       "type": "object"
     },
     "SkillLearned": {
@@ -996,9 +1178,11 @@
         "mapping": {
           "approval_needed": "#/$defs/ApprovalNeeded",
           "approval_resolved": "#/$defs/ApprovalResolved",
+          "context_used": "#/$defs/ContextUsed",
           "conversation_updated": "#/$defs/ConversationUpdated",
           "cursor_intent": "#/$defs/CursorIntent",
           "error": "#/$defs/ErrorEvent",
+          "facts_changed": "#/$defs/FactsChanged",
           "message_end": "#/$defs/MessageEnd",
           "message_start": "#/$defs/MessageStart",
           "plan_progress": "#/$defs/PlanProgress",
@@ -1065,6 +1249,12 @@
         },
         {
           "$ref": "#/$defs/CursorIntent"
+        },
+        {
+          "$ref": "#/$defs/FactsChanged"
+        },
+        {
+          "$ref": "#/$defs/ContextUsed"
         }
       ],
       "title": "Server"

@@ -24,9 +24,12 @@ const settings: AppSettings = {
   agent_max_tokens: 8192,
   history_window: 24,
   system1: { enabled: true, auto_tasks: true, intent_threshold: 0.5, stop_threshold: 0.9, skill_threshold: 0.6, judge_threshold: 0.5 },
+  memory: { facts_enabled: true, fact_threshold: 0.5, episodic_enabled: true, episodic_min_score: 0.65, facts_k: 6, episodes_k: 3 },
+  context_caps: { chat: 16000, agent: 24000 },
   auto_approve_skills: true,
   replay_thumbnails: true,
 };
+let rebuilds = 0;
 const providers: ProviderInfo[] = [
   { id: "groq", label: "Groq", needs_key: true, has_key: true, base_url: "" },
   { id: "gemini", label: "Google Gemini", needs_key: true, has_key: false, base_url: "" },
@@ -48,6 +51,8 @@ beforeEach(() => {
     if (path === "/api/providers") return providers;
     if (path.endsWith("/models")) return { models: ["m1", "m2"] };
     if (path === "/api/tools") return { servers: { windows: "running", office: "failed: no Office" }, tools: [] };
+    if (path === "/api/memory/episodic") return { indexed: 12, exchanges: 14, rebuilding: false };
+    if (path === "/api/memory/episodic/rebuild") { rebuilds += 1; return { started: true }; }
     return {};
   });
   saveKeyMock.mockResolvedValue(undefined);
@@ -130,6 +135,19 @@ test("learning switches patch settings", async () => {
   await userEvent.click(await screen.findByRole("switch", { name: "Start tasks from messages" }));
   await userEvent.click(screen.getByRole("switch", { name: "Use new skills straight away" }));
   await waitFor(() => expect(patches).toEqual([{ system1: { auto_tasks: false } }, { auto_approve_skills: false }]));
+});
+
+test("memory switches patch settings and Rebuild starts a rebuild", async () => {
+  rebuilds = 0;
+  renderSettings();
+  await userEvent.click(await screen.findByRole("switch", { name: "Remember facts about me" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Recall earlier conversations" }));
+  // (the mock merges settings shallowly, so only the first value is meaningful here)
+  await waitFor(() => expect(patches.map((p) => Object.keys((p as { memory: object }).memory))).toEqual([["facts_enabled"], ["episodic_enabled"]]));
+  expect(patches[0]).toEqual({ memory: { facts_enabled: false } });
+  expect(await screen.findByText("12 of 14 exchanges indexed.")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+  await waitFor(() => expect(rebuilds).toBe(1));
 });
 
 test("saving the custom endpoint confirms it, and a bad URL says why", async () => {

@@ -164,10 +164,47 @@ class CursorIntent(Event):
     label: str
 
 
+class FactChange(Event):
+    fact_id: str
+    op: Literal["add", "update", "delete"]
+    scope: str
+    text: str | None = None      # the fact after the change (None for a delete)
+    old_text: str | None = None  # before it (None for an add)
+    undone: bool = False
+
+
+class FactsChanged(Event):
+    """Fact extraction changed what Aethel remembers, from this user message (Phase 3 spec §2.3)."""
+    type: Literal["facts_changed"] = "facts_changed"
+    conversation_id: str
+    message_id: str
+    changes: list[FactChange]
+
+
+class RecalledFact(Event):
+    id: str
+    text: str
+
+
+class RecalledEpisode(Event):
+    id: str
+    conversation_id: str
+    text: str
+    created_at: str
+
+
+class ContextUsed(Event):
+    """What memory went into a reply, sent before its first token (Phase 3 spec §4.1, §5.3)."""
+    type: Literal["context_used"] = "context_used"
+    message_id: str
+    facts: list[RecalledFact]
+    episodes: list[RecalledEpisode]
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, StepStarted, StepFinished, ApprovalNeeded, ApprovalResolved,
-          VerificationResult, TaskState, SkillLearned, CursorIntent],
+          VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed],
     Field(discriminator="type"),
 ]
 

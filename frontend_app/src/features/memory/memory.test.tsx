@@ -22,6 +22,7 @@ beforeEach(() => {
     if (path === "/api/memory/skills") return [skill(), skill({ id: "skill-new", title: "Play lofi", status: "quarantined", runs: 0, duration_history: [], macro: "compiled" })];
     if (path === "/api/memory/notes") return notes;
     if (path === "/api/memory/system1") return { status: "ready" };
+    if (path.startsWith("/api/memory/facts")) return [];
     return init?.body ? { ...JSON.parse(String(init.body)) } : {};
   });
 });
@@ -30,6 +31,7 @@ const renderMemory = () => render(<QueryClientProvider client={new QueryClient()
 
 test("skill cards show runs, success and a duration sparkline; waiting skills come first", async () => {
   renderMemory();
+  await userEvent.click(await screen.findByRole("tab", { name: "Skills" }));
   const cards = await screen.findAllByRole("article");
   expect(within(cards[0]).getByText("Play lofi")).toBeInTheDocument();
   expect(within(cards[0]).getByText("replays without thinking")).toBeInTheDocument();
@@ -42,6 +44,7 @@ test("skill cards show runs, success and a duration sparkline; waiting skills co
 
 test("approve and retire send a PATCH", async () => {
   renderMemory();
+  await userEvent.click(await screen.findByRole("tab", { name: "Skills" }));
   const cards = await screen.findAllByRole("article");
   await userEvent.click(within(cards[0]).getByRole("button", { name: "Approve" }));
   await userEvent.click(within(cards[1]).getByRole("button", { name: "Retire" }));
@@ -51,8 +54,10 @@ test("approve and retire send a PATCH", async () => {
 
 test("tabs follow the keyboard pattern and app notes can be edited", async () => {
   renderMemory();
-  const skillsTab = await screen.findByRole("tab", { name: "Skills" });
-  skillsTab.focus();
+  const factsTab = await screen.findByRole("tab", { name: "Facts" });
+  factsTab.focus();
+  await userEvent.keyboard("{ArrowRight}");
+  expect(screen.getByRole("tab", { name: "Skills" })).toHaveFocus();
   await userEvent.keyboard("{ArrowRight}");
   const notesTab = screen.getByRole("tab", { name: "App notes" });
   expect(notesTab).toHaveAttribute("aria-selected", "true");

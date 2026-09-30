@@ -35,7 +35,9 @@ export type Server =
   | VerificationResult
   | TaskState
   | SkillLearned
-  | CursorIntent;
+  | CursorIntent
+  | FactsChanged
+  | ContextUsed;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -125,6 +127,26 @@ export type TaskId12 = string | null;
 export type Type22 = "cursor_intent";
 export type X = number;
 export type Y = number;
+export type FactId = string;
+export type OldText = string | null;
+export type Op = "add" | "update" | "delete";
+export type Scope = string;
+export type Text2 = string | null;
+export type Undone = boolean;
+export type Changes = FactChange[];
+export type ConversationId7 = string;
+export type MessageId7 = string;
+export type Type23 = "facts_changed";
+export type ConversationId8 = string;
+export type CreatedAt = string;
+export type Id = string;
+export type Text3 = string;
+export type Episodes = RecalledEpisode[];
+export type Id1 = string;
+export type Text4 = string;
+export type Facts = RecalledFact[];
+export type MessageId8 = string;
+export type Type24 = "context_used";
 
 export interface AethelProtocol {
   client: Client;
@@ -292,4 +314,40 @@ export interface CursorIntent {
   type: Type22;
   x: X;
   y: Y;
+}
+/**
+ * Fact extraction changed what Aethel remembers, from this user message (Phase 3 spec §2.3).
+ */
+export interface FactsChanged {
+  changes: Changes;
+  conversation_id: ConversationId7;
+  message_id: MessageId7;
+  type: Type23;
+}
+export interface FactChange {
+  fact_id: FactId;
+  old_text: OldText;
+  op: Op;
+  scope: Scope;
+  text: Text2;
+  undone: Undone;
+}
+/**
+ * What memory went into a reply, sent before its first token (Phase 3 spec §4.1, §5.3).
+ */
+export interface ContextUsed {
+  episodes: Episodes;
+  facts: Facts;
+  message_id: MessageId8;
+  type: Type24;
+}
+export interface RecalledEpisode {
+  conversation_id: ConversationId8;
+  created_at: CreatedAt;
+  id: Id;
+  text: Text3;
+}
+export interface RecalledFact {
+  id: Id1;
+  text: Text4;
 }

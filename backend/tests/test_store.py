@@ -15,10 +15,12 @@ def db():
 
 
 def test_migrations_are_idempotent(db):
-    assert db.schema_version() == 9
+    from aethel.store.db import _migrations
+    latest = max(v for v, _ in _migrations())
+    assert latest >= 10 and db.schema_version() == latest
     db.close()
     reopened = Database(db_path())
-    assert reopened.schema_version() == 9
+    assert reopened.schema_version() == latest
     reopened.close()
 
 
@@ -58,6 +60,7 @@ def test_update_message_content_status_and_meta(db):
     repo.update(msg.id, content="done", status="complete", meta={"provider": "groq:x"})
     [stored] = repo.list(conv.id)
     assert (stored.content, stored.status, stored.meta) == ("done", "complete", {"provider": "groq:x"})
+    assert repo.get(msg.id) == stored and repo.get("msg_nope") is None
 
 
 def test_rename_and_cascade_delete(db):

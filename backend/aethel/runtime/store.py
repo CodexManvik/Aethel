@@ -25,6 +25,7 @@ class TaskRecord(BaseModel):
     active_seconds: float = 0.0
     knowledge: list[str] = []  # ids of the learned skills shown to this task
     skill_id: str | None = None  # the one System 1 chose, if any
+    context: dict = {}  # {"facts": [{id, text}]}: what was remembered about the user and shown to the planner
 
 
 class StepRecord(BaseModel):
@@ -47,7 +48,7 @@ class StepRecord(BaseModel):
 
 def _task(row) -> TaskRecord:
     d = dict(row)
-    for key in ("plan", "plan_done", "checks", "knowledge"):
+    for key in ("plan", "plan_done", "checks", "knowledge", "context"):
         if key in d:
             d[key] = json.loads(d[key])
     return TaskRecord(**d)
@@ -102,6 +103,9 @@ class TaskRepo:
 
     def set_knowledge(self, task_id: str, ids: list[str], chosen: str | None = None) -> None:
         self.db.execute("UPDATE tasks SET knowledge = ?, skill_id = ? WHERE id = ?", (json.dumps(ids), chosen, task_id))
+
+    def set_context(self, task_id: str, context: dict) -> None:
+        self.db.execute("UPDATE tasks SET context = ? WHERE id = ?", (json.dumps(context), task_id))
 
     def set_plan(self, task_id: str, steps: list[str], checks: list[dict]) -> None:
         self.db.execute(

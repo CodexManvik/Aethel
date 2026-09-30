@@ -14,6 +14,9 @@ ProviderId = Literal["groq", "gemini", "openrouter", "custom", "local"]
 class RouteEntry(BaseModel):
     provider: ProviderId
     model: str = Field(min_length=1)
+    # The model's context window in tokens, for the context builder's budget. The hosted models Aethel
+    # suggests all take 32k or more; lower it for a smaller model. (The per-role caps usually bind first.)
+    context_size: int = Field(default=32768, ge=1024, le=2_000_000)
 
 
 class LocalLLMSettings(BaseModel):
@@ -62,6 +65,22 @@ class System1Settings(BaseModel):
     ground_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
+class MemorySettings(BaseModel):
+    facts_enabled: bool = True
+    # Measured by scripts/eval_s1_fact.py on eval/s1_fact.jsonl (120 hand-written messages, 2026-09-30,
+    # laya@68f27df): the highest threshold with dev recall >= 0.9 is 0.05; held out: recall 1.00, precision 0.64,
+    # so the gate lets ~78% of messages through and saves only ~22% of extraction calls. Laya is weak zero-shot
+    # here (ECE 0.26); fine-tuning it on this set is the obvious next step.
+    fact_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
+    episodic_enabled: bool = True
+    # Exact bge cosine an earlier exchange must reach to be recalled. Measured by scripts/eval_episodic.py on
+    # eval/episodic.json (8 scripted conversations, 40 queries, 2026-09-30): 0.63 chosen on the even queries;
+    # held out (20 queries, so rough): recall 0.71, precision 0.67, 1 of 6 unanswerable queries recalled something.
+    episodic_min_score: float = Field(default=0.63, ge=0.0, le=1.0)
+    facts_k: int = Field(default=6, ge=0, le=30)
+    episodes_k: int = Field(default=3, ge=0, le=10)
+
+
 def _check_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
     if value and not re.match(r"^https?://[^\s/]+", value):
@@ -80,6 +99,9 @@ class AppSettings(BaseModel):
     agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
+    context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
 
     @field_validator("custom_base_url")
     @classmethod

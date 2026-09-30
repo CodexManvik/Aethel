@@ -2,6 +2,7 @@ import Markdown, { type Components } from "react-markdown";
 import type { UiMessage } from "../../stores/session";
 import { useUi } from "../../stores/ui";
 import { InkText } from "./InkText";
+import { RecallFooter } from "./RecallFooter";
 
 // Each renderer drops react-markdown's `node` prop so it never reaches the DOM.
 const components: Components = {
@@ -31,6 +32,7 @@ export function PersonaMessage({ message }: { message: UiMessage }) {
         message.content && <Markdown components={components}>{message.content}</Markdown>
       )}
       {message.status === "stopped" && <p className="mt-1 font-sans text-[12px] text-faint">stopped</p>}
+      {message.recalled && message.status !== "streaming" && <RecallFooter recalled={message.recalled} />}
       {message.status === "error" && (
         <div className="mt-1 flex flex-wrap items-center gap-3 font-sans">
           <p role="alert" className="text-[13px] text-accent">

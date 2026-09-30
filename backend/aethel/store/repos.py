@@ -102,6 +102,10 @@ class MessageRepo:
         ConversationRepo(self.db).touch(conversation_id)
         return _message(self.db.query_one("SELECT * FROM messages WHERE id = ?", (msg_id,)))
 
+    def get(self, msg_id: str) -> Message | None:
+        row = self.db.query_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+        return _message(row) if row else None
+
     def update(
         self,
         msg_id: str,

@@ -1,0 +1,120 @@
+{"id": "f000", "text": "I'm Manvik, by the way", "previous_reply": null, "label": "fact"}
+{"id": "f001", "text": "how was your day?", "previous_reply": null, "label": "no_fact"}
+{"id": "f002", "text": "what's the capital of Australia?", "previous_reply": null, "label": "no_fact"}
+{"id": "f003", "text": "I live in Leeds now", "previous_reply": null, "label": "fact"}
+{"id": "f004", "text": "I work as a backend developer at a small startup", "previous_reply": null, "label": "fact"}
+{"id": "f005", "text": "open notepad", "previous_reply": null, "label": "no_fact"}
+{"id": "f006", "text": "that film was so overrated", "previous_reply": null, "label": "no_fact"}
+{"id": "f007", "text": "I'm in my final year studying computer science", "previous_reply": null, "label": "fact"}
+{"id": "f008", "text": "my sister Anna is visiting next month", "previous_reply": null, "label": "fact"}
+{"id": "f009", "text": "if I lived in Paris I'd eat croissants every day", "previous_reply": null, "label": "no_fact"}
+{"id": "f010", "text": "thanks, that's helpful", "previous_reply": null, "label": "no_fact"}
+{"id": "f011", "text": "I have a dog called Pip", "previous_reply": null, "label": "fact"}
+{"id": "f012", "text": "I'm vegetarian, so no meat recipes please", "previous_reply": null, "label": "fact"}
+{"id": "f013", "text": "can you write me a poem about autumn?", "previous_reply": null, "label": "no_fact"}
+{"id": "f014", "text": "lol", "previous_reply": null, "label": "no_fact"}
+{"id": "f015", "text": "I hate coriander, it tastes like soap to me", "previous_reply": null, "label": "fact"}
+{"id": "f016", "text": "my birthday is on the 14th of March", "previous_reply": null, "label": "fact"}
+{"id": "f017", "text": "what time is it in Tokyo?", "previous_reply": null, "label": "no_fact"}
+{"id": "f018", "text": "apparently Elon Musk bought another company", "previous_reply": null, "label": "no_fact"}
+{"id": "f019", "text": "actually I moved to York last week", "previous_reply": null, "label": "fact"}
+{"id": "f020", "text": "I'm allergic to peanuts", "previous_reply": null, "label": "fact"}
+{"id": "f021", "text": "tell me a joke", "previous_reply": null, "label": "no_fact"}
+{"id": "f022", "text": "ok", "previous_reply": null, "label": "no_fact"}
+{"id": "f023", "text": "my favourite band is Radiohead", "previous_reply": null, "label": "fact"}
+{"id": "f024", "text": "I usually go running in the mornings before work", "previous_reply": null, "label": "fact"}
+{"id": "f025", "text": "what do you think about AI art?", "previous_reply": null, "label": "no_fact"}
+{"id": "f026", "text": "create a folder called Projects on my desktop", "previous_reply": null, "label": "no_fact"}
+{"id": "f027", "text": "call me Manny, everyone does", "previous_reply": null, "label": "fact"}
+{"id": "f028", "text": "I'm learning Japanese at the moment", "previous_reply": null, "label": "fact"}
+{"id": "f029", "text": "how do I reverse a list in Python?", "previous_reply": null, "label": "no_fact"}
+{"id": "f030", "text": "the weather is awful today", "previous_reply": null, "label": "no_fact"}
+{"id": "f031", "text": "my mum's name is Priya", "previous_reply": null, "label": "fact"}
+{"id": "f032", "text": "I've got an exam on Friday that I'm stressed about", "previous_reply": null, "label": "fact"}
+{"id": "f033", "text": "can you summarise this article for me?", "previous_reply": null, "label": "no_fact"}
+{"id": "f034", "text": "good morning!", "previous_reply": null, "label": "no_fact"}
+{"id": "f035", "text": "I prefer short answers, no long essays", "previous_reply": null, "label": "fact"}
+{"id": "f036", "text": "I drive a 2015 Honda Civic", "previous_reply": null, "label": "fact"}
+{"id": "f037", "text": "why is the sky blue?", "previous_reply": null, "label": "no_fact"}
+{"id": "f038", "text": "play some lofi on YouTube", "previous_reply": null, "label": "no_fact"}
+{"id": "f039", "text": "I'm left-handed", "previous_reply": null, "label": "fact"}
+{"id": "f040", "text": "my partner and I just got engaged!", "previous_reply": null, "label": "fact"}
+{"id": "f041", "text": "what's 17 times 23?", "previous_reply": null, "label": "no_fact"}
+{"id": "f042", "text": "imagine you were a pirate, what would you say?", "previous_reply": null, "label": "no_fact"}
+{"id": "f043", "text": "I support Leeds United", "previous_reply": null, "label": "fact"}
+{"id": "f044", "text": "I don't drink alcohol", "previous_reply": null, "label": "fact"}
+{"id": "f045", "text": "that's hilarious", "previous_reply": null, "label": "no_fact"}
+{"id": "f046", "text": "do you like music?", "previous_reply": null, "label": "no_fact"}
+{"id": "f047", "text": "I'm planning a trip to Lisbon in December", "previous_reply": null, "label": "fact"}
+{"id": "f048", "text": "I play the guitar, mostly acoustic", "previous_reply": null, "label": "fact"}
+{"id": "f049", "text": "what's the difference between a virus and bacteria?", "previous_reply": null, "label": "no_fact"}
+{"id": "f050", "text": "rewrite this email to sound more formal", "previous_reply": null, "label": "no_fact"}
+{"id": "f051", "text": "my laptop is a Dell XPS", "previous_reply": null, "label": "fact"}
+{"id": "f052", "text": "I'm a night owl, I rarely sleep before 2am", "previous_reply": null, "label": "fact"}
+{"id": "f053", "text": "never mind", "previous_reply": null, "label": "no_fact"}
+{"id": "f054", "text": "can you remind me how git rebase works?", "previous_reply": null, "label": "no_fact"}
+{"id": "f055", "text": "I have two younger brothers", "previous_reply": null, "label": "fact"}
+{"id": "f056", "text": "my dissertation is about a desktop AI agent", "previous_reply": null, "label": "fact"}
+{"id": "f057", "text": "hmm interesting", "previous_reply": null, "label": "no_fact"}
+{"id": "f058", "text": "who won the world cup in 2018?", "previous_reply": null, "label": "no_fact"}
+{"id": "f059", "text": "I quit my job at the bank last month", "previous_reply": null, "label": "fact"}
+{"id": "f060", "text": "I'm 22", "previous_reply": null, "label": "fact"}
+{"id": "f061", "text": "close all my Chrome windows", "previous_reply": null, "label": "no_fact"}
+{"id": "f062", "text": "suppose someone had a million pounds, what should they invest in?", "previous_reply": null, "label": "no_fact"}
+{"id": "f063", "text": "I can't stand horror films", "previous_reply": null, "label": "fact"}
+{"id": "f064", "text": "I grew up in Delhi", "previous_reply": null, "label": "fact"}
+{"id": "f065", "text": "the new iPhone looks the same as the old one", "previous_reply": null, "label": "no_fact"}
+{"id": "f066", "text": "what's a good name for a golden retriever?", "previous_reply": null, "label": "no_fact"}
+{"id": "f067", "text": "my cat Luna died last year", "previous_reply": null, "label": "fact"}
+{"id": "f068", "text": "I'm trying to lose weight, so I'm counting calories", "previous_reply": null, "label": "fact"}
+{"id": "f069", "text": "translate 'good night' into Spanish", "previous_reply": null, "label": "no_fact"}
+{"id": "f070", "text": "are you conscious?", "previous_reply": null, "label": "no_fact"}
+{"id": "f071", "text": "I use Windows 11 on all my machines", "previous_reply": null, "label": "fact"}
+{"id": "f072", "text": "no, it's not Anna, my sister is called Aisha", "previous_reply": "Say hi to Anna for me when she visits!", "label": "fact"}
+{"id": "f073", "text": "let's talk about something else", "previous_reply": null, "label": "no_fact"}
+{"id": "f074", "text": "goodnight Aethel", "previous_reply": null, "label": "no_fact"}
+{"id": "f075", "text": "I don't have a car anymore, I sold it", "previous_reply": null, "label": "fact"}
+{"id": "f076", "text": "my best friend is Rohan, we met at school", "previous_reply": null, "label": "fact"}
+{"id": "f077", "text": "what's the weather usually like in Lisbon in December?", "previous_reply": null, "label": "no_fact"}
+{"id": "f078", "text": "make the text bold in my Word document", "previous_reply": null, "label": "no_fact"}
+{"id": "f079", "text": "I've been feeling burnt out lately", "previous_reply": null, "label": "fact"}
+{"id": "f080", "text": "I speak Hindi and English", "previous_reply": null, "label": "fact"}
+{"id": "f081", "text": "brb", "previous_reply": null, "label": "no_fact"}
+{"id": "f082", "text": "I wonder how many stars there are", "previous_reply": null, "label": "no_fact"}
+{"id": "f083", "text": "I work from home on Mondays and Fridays", "previous_reply": null, "label": "fact"}
+{"id": "f084", "text": "my favourite food is dal makhani", "previous_reply": null, "label": "fact"}
+{"id": "f085", "text": "that restaurant review was harsh", "previous_reply": null, "label": "no_fact"}
+{"id": "f086", "text": "can you explain quantum entanglement simply?", "previous_reply": null, "label": "no_fact"}
+{"id": "f087", "text": "I'm colour-blind, red and green look the same to me", "previous_reply": null, "label": "fact"}
+{"id": "f088", "text": "I'd like you to be a bit more sarcastic with me", "previous_reply": null, "label": "fact"}
+{"id": "f089", "text": "write a haiku in notepad and save it", "previous_reply": null, "label": "no_fact"}
+{"id": "f090", "text": "what should I cook tonight?", "previous_reply": null, "label": "no_fact"}
+{"id": "f091", "text": "I have a meeting with my supervisor every Tuesday at 3", "previous_reply": null, "label": "fact"}
+{"id": "f092", "text": "I prefer tea over coffee", "previous_reply": null, "label": "fact"}
+{"id": "f093", "text": "you're funny", "previous_reply": null, "label": "no_fact"}
+{"id": "f094", "text": "how many calories are in a banana?", "previous_reply": null, "label": "no_fact"}
+{"id": "f095", "text": "I started a new job as a data analyst today", "previous_reply": null, "label": "fact"}
+{"id": "f096", "text": "I'm moving flats on the 1st of November", "previous_reply": null, "label": "fact"}
+{"id": "f097", "text": "search for flights to Rome", "previous_reply": null, "label": "no_fact"}
+{"id": "f098", "text": "this code has a bug somewhere, can you look?", "previous_reply": null, "label": "no_fact"}
+{"id": "f099", "text": "I'm scared of flying", "previous_reply": null, "label": "fact"}
+{"id": "f100", "text": "my girlfriend's name is Sara", "previous_reply": null, "label": "fact"}
+{"id": "f101", "text": "what did you mean by that?", "previous_reply": null, "label": "no_fact"}
+{"id": "f102", "text": "my code won't compile: undefined reference to main", "previous_reply": null, "label": "no_fact"}
+{"id": "f103", "text": "I wear glasses", "previous_reply": null, "label": "fact"}
+{"id": "f104", "text": "I've been playing chess online a lot, I'm rated about 1400", "previous_reply": null, "label": "fact"}
+{"id": "f105", "text": "hypothetically, would you rather fly or be invisible?", "previous_reply": null, "label": "no_fact"}
+{"id": "f106", "text": "sorry, typo", "previous_reply": null, "label": "no_fact"}
+{"id": "f107", "text": "I go to the gym three times a week", "previous_reply": null, "label": "fact"}
+{"id": "f108", "text": "my phone is a Pixel 8", "previous_reply": null, "label": "fact"}
+{"id": "f109", "text": "the news today is so depressing", "previous_reply": null, "label": "no_fact"}
+{"id": "f110", "text": "is it going to rain tomorrow?", "previous_reply": null, "label": "no_fact"}
+{"id": "f111", "text": "I'm doing a part-time MSc alongside work", "previous_reply": null, "label": "fact"}
+{"id": "f112", "text": "I can't eat gluten", "previous_reply": null, "label": "fact"}
+{"id": "f113", "text": "rename report.docx to final_report.docx", "previous_reply": null, "label": "no_fact"}
+{"id": "f114", "text": "what are you up to?", "previous_reply": null, "label": "no_fact"}
+{"id": "f115", "text": "Pip", "previous_reply": "What's your dog called?", "label": "fact"}
+{"id": "f116", "text": "Manchester, since the summer", "previous_reply": "Where are you based these days?", "label": "fact"}
+{"id": "f117", "text": "no thanks", "previous_reply": "Want me to open Spotify?", "label": "no_fact"}
+{"id": "f118", "text": "yes please", "previous_reply": "Shall I save it to your Desktop?", "label": "no_fact"}
+{"id": "f119", "text": "nursing, I'm on nights this month", "previous_reply": "What do you do for work?", "label": "fact"}

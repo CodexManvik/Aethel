@@ -5,8 +5,12 @@ import re
 from contextlib import aclosing
 from typing import Callable
 
+import anyio
+
+from ..context.recipes import chat_context
 from ..hub import EventHub
-from ..protocol import ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched, Token, UserMessage
+from ..protocol import (ContextUsed, ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched,
+                        Token, UserMessage)
 from ..providers.base import ChatMessage, ProviderError, TextDelta
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..settings import SettingsService
@@ -25,13 +29,17 @@ def make_title(text: str) -> str:
 class ChatService:
     def __init__(self, *, conversations: ConversationRepo, messages: MessageRepo, router: RoleRouter,
                  settings: SettingsService, hub: EventHub,
-                 task_note: Callable[[str], str | None] | None = None):
+                 task_note: Callable[[str], str | None] | None = None,
+                 facts=None, episodic=None, extractor=None):
         self.conversations = conversations
         self.messages = messages
         self.router = router
         self.settings = settings
         self.hub = hub
         self.task_note = task_note
+        self.facts = facts          # FactStore: remembered facts recalled into the prompt
+        self.episodic = episodic    # EpisodicIndex: earlier exchanges recalled, and each finished one indexed
+        self.extractor = extractor  # FactExtractor: runs after each reply
         self._active: dict[str, asyncio.Task] = {}
         self._partials: dict[str, list[str]] = {}
         self._stop_requested: set[str] = set()
@@ -75,6 +83,8 @@ class ChatService:
                 task.cancel()
             if self._tasks:
                 await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        if self.extractor is not None:
+            await self.extractor.shutdown(timeout)
 
     async def _turn(self, event: UserMessage) -> None:
         """One reply at a time per conversation. The lock is taken BEFORE the user message is persisted, so the DB
@@ -113,7 +123,11 @@ class ChatService:
                 await publish(ProviderSwitched(role=sw.role, from_provider=sw.from_label, to_provider=sw.to_label,
                                                reason=sw.reason, message_id=assistant.id))
 
-            stream = self.router.stream("chat", self._context(conv.id, assistant.id), on_switch=on_switch)
+            prompt, recalled = await self._context(conv, assistant.id, event.text)
+            if recalled["facts"] or recalled["episodes"]:
+                self.messages.update(assistant.id, meta={"context": recalled})
+                await publish(ContextUsed(message_id=assistant.id, **recalled))
+            stream = self.router.stream("chat", prompt, on_switch=on_switch)
             async with aclosing(stream):
                 async for ev in stream:
                     if isinstance(ev, TextDelta):
@@ -140,15 +154,31 @@ class ChatService:
             self._partials.pop(assistant.id, None)
             self._stop_requested.discard(assistant.id)
             await publish(MessageEnd(message_id=assistant.id, status=status))
+        await self._after_turn(conv, user_msg, assistant.id, status)
 
-    def _context(self, conversation_id: str, exclude_id: str) -> list[ChatMessage]:
-        window = self.settings.get().history_window
+    async def _after_turn(self, conv, user_msg, assistant_id: str, status: str) -> None:
+        """Memory upkeep once the reply is saved: index the exchange, then look for facts to remember."""
+        if status == "complete" and self.episodic is not None and self.settings.get().memory.episodic_enabled:
+            final = self.messages.get(assistant_id)
+            try:
+                await anyio.to_thread.run_sync(self.episodic.add_exchange, user_msg, final)
+            except Exception:
+                log.exception("indexing the exchange failed")
+        if status in ("complete", "stopped") and self.extractor is not None:
+            self.extractor.schedule(conversation_id=conv.id, persona_id=conv.persona_id, user_message_id=user_msg.id)
+
+    async def _context(self, conv, exclude_id: str, query: str) -> tuple[list[ChatMessage], dict]:
+        settings = self.settings.get()
         history = [
-            m for m in self.messages.list(conversation_id, limit=window + 1)
+            m for m in self.messages.list(conv.id, limit=settings.history_window + 1)
             if m.id != exclude_id and m.status != "error" and m.content
         ]
         system = system_prompt()
-        note = self.task_note(conversation_id) if self.task_note else None
+        note = self.task_note(conv.id) if self.task_note else None
         if note:
             system += "\n\n" + note
-        return [ChatMessage("system", system)] + [ChatMessage(m.role, m.content) for m in history]
+        built, recalled = await chat_context(
+            system=system, window=[ChatMessage(m.role, m.content) for m in history], query=query,
+            persona_id=conv.persona_id, facts=self.facts, episodic=self.episodic, settings=settings,
+            exclude_messages={m.id for m in history})
+        return built.messages, recalled

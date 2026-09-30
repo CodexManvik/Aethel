@@ -19,7 +19,10 @@ from .safety.approvals import ApprovalBroker
 from .safety.changes import ChangeLog
 from .safety.permissions import Permissions
 from .settings import SettingsService
-from .memory.embed import embed
+from .memory import embed as embed_module
+from .memory.episodic import EpisodicIndex
+from .memory.extract import FactExtractor
+from .memory.facts import FactStore
 from .memory.rsm import KnowledgeStore
 from .store.db import Database
 from .system1.service import System1
@@ -59,12 +62,20 @@ class Services:
     mcp: McpHub
     system1: System1
     knowledge: KnowledgeStore
+    facts: FactStore
+    episodic: EpisodicIndex
+    extractor: FactExtractor
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
         if self.local_llm is not None:
             self.local_llm.stop()
         self.db.close()
+
+
+def _embed(texts: list[str]):
+    """The embedder, looked up at call time (so tests can swap in a fake)."""
+    return embed_module.embed(texts)
 
 
 def build_services(*, provider_factory: ProviderFactory | None = None, local_llm=AUTO,
@@ -89,18 +100,22 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         registry.register(tool)
     approvals = ApprovalBroker(hub)
     system1 = System1(db, settings)
-    knowledge = KnowledgeStore(aethel_home() / "knowledge", embed)
+    knowledge = KnowledgeStore(aethel_home() / "knowledge", _embed)
+    facts = FactStore(db, _embed)
+    episodic = EpisodicIndex(db, _embed, aethel_home() / "episodic" / "index.tvim")
+    extractor = FactExtractor(facts=facts, messages=messages, router=router, system1=system1, settings=settings,
+                              hub=hub)
     engine = TaskEngine(tasks=tasks, messages=messages, conversations=conversations, router=router,
                         registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
-                        system1=system1)
+                        system1=system1, facts=facts)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
-                       task_note=engine.note_for_chat)
+                       task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor)
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
-        knowledge=knowledge,
+        knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub) if mcp_servers is None else mcp_servers,
     )
 

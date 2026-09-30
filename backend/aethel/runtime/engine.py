@@ -7,16 +7,18 @@ import difflib
 import inspect
 import json
 import logging
-import re
 import time
 from collections import Counter
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import anyio
 from pydantic import ValidationError
 
 from ..chat.service import make_title
+from ..context.builder import budget_for, estimate
+from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
@@ -26,6 +28,7 @@ from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, 
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..safety.approvals import ApprovalBroker
 from ..safety.policy import decide
+from ..safety.untrusted import wrap_untrusted
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
@@ -43,7 +46,6 @@ MAX_TOOL_RESULT_CHARS = 12_000
 MAX_IDENTICAL_CALLS = 2
 MAX_CONSECUTIVE_LOOPS = 3
 MAX_CONSECUTIVE_DENIALS = 3
-_CLOSE_UNTRUSTED_RE = re.compile(r"</untrusted", re.IGNORECASE)
 CUT_OFF_MESSAGE = ("Error: your tool call was cut off because it was too long. "
                    "Write the content in smaller parts (use mode 'append').")
 
@@ -147,13 +149,7 @@ def _first_line(text: str) -> str:
     return (text.strip().splitlines() or [""])[0][:200]
 
 
-def _wrap_untrusted(source: str, content: str) -> str:
-    """Wrap content the model must treat as data, not instructions. Any
-    closing tag inside the content is neutralised so it can't escape early,
-    and the source name is quote-escaped defensively."""
-    safe_source = source.replace('"', "&quot;")
-    safe_content = _CLOSE_UNTRUSTED_RE.sub("&lt;/untrusted", content)
-    return f'<untrusted source="{safe_source}">\n{safe_content}\n</untrusted>'
+_wrap_untrusted = wrap_untrusted
 
 
 def _similar(a: str, b: str) -> float:
@@ -169,9 +165,11 @@ class TaskEngine:
     def __init__(self, *, tasks: TaskRepo, messages: MessageRepo, conversations: ConversationRepo,
                  router: RoleRouter, registry: ToolRegistry, approvals: ApprovalBroker, hub: EventHub,
                  max_steps: int = 40, max_seconds: float = 15 * 60, max_identical_calls: int = MAX_IDENTICAL_CALLS,
-                 clock=time.monotonic, settings: SettingsService | None = None, knowledge=None, system1=None):
+                 clock=time.monotonic, settings: SettingsService | None = None, knowledge=None, system1=None,
+                 facts=None):
         self.tasks = tasks
         self.knowledge = knowledge  # memory.rsm.KnowledgeStore; None: nothing learned is used
+        self.facts = facts          # memory.facts.FactStore; None: the planner isn't told what's remembered
         self.system1 = system1
         self.settings = settings  # None: the agent role uses the shared max_tokens
         self.messages = messages
@@ -319,7 +317,8 @@ class TaskEngine:
                 hints = await self._recall(record.goal)
                 if hints.skill_ids:
                     self.tasks.set_knowledge(task_id, hints.skill_ids, hints.chosen)
-                learned = _learned_block(hints.text) if hints.text else None
+                hint_text = await self._with_facts(task_id, record.goal, hints.text)
+                learned = _learned_block(hint_text) if hint_text else None
                 replay = self._macro_for(hints.chosen, record.goal)
                 if replay is not None:  # the learned steps are the plan: no planning call at all
                     steps, checks = [describe(s, replay[1]) for s in replay[0]["macro_def"]["steps"]], []
@@ -469,6 +468,24 @@ class TaskEngine:
         except Exception:
             log.exception("recalling skills failed; planning without them")
             return Recall()
+
+    async def _with_facts(self, task_id: str, goal: str, hints: str | None) -> str | None:
+        """Learned hints plus what's remembered about the user (Phase 3 spec §4.1), within a quarter of the
+        agent's budget; facts go first when it's tight, since the skills are what the plan is built from."""
+        if self.facts is None or self.settings is None:
+            return hints
+        s = self.settings.get()
+        try:
+            hits = await anyio.to_thread.run_sync(lambda: self.facts.search(goal, ["user"], s.memory.facts_k))
+        except Exception:
+            log.exception("recalling facts for a task failed; planning without them")
+            return hints
+        facts = facts_section(hits, "aethel")
+        combined = "\n\n".join(t for t in (hints, facts.text) if t)
+        if not facts.text or estimate(combined) > budget_for(s, "agent", s.agent_max_tokens) // 4:
+            return hints
+        self.tasks.set_context(task_id, {"facts": [{"id": f.id, "text": f.text} for f, _ in hits]})
+        return combined
 
     async def _plan(self, task_id: str, goal: str, learned: str | None = None) -> tuple[list[str], list[Check]]:
         tools = "\n".join(f"- {s.name}: {s.description}" for s in self.registry.specs())

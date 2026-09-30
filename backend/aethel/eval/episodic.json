@@ -1,0 +1,101 @@
+{
+  "about": "Hand-written episodic recall set (Phase 3 spec §8). Each query names the exchanges ('conversation:index') that would be a right thing to recall, or [] when nothing in the history is relevant.",
+  "conversations": [
+    {"id": "anna", "exchanges": [
+      ["my sister Anna is coming to stay with me in May", "Lovely! How long is she staying?"],
+      ["about ten days, she's flying in from Toronto", "That's a long trip. Is it her first time visiting you in Leeds?"],
+      ["yeah, I want to take her to the Yorkshire Dales", "The Dales are beautiful in May. Malham Cove is an easy walk with great views."],
+      ["she's vegetarian too so we'll need places to eat", "Leeds has plenty: Tharavadu does great veggie Keralan food."],
+      ["I need to clear out the spare room before she arrives", "Maybe make a list this weekend so it isn't a rush in April."]
+    ]},
+    {"id": "pip", "exchanges": [
+      ["Pip has been limping on his back leg since yesterday", "Poor Pip. Is he putting any weight on it?"],
+      ["a bit, but he yelps when I touch his paw", "It could be a thorn or a sprain. A vet visit is worth it if it's not better by tomorrow."],
+      ["the vet said it's a small cut on his pad", "Good that it's minor. Did they give you anything to put on it?"],
+      ["antiseptic spray and I have to keep him off long walks for a week", "A week of short walks then. Pip will be annoyed but he'll heal."],
+      ["he's back to normal now, chasing squirrels again", "Great news, sounds like Pip made a full recovery."]
+    ]},
+    {"id": "dissertation", "exchanges": [
+      ["my dissertation draft is due on the 15th of April", "How far along are you with it?"],
+      ["I've written the literature review but not the evaluation chapter", "The evaluation is usually the hardest part. What experiments are you running?"],
+      ["learning curves for the agent and a grounding accuracy test", "Those are solid. Plot success rate against repeat number for the learning curve."],
+      ["my supervisor wants the results by the end of March", "Then aim to have the experiments running by mid-March to leave time for writing."],
+      ["I'm worried the grounding accuracy will be low", "Low numbers reported honestly still make a good dissertation, as long as you explain why."]
+    ]},
+    {"id": "lisbon", "exchanges": [
+      ["I'm thinking of going to Lisbon in December", "Nice choice. It's mild there in winter, around 15 degrees."],
+      ["what area should I stay in?", "Alfama is charming and central, Baixa is flatter and easier with luggage."],
+      ["I booked a flat in Alfama for five nights", "Great. Take tram 28 up the hill, and try pastel de nata at Manteigaria."],
+      ["can I do a day trip to Sintra from there?", "Yes, the train from Rossio takes about 40 minutes. Go early to beat the crowds at Pena Palace."]
+    ]},
+    {"id": "dal", "exchanges": [
+      ["how do I make dal makhani like my mum does?", "Soak black urad dal and rajma overnight, then simmer slowly for hours with butter and cream."],
+      ["how long should I soak the lentils?", "At least 8 hours, overnight is best."],
+      ["it came out too thick", "Add hot water a little at a time and simmer for a few more minutes."],
+      ["my mum says the secret is smoking it with charcoal", "The dhungar method! Put a hot coal in a small bowl on the dal, add ghee, and cover for two minutes."]
+    ]},
+    {"id": "laptop", "exchanges": [
+      ["my laptop fan is really loud all of a sudden", "Is it loud all the time, or only when you're running something heavy?"],
+      ["all the time, even when it's idle", "Check Task Manager for a process using a lot of CPU in the background."],
+      ["it was Windows Search indexing, using 40 percent", "Indexing usually calms down once it finishes. You can pause it in Settings if needed."],
+      ["it's still loud after a day", "Then it may be dust. Cleaning the vents with compressed air often fixes it."],
+      ["I cleaned the vents and now it's quiet", "Nice, dust was the culprit then."]
+    ]},
+    {"id": "running", "exchanges": [
+      ["I signed up for the Leeds half marathon in October", "Exciting! How much running do you do at the moment?"],
+      ["about 15 km a week", "A 12 week plan building to around 35 km a week would get you there comfortably."],
+      ["my knee hurts after long runs", "Try reducing the long run for a week and check your shoes; knee pain often comes from worn trainers."],
+      ["I got new trainers and the pain is gone", "Great. Keep the long runs easy and build slowly."],
+      ["I did 18 km on Sunday!", "Brilliant, that's nearly race distance. You're on track for October."]
+    ]},
+    {"id": "interview", "exchanges": [
+      ["I've got an interview for a data analyst job on Thursday", "Good luck! What company is it with?"],
+      ["a health tech startup called Medly", "Health tech data is interesting. Expect SQL questions and maybe a case study."],
+      ["they sent me a take-home task about patient wait times", "Focus on a clear story: what drives the waits, and one or two concrete recommendations."],
+      ["the interview went well, they asked a lot about SQL window functions", "Sounds like it went well. Window functions are a common favourite."],
+      ["I got the job!", "Congratulations! When do you start at Medly?"]
+    ]}
+  ],
+  "queries": [
+    {"query": "when is Anna coming to visit?", "expect": ["anna:0", "anna:1"]},
+    {"query": "where did you suggest I take my sister walking?", "expect": ["anna:2"]},
+    {"query": "which restaurant did you recommend for vegetarians in Leeds?", "expect": ["anna:3"]},
+    {"query": "what was I supposed to clear out before my sister arrived?", "expect": ["anna:4"]},
+    {"query": "what happened to Pip's paw?", "expect": ["pip:2", "pip:0", "pip:1"]},
+    {"query": "how long did the vet say to keep the dog off long walks?", "expect": ["pip:3"]},
+    {"query": "is my dog better now?", "expect": ["pip:4"]},
+    {"query": "when is my dissertation due?", "expect": ["dissertation:0"]},
+    {"query": "what experiments am I running for my dissertation?", "expect": ["dissertation:2", "dissertation:1"]},
+    {"query": "when does my supervisor want the results?", "expect": ["dissertation:3"]},
+    {"query": "what did you say about reporting low accuracy?", "expect": ["dissertation:4"]},
+    {"query": "what's the weather like in Lisbon in winter?", "expect": ["lisbon:0"]},
+    {"query": "which neighbourhood did I book in Lisbon?", "expect": ["lisbon:2", "lisbon:1"]},
+    {"query": "how do I get to Sintra?", "expect": ["lisbon:3"]},
+    {"query": "where should I get pastel de nata?", "expect": ["lisbon:2"]},
+    {"query": "how long do I soak the lentils for dal?", "expect": ["dal:1", "dal:0"]},
+    {"query": "my dal is too thick again", "expect": ["dal:2"]},
+    {"query": "what was my mum's secret for dal makhani?", "expect": ["dal:3"]},
+    {"query": "why was my laptop fan so loud?", "expect": ["laptop:0", "laptop:2", "laptop:3", "laptop:4"]},
+    {"query": "what process was using the CPU?", "expect": ["laptop:2"]},
+    {"query": "how did I fix the noisy laptop in the end?", "expect": ["laptop:4", "laptop:3"]},
+    {"query": "which race did I sign up for?", "expect": ["running:0"]},
+    {"query": "what did you say about my knee pain?", "expect": ["running:2", "running:3"]},
+    {"query": "what's my longest run so far?", "expect": ["running:4"]},
+    {"query": "which company did I interview with?", "expect": ["interview:1", "interview:0", "interview:4"]},
+    {"query": "what was the take-home task about?", "expect": ["interview:2"]},
+    {"query": "what did they ask me in the interview?", "expect": ["interview:3"]},
+    {"query": "did I get the data analyst job?", "expect": ["interview:4"]},
+    {"query": "what did I tell you about my car insurance?", "expect": []},
+    {"query": "remember my piano lessons?", "expect": []},
+    {"query": "what's the name of my landlord?", "expect": []},
+    {"query": "how did my driving test go?", "expect": []},
+    {"query": "what did we say about the Paris trip?", "expect": []},
+    {"query": "what's my brother's phone number?", "expect": []},
+    {"query": "did I tell you about the wedding in June?", "expect": []},
+    {"query": "which gym did I join?", "expect": []},
+    {"query": "what was that recipe for lasagne?", "expect": []},
+    {"query": "how is my grandmother doing?", "expect": []},
+    {"query": "what did I say about my new bike?", "expect": []},
+    {"query": "when is my dentist appointment?", "expect": []}
+  ]
+}
