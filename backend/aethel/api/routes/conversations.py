@@ -41,6 +41,7 @@ def rename_conversation(conv_id: str, body: RenameIn, svc: Services = Depends(ge
 
 @router.delete("/{conv_id}", status_code=204)
 def delete_conversation(conv_id: str, svc: Services = Depends(get_services)) -> Response:
+    svc.episodic.remove_conversation(conv_id)  # its earlier exchanges must never be recalled again
     if not svc.conversations.delete(conv_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)

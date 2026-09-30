@@ -11,7 +11,7 @@ from ..settings import AppSettings
 
 NEVER_DROP = 1_000_000
 SAFETY = 0.9          # token estimates are rough: keep 10% spare
-MIN_BUDGET = 1024
+MIN_BUDGET = 256      # only a misconfigured role (reply longer than the context) falls back to this
 DEFAULT_CONTEXT = 8192
 
 

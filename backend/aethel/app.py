@@ -1,6 +1,9 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +14,16 @@ from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
 __all__ = ["ALLOWED_ORIGINS", "create_app"]
+log = logging.getLogger("aethel")
+
+
+async def _episodic_catch_up(svc: Services) -> None:
+    try:
+        added = await anyio.to_thread.run_sync(svc.episodic.catch_up)
+        if added:
+            log.info("episodic memory: indexed %d earlier exchanges", added)
+    except Exception:
+        log.exception("episodic catch-up failed")
 
 
 def create_app(services: Services | None = None) -> FastAPI:
@@ -23,10 +36,14 @@ def create_app(services: Services | None = None) -> FastAPI:
         svc.mcp.start(svc.mcp_servers)
         if os.environ.get("AETHEL_SYSTEM1") != "0":
             svc.system1.start()  # downloads (~1.7 GB, first run only) and loads in the background
+        # Index the chat exchanges the episodic memory hasn't seen yet (first run, or missed while closed).
+        catch_up = asyncio.create_task(_episodic_catch_up(svc))
         try:
             yield
         finally:
             try:
+                # A catch-up still embedding in its thread can't be cancelled: give it a moment, then move on.
+                await asyncio.wait([catch_up], timeout=5)
                 await svc.engine.shutdown()
                 await svc.chat.shutdown()
                 await svc.mcp.stop()

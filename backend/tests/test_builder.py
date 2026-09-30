@@ -58,4 +58,4 @@ def test_budget_uses_smallest_in_chain_and_cap():
     assert budget_for(s2, "chat", 1024) == int(8192 * 0.9) - 1024
     s3 = AppSettings.model_validate({"roles": {"chat": [{"provider": "groq", "model": "g", "context_size": 131072}]}})
     assert budget_for(s3, "chat", 1024) == int(16000 * 0.9) - 1024
-    assert budget_for(s3, "nope", 100_000) == 1024  # never below the floor
+    assert budget_for(s3, "nope", 100_000) == 256  # never below the floor
