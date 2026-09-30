@@ -98,7 +98,7 @@ It helps on four fronts:
 
 - It drives the **running app** (the user's desktop, the user's key) through the API and WebSocket.
   - It runs a fixed set of 6 short desktop tasks (Notepad haiku, Calculator sum to a file, Explorer new folder, Edge open a URL, Notepad open and edit a file, Settings open Display), with masking **off** and then **on**.
-  - It repeats each twice, and never runs with learned macros (skills are disabled for the run via a setting override), so both arms do the full LLM loop.
+  - It repeats each twice, and never runs with learned macros, so both arms do the full LLM loop. The new setting `AppSettings.use_learned_skills: bool = True` (off = no skill recall, no macro replay, no reflection) is switched off for the run and restored afterwards. E1's "LLM only" condition needs the same switch.
 - It reports, per arm:
   - success (verification passed)
   - LLM calls and prompt/completion tokens from `llm_calls`
