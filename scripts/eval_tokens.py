@@ -8,10 +8,12 @@ the strict version of the question. Learned skills are off for the run, so both 
 Success is the task finishing AND an independent check of its result where one exists (the file is there,
 it says 7006652, …), not just the model saying it's done.
 
-Safety: close the Aethel app first (it checks). Approvals are answered "allow once" only when they aren't
-irreversible; anything irreversible is denied and printed. Your settings are restored at the end, and on
+Safety: close the Aethel app first (it checks), and don't use the PC while it runs. Approvals are answered
+"allow once" only for the windows that task is about (Notepad for the haiku, …) and files under the eval
+folder; anything else, and anything irreversible, is denied and printed. Your settings are restored at the end, and on
 the next start if a run was killed. It spends your tokens: about 24 tasks' worth.
-Writes ~/.aethel/eval/tokens.json. Usage: py -3.11 scripts/eval_tokens.py [--reps 2]"""
+Writes ~/.aethel/eval/tokens.json. Usage: py -3.11 scripts/eval_tokens.py [--reps 2]
+On your own model: --base-url http://127.0.0.1:8080/v1 --model model.gguf --context 128000 --timeout 900"""
 import argparse
 import asyncio
 import json
@@ -34,6 +36,25 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+# The windows each task may act in. A desktop approval for any other window (say the user clicked into
+# WhatsApp mid-run and it took focus) is denied: the script must never type or press keys elsewhere.
+WINDOWS = {"haiku": ("notepad", "save as"), "calc": ("calculator", "notepad", "save as"),
+           "folder": ("explorer", "eval-tokens"), "url": ("edge", "example"),
+           "edit": ("notepad", "notes"), "display": ("settings",)}
+
+
+def decide(task: str, tool: str, summary: str, tier: str) -> str:
+    """Answer an approval the way the user would for this test task: 'allow_once' or 'deny'."""
+    if tier == "irreversible":
+        return "deny"
+    if tool.startswith("fs_"):
+        return "allow_once" if str(WORK).lower() in summary.lower() else "deny"
+    if tool.startswith("win_"):
+        where = summary.rsplit(" in ", 1)[-1].lower() if " in " in summary else ""
+        return "allow_once" if any(w in where for w in WINDOWS.get(task, ())) else "deny"
+    return "deny"
 
 
 def tasks() -> list[tuple[str, str, object]]:
@@ -98,7 +119,7 @@ async def run_one(svc, name: str, goal: str, check) -> dict:
     task_id = await svc.engine.start(conversation_id=conv.id, goal=goal)
     while time.monotonic() - t0 < TASK_TIMEOUT_S:
         for a in svc.approvals.pending_for(task_id):
-            decision = "deny" if a.tier == "irreversible" else "allow_once"
+            decision = decide(name, a.tool, a.summary, a.tier)
             print(f"      {decision}: {a.tool} {a.summary}")
             await svc.approvals.resolve(a.approval_id, decision)
         if svc.tasks.get(task_id).state in TERMINAL_STATES:
@@ -115,7 +136,7 @@ async def run_one(svc, name: str, goal: str, check) -> dict:
             "usage": svc.usage.task_totals(task_id)}
 
 
-async def main(reps: int) -> None:
+async def main(args) -> None:
     from aethel.paths import aethel_home
     from aethel.services import build_services
 
@@ -129,9 +150,18 @@ async def main(reps: int) -> None:
         marker.unlink()
         print("Restored your settings from an interrupted run.")
     s = svc.settings.get()
-    saved = {"use_learned_skills": s.use_learned_skills, "token_saving": s.token_saving.model_dump()}
+    saved = {"use_learned_skills": s.use_learned_skills, "token_saving": s.token_saving.model_dump(),
+             "custom_base_url": s.custom_base_url, "roles": {k: [e.model_dump() for e in v] for k, v in s.roles.items()}}
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(saved), encoding="utf-8")
+    if args.base_url:  # every role on one endpoint of your own, for this run only
+        entry = {"provider": "custom", "model": args.model, "context_size": args.context}
+        svc.settings.update({"custom_base_url": args.base_url.rstrip("/"),
+                             "roles": {role: [entry] for role in ("chat", "agent", "utility", "vision")}})
+        print(f"All roles on {args.base_url} ({args.model}, {args.context} tokens of context) for this run.")
+    global TASK_TIMEOUT_S
+    TASK_TIMEOUT_S = args.timeout
+    reps = args.reps
     svc.mcp.start(svc.mcp_servers)
     result = {"reps": reps, "arms": {arm: {"runs": []} for arm in ARMS}}
     try:
@@ -164,4 +194,8 @@ async def main(reps: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--reps", type=int, default=2)
-    asyncio.run(main(parser.parse_args().reps))
+    parser.add_argument("--timeout", type=int, default=300, help="seconds per task (raise for a slow local model)")
+    parser.add_argument("--base-url", help="run every role on this OpenAI-compatible endpoint (e.g. llama-server)")
+    parser.add_argument("--model", default="model.gguf")
+    parser.add_argument("--context", type=int, default=131072, help="that model's context size in tokens")
+    asyncio.run(main(parser.parse_args()))

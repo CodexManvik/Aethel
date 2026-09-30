@@ -110,3 +110,16 @@ def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
     (tmp_path / "notes.txt").write_text("shopping\n- eggs\nbuy milk\n", encoding="utf-8")
     assert checks["edit"](tmp_path) is True
     assert checks["folder"](tmp_path) is False and checks["url"] is None
+
+
+def test_token_eval_only_approves_the_task_own_windows():
+    tok = _load("eval_tokens")
+    work = str(tok.WORK)
+    assert tok.decide("haiku", "win_type", "Type “Rain softly falls…” in notepad", "write") == "allow_once"
+    assert tok.decide("haiku", "win_type", "Type “Pitter patter…” in whatsapp.root", "write") == "deny"
+    assert tok.decide("haiku", "win_shortcut", "Press enter in whatsapp.root", "write") == "deny"
+    assert tok.decide("haiku", "win_shortcut", "Press ctrl+s", "write") == "deny"   # no window named: no
+    assert tok.decide("haiku", "fs_write", f"{work}\haiku.txt", "write") == "allow_once"
+    assert tok.decide("haiku", "fs_write", "C:\Users\x\Desktop\a.txt", "write") == "deny"
+    assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
+    assert tok.decide("display", "shell", "run something", "write") == "deny"
