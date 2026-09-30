@@ -121,6 +121,9 @@ class AppSettings(BaseModel):
         return _check_base_url(value)
     replay_thumbnails: bool = True  # a small screenshot after each on-screen step, kept only on this PC
     auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
+    # Off: tasks run without learned skills or macros and nothing new is learned (E1's "LLM only" condition,
+    # and scripts/eval_tokens.py, which compares full LLM runs).
+    use_learned_skills: bool = True
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

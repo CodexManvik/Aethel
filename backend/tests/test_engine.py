@@ -1041,3 +1041,20 @@ async def test_masking_can_be_switched_off(h):
     await engine.start(conversation_id=conv.id, goal="x")
     await engine.wait_idle()
     assert not any(m.content.startswith("[earlier") for m in provider.calls[-1] if m.role == "tool")
+
+
+async def test_learned_skills_switched_off_means_no_recall_no_replay_no_reflection(h, tmp_path):
+    from aethel.memory.rsm import KnowledgeStore
+    from tests.test_rsm import HAIKU, fake_embed
+
+    store = KnowledgeStore(tmp_path / "k", fake_embed)
+    store.upsert_skill(HAIKU, "approved")
+    h.settings.update({"use_learned_skills": False})
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]], settings=h.settings)
+    engine.knowledge = store
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="write a haiku in notepad")
+    await engine.wait_idle()
+    assert "untrusted" not in provider.calls[0][1].content   # no skill hints
+    assert len(provider.calls) == 2                            # plan + execute: no reflection call
+    assert h.tasks.get(task_id).knowledge == []

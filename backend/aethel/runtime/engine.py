@@ -470,7 +470,12 @@ class TaskEngine:
                 f"Then this step couldn't be done: {step} ({reason}). The screen may look different from last time. "
                 "Take a fresh look (win_snapshot) and finish the goal from here; the plan above is a guide.")
 
+    def _learning_on(self) -> bool:
+        return self.settings is None or self.settings.get().use_learned_skills
+
     async def _recall(self, goal: str) -> Recall:
+        if not self._learning_on():
+            return Recall()  # no skills, so no macro either
         s1 = self.settings.get().system1 if self.settings is not None else None
         try:
             return await recall(self.knowledge, self.system1, goal, s1.skill_threshold if s1 else 0.3,
@@ -769,7 +774,7 @@ class TaskEngine:
     async def _learn(self, task_id: str) -> None:
         """Credit the skills used and reflect, after the user already has the result."""
         task = self.tasks.get(task_id)
-        if task is None:
+        if task is None or not self._learning_on():
             return
 
         async def complete(messages, tools):

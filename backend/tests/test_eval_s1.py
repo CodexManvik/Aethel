@@ -88,3 +88,12 @@ def test_extraction_fixtures_are_well_formed():
             assert e["op"] in ("add", "update", "delete")
             if e["op"] != "add":
                 assert e["id"].startswith("f") and int(e["id"][1:]) <= len(c["known"])
+
+
+def test_token_eval_summary():
+    tok = _load("eval_tokens")
+    runs = [{"state": "done", "seconds": 10, "usage": {"prompt": 1000, "completion": 100, "calls": 4, "estimated": False}},
+            {"state": "failed", "seconds": 20, "usage": {"prompt": 3000, "completion": 300, "calls": 8, "estimated": True}}]
+    s = tok.summarise(runs)
+    assert (s["success_rate"], s["mean_prompt_tokens"], s["mean_calls"], s["estimated"]) == (0.5, 2000, 6, True)
+    assert [name for name, _ in tok.tasks()] == ["haiku", "calc", "folder", "url", "edit", "display"]

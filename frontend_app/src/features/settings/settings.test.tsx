@@ -28,6 +28,8 @@ const settings: AppSettings = {
   context_caps: { chat: 16000, agent: 24000 },
   auto_approve_skills: true,
   replay_thumbnails: true,
+  use_learned_skills: true,
+  token_saving: { mask_superseded: true, mask_batch: 3 },
 };
 let rebuilds = 0;
 const providers: ProviderInfo[] = [
@@ -181,6 +183,12 @@ test("usage lists the last 7 days by purpose, biggest first, with a total", asyn
   const table = await screen.findByRole("table");
   const rows = within(table).getAllByRole("row").slice(1).map((r) => r.textContent);
   expect(rows).toEqual(["Doing tasks12.0k7003.0k6", "Replies≈3.4k20003", "Total15.4k9003.0k9"]);
+});
+
+test("the learned-skills switch patches settings", async () => {
+  renderSettings();
+  await userEvent.click(await screen.findByRole("switch", { name: "Use what Aethel has learned" }));
+  await waitFor(() => expect(patches).toContainEqual({ use_learned_skills: false }));
 });
 
 test("the Background role is listed with the other models", async () => {

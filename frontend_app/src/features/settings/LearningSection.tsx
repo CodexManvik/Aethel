@@ -20,6 +20,10 @@ export function LearningSection({ settings }: { settings: AppSettings }) {
         <Switch label="Replay pictures" checked={settings.replay_thumbnails}
           onCheckedChange={(v) => update.mutate({ replay_thumbnails: v })} />
       </Field>
+      <Field label="Use what Aethel has learned" hint="Off: every task is worked out from scratch and nothing new is learned. Useful for comparing.">
+        <Switch label="Use what Aethel has learned" checked={settings.use_learned_skills}
+          onCheckedChange={(v) => update.mutate({ use_learned_skills: v })} />
+      </Field>
       <Field label="Use new skills straight away" hint="Off: new skills wait in Memory until you approve them.">
         <Switch label="Use new skills straight away" checked={settings.auto_approve_skills}
           onCheckedChange={(v) => update.mutate({ auto_approve_skills: v })} />
