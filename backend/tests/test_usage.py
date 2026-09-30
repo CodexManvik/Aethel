@@ -118,3 +118,24 @@ def test_a_chat_turn_and_a_task_are_recorded():
            svc.db.query("SELECT * FROM llm_calls ORDER BY rowid")]
     assert got[0] == ("chat_reply", True, False)
     assert ("plan", False, True) in got and ("execute", False, True) in got
+
+
+def test_usage_endpoints():
+    from fastapi.testclient import TestClient
+
+    from aethel.app import create_app
+    from aethel.services import build_services
+
+    svc = build_services(provider_factory=factory_from({}), local_llm=FakeLocal(fail="x"))
+    client = TestClient(create_app(svc))
+    with client:
+        conv = svc.conversations.create()
+        task = svc.tasks.create(conv.id, "x")
+        svc.usage.record(role="agent", purpose="execute", provider="groq", model="m", ref={"task_id": task.id},
+                         usage=Usage(1000, 50, 200), breakdown={}, status="ok", latency_ms=1)
+        assert client.get(f"/api/tasks/{task.id}/usage").json() == \
+            {"prompt": 1000, "completion": 50, "cached": 200, "calls": 1, "estimated": False}
+        assert client.get("/api/tasks/task_nope/usage").status_code == 404
+        body = client.get("/api/usage", params={"days": 7}).json()
+        assert body["by_purpose"]["execute"]["prompt"] == 1000 and body["days"] == 7
+        assert client.get("/api/usage", params={"days": 0}).status_code == 422

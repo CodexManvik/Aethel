@@ -8,6 +8,7 @@ import { IconButton } from "../../ui/IconButton";
 import { cn } from "../../ui/cn";
 import { ApprovalCard } from "./ApprovalCard";
 import { PenCheck } from "./PenCheck";
+import { TaskUsage } from "./TaskUsage";
 import { controlTask, rollbackTask } from "./taskActions";
 import { inTauri } from "../../lib/backend";
 
@@ -123,6 +124,7 @@ export function TaskPanel() {
               </Button>
             )}
           </div>
+          <TaskUsage taskId={task.id} version={`${task.state}:${task.steps.length}`} />
           {!TERMINAL_STATES.includes(task.state) && inTauri() && (
             <p className="text-[11.5px] text-muted">Ctrl+Alt+Esc stops everything, from any app.</p>
           )}
