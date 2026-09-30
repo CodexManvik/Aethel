@@ -95,8 +95,12 @@ export const useEditFact = () =>
 export const useDeleteFact = () =>
   useFactMutation((id: string) => api<void>(`/api/memory/facts/${encodeURIComponent(id)}`, { method: "DELETE" }));
 
-export const useEpisodicStatus = (poll: boolean) =>
-  useQuery({ queryKey: ["memory", "episodic"], queryFn: () => api<EpisodicStatus>("/api/memory/episodic"), refetchInterval: poll ? 2000 : false });
+export const useEpisodicStatus = () =>
+  useQuery({
+    queryKey: ["memory", "episodic"],
+    queryFn: () => api<EpisodicStatus>("/api/memory/episodic"),
+    refetchInterval: (q) => (q.state.data?.rebuilding ? 2000 : false), // follow a rebuild's progress
+  });
 
 export function useRebuildEpisodic() {
   const qc = useQueryClient();

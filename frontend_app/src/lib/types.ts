@@ -22,6 +22,7 @@ export interface Message {
 export interface RouteEntry {
   provider: ProviderId;
   model: string;
+  context_size?: number;
 }
 
 export interface LocalLLMSettings {
@@ -42,8 +43,19 @@ export interface AppSettings {
   agent_max_tokens: number;
   history_window: number;
   system1: System1Settings;
+  memory: MemorySettings;
+  context_caps: Record<string, number>;
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;
+}
+
+export interface MemorySettings {
+  facts_enabled: boolean;
+  fact_threshold: number;
+  episodic_enabled: boolean;
+  episodic_min_score: number;
+  facts_k: number;
+  episodes_k: number;
 }
 
 export interface System1Settings {

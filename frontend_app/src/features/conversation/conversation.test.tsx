@@ -93,3 +93,43 @@ test("the header shows a private badge only in private mode", async () => {
   expect(screen.queryByText("private")).not.toBeInTheDocument();
   apiMock.mockReset();
 });
+
+test("the Noted line shows what was remembered, and Undo marks it undone", async () => {
+  const { UserMessage } = await import("./UserMessage");
+  const change = { fact_id: "f1", op: "add" as const, scope: "user", text: "Lives in Leeds", old_text: null, undone: false };
+  useSession.getState().setConversation("c1", [{ id: "u1", role: "user", content: "I live in Leeds", status: "complete", noted: [change] }]);
+  apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+    expect(path).toBe("/api/memory/facts/undo");
+    expect(JSON.parse(String(init!.body))).toEqual({ message_id: "u1", index: 0 });
+    return [{ ...change, undone: true }];
+  });
+  const { rerender } = render(<UserMessage message={useSession.getState().messages[0]} />);
+  expect(screen.getByText("Noted: Lives in Leeds")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Undo: Noted Lives in Leeds" }));
+  await waitFor(() => expect(useSession.getState().messages[0].noted?.[0].undone).toBe(true));
+  rerender(<UserMessage message={useSession.getState().messages[0]} />);
+  expect(screen.getByText("undone")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Undo/ })).not.toBeInTheDocument();
+  apiMock.mockReset();
+});
+
+test("a reply's recall footer counts and expands", async () => {
+  render(
+    <PersonaMessage message={{
+      id: "a", role: "assistant", content: "Pip!", status: "complete",
+      recalled: { facts: [{ id: "f1", text: "Has a dog called Pip" }],
+        episodes: [{ id: "3", conversation_id: "c0", text: "User: my dog is Pip\nAethel: lovely", created_at: "2026-09-28T10:00:00+00:00" }] },
+    }} />,
+  );
+  const toggle = screen.getByRole("button", { name: "Recalled 1 fact · 1 earlier moment" });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await userEvent.click(toggle);
+  const list = screen.getByRole("list", { name: "Recalled" });
+  expect(within(list).getByText("Has a dog called Pip")).toBeInTheDocument();
+  expect(within(list).getByRole("button", { name: /my dog is Pip/ })).toBeInTheDocument();
+});
+
+test("no recall footer while streaming or when nothing was recalled", () => {
+  render(<PersonaMessage message={{ id: "a", role: "assistant", content: "hi", status: "streaming", recalled: { facts: [{ id: "f", text: "x" }], episodes: [] } }} />);
+  expect(screen.queryByRole("button", { name: /Recalled/ })).not.toBeInTheDocument();
+});

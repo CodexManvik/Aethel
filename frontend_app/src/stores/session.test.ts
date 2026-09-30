@@ -119,3 +119,31 @@ test("task_created confirms the pending bubble and task_state appends the reply"
     error: null, message_id: "m2", message_text: "All done." });
   expect(s.messages.map((m) => [m.id, m.content])).toEqual([["u1", "hi"], ["m2", "All done."]]);
 });
+
+test("facts_changed notes the user message and context_used records what a reply recalled", () => {
+  let s = applyEvent(base(), {
+    type: "message_start", conversation_id: "c1", message_id: "a1", user_message_id: "u1", client_id: "k1", role: "assistant",
+  });
+  s = applyEvent(s, {
+    type: "context_used", message_id: "a1", facts: [{ id: "f1", text: "Has a dog called Pip" }], episodes: [],
+  });
+  s = applyEvent(s, {
+    type: "facts_changed", conversation_id: "c1", message_id: "u1",
+    changes: [{ fact_id: "f2", op: "add", scope: "user", text: "Lives in Leeds", old_text: null, undone: false }],
+  });
+  expect(s.messages[0].noted?.[0].text).toBe("Lives in Leeds");
+  expect(s.messages[1].recalled).toEqual({ facts: [{ id: "f1", text: "Has a dog called Pip" }], episodes: [] });
+  expect(applyEvent(s, { type: "context_used", message_id: "nope", facts: [], episodes: [] })).toBe(s);
+});
+
+test("toUiMessages maps remembered and recalled meta", () => {
+  const [u, a] = toUiMessages([
+    { id: "u1", conversation_id: "c1", role: "user", content: "I live in Leeds", status: "complete", created_at: "",
+      meta: { facts_changed: [{ fact_id: "f", op: "add", scope: "user", text: "Lives in Leeds", old_text: null, undone: true }] } },
+    { id: "a1", conversation_id: "c1", role: "assistant", content: "Nice", status: "complete", created_at: "",
+      meta: { context: { facts: [], episodes: [{ id: "3", conversation_id: "c0", text: "User: hi", created_at: "" }] } } },
+  ]);
+  expect(u.noted?.[0].undone).toBe(true);
+  expect(a.recalled?.episodes[0].conversation_id).toBe("c0");
+  expect(toUiMessages([{ id: "x", conversation_id: "c", role: "assistant", content: "", status: "complete", created_at: "", meta: {} }])[0].recalled).toBeUndefined();
+});
