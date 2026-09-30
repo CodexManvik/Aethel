@@ -43,7 +43,7 @@ def test_facts_reach_the_prompt_and_meta():
     assert reply.content == "Maybe Pip's ball?"
 
 
-def test_empty_memory_sends_exactly_the_old_prompt():
+def test_empty_memory_sends_just_the_persona_then_the_time():
     provider = FakeProvider(chunks=["hi"])
     client, _ = _client({"groq:g": provider})
     with client:
@@ -51,8 +51,9 @@ def test_empty_memory_sends_exactly_the_old_prompt():
         with client.websocket_connect("/ws/session") as ws:
             events = _turn(ws, conv["id"], "hello")
     sent = provider.calls[0]
-    assert sent[0].role == "system" and sent[0].content.split("Current local time")[0] == \
-        system_prompt().split("Current local time")[0]
+    persona, _, time_line = sent[0].content.rpartition("\n\n")
+    assert sent[0].role == "system" and persona == system_prompt()
+    assert time_line.startswith("Current local time: ")
     assert [(m.role, m.content) for m in sent[1:]] == [("user", "hello")]
     assert "context_used" not in [e["type"] for e in events]
 
@@ -204,3 +205,17 @@ def test_a_stopped_turn_still_extracts_but_is_not_indexed():
             ws.send_json({"type": "stop_generation", "message_id": start["message_id"]})
             assert ws.receive_json()["status"] == "stopped"
     assert len(calls) == 1 and svc.episodic.status()["indexed"] == 0
+
+
+def test_the_persona_leads_and_the_time_closes_the_prompt():
+    provider = FakeProvider(chunks=["ok"])
+    client, svc = _client({"groq:g": provider})
+    svc.facts.add("user", "Has a dog called Pip", actor="user")
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            _turn(ws, conv["id"], "tell me about my dog")
+    system = provider.calls[0][0].content
+    assert system.startswith(system_prompt())
+    assert system.index(FACTS_HEADER) < system.index("Current local time")
+    assert system.rstrip().splitlines()[-1].startswith("Current local time")

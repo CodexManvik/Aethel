@@ -82,7 +82,7 @@ def _recall(query: str, persona_id: str, facts: FactStore | None, episodic: Epis
 
 async def chat_context(*, system: str, window: list[ChatMessage], query: str, persona_id: str,
                        facts: FactStore | None, episodic: EpisodicIndex | None, settings: AppSettings,
-                       exclude_messages: set[str]) -> tuple[BuiltContext, dict]:
+                       exclude_messages: set[str], tail: str = "") -> tuple[BuiltContext, dict]:
     """The chat prompt, and what it recalled: {"facts": [{id, text}], "episodes": [{id, conversation_id, text,
     created_at}]}, listing only what survived the budget (the ContextUsed payload and the reply's meta.context).
     Recall gets RECALL_TIMEOUT_S; past that the reply goes ahead without memory rather than keep you waiting."""
@@ -92,8 +92,9 @@ async def chat_context(*, system: str, window: list[ChatMessage], query: str, pe
             _recall, query, persona_id, facts, episodic, settings, exclude_messages, abandon_on_cancel=True)
     if scope.cancelled_caught:
         log.warning("recall took over %s s; replying without memory", RECALL_TIMEOUT_S)
+    # Stable first, volatile last: the persona leads every turn unchanged; the time and task notes close it.
     sections = [Section("persona", NEVER_DROP, system), facts_section(fact_hits, persona_id),
-                episodes_section(episode_hits)]
+                episodes_section(episode_hits), Section("now", NEVER_DROP, tail)]
     built = build(sections, window, window_min=CHAT_WINDOW_MIN,
                   budget=budget_for(settings, "chat", settings.max_tokens))
     recalled = {

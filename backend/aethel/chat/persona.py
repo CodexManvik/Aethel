@@ -9,6 +9,12 @@ Use Markdown only when structure genuinely helps (steps, code, tables); otherwis
 """
 
 
-def system_prompt(now: datetime | None = None) -> str:
+def system_prompt() -> str:
+    """The persona: identical every turn, so it can lead the prompt (and be cached by the provider)."""
+    return AETHEL_PERSONA.strip()
+
+
+def time_note(now: datetime | None = None) -> str:
+    """Changes every minute, so it goes last in the prompt, after everything stable."""
     now = now or datetime.now().astimezone()
-    return AETHEL_PERSONA.strip() + f"\n\nCurrent local time: {now:%A %d %B %Y, %H:%M}."
+    return f"Current local time: {now:%A %d %B %Y, %H:%M}."

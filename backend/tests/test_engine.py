@@ -978,3 +978,26 @@ def test_checks_must_point_at_local_files():
     with pytest.raises(pydantic.ValidationError):
         Check(kind="file_exists", path="https://youtube.com")
     assert Check(kind="file_exists", path="~/Documents/x.txt").path == "~/Documents/x.txt"
+
+
+async def test_an_unchanged_screen_is_sent_as_a_note(h):
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def look(args, ctx):
+        return ToolResult(True, "Window: Notepad\n- Button 'Save'", untrusted=True)
+
+    engine, provider = h.make([
+        [plan(["Look twice"])],
+        [tool_call("screen_look")],
+        [tool_call("screen_look", call_id="second", again=1)],
+        [tool_call("finish_task", summary="Done.")],
+    ])
+    engine.registry.register(Tool("screen_look", "", {"type": "object"}, "read", look,
+                                  lambda a: Assessment("allow", "", "look"), observes="screen"))
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    tool_msgs = [m.content for m in provider.calls[3] if m.role == "tool"]
+    assert "Button 'Save'" in tool_msgs[0]
+    assert tool_msgs[1] == "[unchanged since step 1: same screen as then]"
+    assert [s.result for s in h.tasks.steps(task_id)][1].startswith("Window: Notepad")  # the log keeps it all

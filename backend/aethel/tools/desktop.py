@@ -389,7 +389,7 @@ class Desktop:
             assess = lambda args: self._assess(kind, remote.name, args)  # noqa: E731
             scope = lambda args: self._scope(kind, args)  # noqa: E731
         return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope,
-                    group="desktop")
+                    group="desktop", observes="screen" if remote.name == "Snapshot" else None)
 
     async def _locate(self, args: dict, ctx: ToolContext | None) -> ToolResult:
         """Vision fallback (spec §4.2): for apps whose accessibility tree is

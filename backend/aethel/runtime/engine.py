@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from ..chat.service import make_title
 from ..context.builder import budget_for, estimate
+from ..context.observations import StateTracker
 from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
@@ -187,6 +188,7 @@ class TaskEngine:
         self._cancel_requested: set[str] = set()
         self._underlying: dict[str, str] = {}  # task_id -> state to restore on resume, while paused
         self._learning: set[asyncio.Task] = set()  # reflection passes still running after their task ended
+        self._states: dict[str, StateTracker] = {}  # task_id -> the last screen/page it saw
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -640,10 +642,11 @@ class TaskEngine:
         except Exception as exc:
             log.warning("tool %s failed: %s", tool.name, exc)
             result = ToolResult(False, f"Error: {exc}")
-        return await self._end_step(task_id, step.id, tool.name, result, int((self.clock() - t0) * 1000), ctx)
+        return await self._end_step(task_id, step.id, tool.name, result, int((self.clock() - t0) * 1000), ctx,
+                                    observes=tool.observes, step_no=step.idx + 1)
 
     async def _end_step(self, task_id: str, step_id: str, tool_name: str, result: ToolResult, duration_ms: int,
-                        ctx: ToolContext) -> str:
+                        ctx: ToolContext, observes: str | None = None, step_no: int = 0) -> str:
         thumb = None
         if result.thumbnail:
             thumb = f"tasks/{task_id}/{step_id}.jpg"
@@ -658,11 +661,17 @@ class TaskEngine:
                                result.meta, thumb)
         await self.hub.publish(StepFinished(task_id=task_id, step_id=step_id, ok=result.ok,
                                             detail=_first_line(result.content), duration_ms=duration_ms))
+        if result.untrusted:
+            ctx.tainted = True
+        if observes and result.ok:
+            # the same screen as last time: say so in a line instead of sending it all again (lossless)
+            note = self._states.setdefault(task_id, StateTracker()).seen(observes, result.content, step_no)
+            if note is not None:
+                return note
         content = result.content
         if len(content) > MAX_TOOL_RESULT_CHARS:
             content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated]"
         if result.untrusted:
-            ctx.tainted = True
             return _wrap_untrusted(tool_name, content)
         return content
 
@@ -710,6 +719,7 @@ class TaskEngine:
         await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state))
 
     async def _finish(self, task_id: str, state: str, summary: str | None, error: str | None = None) -> None:
+        self._states.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:
             return  # already finished (e.g. a cancel raced the runner's own completion)
