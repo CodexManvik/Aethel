@@ -40,10 +40,11 @@ def default_roles() -> dict[str, list[RouteEntry]]:
             RouteEntry(provider="local", model="local"),
         ],
         "vision": [RouteEntry(provider="gemini", model="gemini-2.5-flash")],
-        # Background housekeeping (fact extraction). Groq's free-tier limits are per model, so this keeps it
-        # off the chat model's quota. The chat models follow it in the chain (providers/router.py).
-        # Its quality is checked by scripts/eval_extract.py (not yet measured).
-        "utility": [RouteEntry(provider="groq", model="llama-3.1-8b-instant", context_size=131072)],
+        # Background housekeeping (fact extraction); the chat models follow it in the chain (providers/router.py).
+        # Empty until scripts/eval_extract.py shows a small model extracts as well as chat (not yet measured):
+        # the candidate is Groq llama-3.1-8b-instant (Groq's free-tier limits are per model, so it would keep
+        # this off the chat model's quota). Empty also means no provider the chat chain doesn't already use.
+        "utility": [],
     }
 
 

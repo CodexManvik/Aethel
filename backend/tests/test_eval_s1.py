@@ -92,8 +92,21 @@ def test_extraction_fixtures_are_well_formed():
 
 def test_token_eval_summary():
     tok = _load("eval_tokens")
-    runs = [{"state": "done", "seconds": 10, "usage": {"prompt": 1000, "completion": 100, "calls": 4, "estimated": False}},
-            {"state": "failed", "seconds": 20, "usage": {"prompt": 3000, "completion": 300, "calls": 8, "estimated": True}}]
+    runs = [{"success": True, "seconds": 10, "usage": {"prompt": 1000, "completion": 100, "calls": 4, "estimated": False}},
+            {"success": False, "seconds": 20, "usage": {"prompt": 3000, "completion": 300, "calls": 8, "estimated": True}}]
     s = tok.summarise(runs)
     assert (s["success_rate"], s["mean_prompt_tokens"], s["mean_calls"], s["estimated"]) == (0.5, 2000, 6, True)
-    assert [name for name, _ in tok.tasks()] == ["haiku", "calc", "folder", "url", "edit", "display"]
+    assert [t[0] for t in tok.tasks()] == ["haiku", "calc", "folder", "url", "edit", "display"]
+
+
+def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
+    tok = _load("eval_tokens")
+    assert tok.schedule(["a", "b"], 2) == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
+                                           ("b", "masking on"), ("a", "masking on"), ("a", "masking off"),
+                                           ("b", "masking on"), ("b", "masking off")]
+    checks = {name: check for name, _, check in tok.tasks()}
+    (tmp_path / "result.txt").write_text("7,006,652", encoding="utf-8")
+    assert checks["calc"](tmp_path) is True
+    (tmp_path / "notes.txt").write_text("shopping\n- eggs\nbuy milk\n", encoding="utf-8")
+    assert checks["edit"](tmp_path) is True
+    assert checks["folder"](tmp_path) is False and checks["url"] is None

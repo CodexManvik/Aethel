@@ -66,6 +66,18 @@ class RoleRouter:
             entries = [e for e in entries if e.provider == "local"] or [RouteEntry(provider="local", model="local")]
         return entries
 
+    def primary(self, role: str) -> list[RouteEntry]:
+        """The entry a call would try first: the first with a key (or local, when local is available).
+        As a one-item list, for budget_for(entries=…); empty when nothing is usable."""
+        s = self.settings.get()
+        for entry in self.chain(role):
+            if entry.provider == "local":
+                if self.local is not None:
+                    return [entry]
+            elif api_key_for(entry.provider, self.keys, s)[0] is not None:
+                return [entry]
+        return []
+
     async def stream(
         self,
         role: str,
@@ -128,6 +140,8 @@ class RoleRouter:
                 status = "error"
                 raise
             finally:
+                if status == "cancelled" and usage is not None:
+                    status = "ok"  # the reply was complete; the reader just stopped after the final chunk
                 if self.usage is not None:
                     self.usage.record(role=role, purpose=purpose, provider=entry.provider, model=entry.model,
                                       ref=ref, usage=usage, breakdown=breakdown, status=status, started=started,

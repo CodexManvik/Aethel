@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from ..chat.service import make_title
 from ..context.builder import budget_for, estimate
-from ..context.observations import Observation, StateTracker, fit_to_budget, mask_superseded
+from ..context.observations import UNCHANGED_PREFIX, Observation, StateTracker, fit_to_budget, mask_superseded
 from ..usage import estimate_breakdown
 from ..context.recipes import facts_section
 from ..hub import EventHub
@@ -154,6 +154,11 @@ def _first_line(text: str) -> str:
 _wrap_untrusted = wrap_untrusted
 
 
+def _signature(call: ToolCall) -> str:
+    """The loop guard's key for a call (see _handle)."""
+    return call.name + json.dumps(_parse_args(call.arguments) or {}, sort_keys=True)
+
+
 def _summary(call: ToolCall) -> str:
     """What a tool result was, for the stub that may replace it: 'fs_read of C:\\x.txt'."""
     args = _parse_args(call.arguments) or {}
@@ -196,7 +201,8 @@ class TaskEngine:
         self._cancel_requested: set[str] = set()
         self._underlying: dict[str, str] = {}  # task_id -> state to restore on resume, while paused
         self._learning: set[asyncio.Task] = set()  # reflection passes still running after their task ended
-        self._states: dict[str, StateTracker] = {}  # task_id -> the last screen/page it saw
+        self._states: dict[str, StateTracker] = {}  # task_id -> the last screen/page the model saw
+        self._obs: dict[str, list[Observation]] = {}  # task_id -> its tool results in this run's conversation
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -318,6 +324,9 @@ class TaskEngine:
             record = self.tasks.get(task_id)
             if record is None:
                 return  # the task was deleted before this runner started
+            # A resumed task starts a fresh conversation: nothing the model saw before is in it.
+            self._states.pop(task_id, None)
+            self._obs.pop(task_id, None)
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
@@ -547,12 +556,12 @@ class TaskEngine:
         specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
         nudged = False
-        obs: list[Observation] = []  # the tool results in convo, for trimming (token spec §5.1)
+        obs = self._obs.setdefault(task_id, [])  # the tool results in convo, for trimming (token spec §5.1)
         while True:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
             await self._gate(task_id, run)
-            self._trim(task_id, convo, obs, specs)
+            self._trim(task_id, convo, obs, specs, seen)
             calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
             if not calls:
@@ -571,13 +580,16 @@ class TaskEngine:
                     # to the model next (the final summary) is malformed.
                     convo.append(ChatMessage("tool", "[STOPPED] step limit reached", tool_call_id=call.id))
                     continue
+                ctx.last_ok = False
                 result = await self._handle(task_id, call, ctx, grants, seen, run, budget,
                                             cut_off=finish_reason == "length")
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
                 tool = self.registry.get(call.name)
-                if tool is not None:
-                    obs.append(Observation(len(convo) - 1, call.name, tool.observes, len(self.tasks.steps(task_id)),
-                                           _summary(call), full=not result.startswith("[unchanged since")))
+                # Only what a tool really returned counts: a denial, a loop warning or an error isn't a newer
+                # screen, and must never make the last real one look stale.
+                if tool is not None and ctx.last_ok:
+                    obs.append(Observation(len(convo) - 1, call.name, tool.observes, _summary(call),
+                                           _signature(call), full=not result.startswith(UNCHANGED_PREFIX)))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
                     finished = str(args.get("summary") or text.strip() or "Done.")
@@ -588,7 +600,8 @@ class TaskEngine:
             if finished is not None:
                 return Outcome(finished, False)
 
-    def _trim(self, task_id: str, convo: list[ChatMessage], obs: list[Observation], specs: list[ToolSpec]) -> None:
+    def _trim(self, task_id: str, convo: list[ChatMessage], obs: list[Observation], specs: list[ToolSpec],
+              seen: Counter) -> None:
         """Before each executor call: leave out stale snapshots (in batches, to keep the provider's cached
         prefix), and if the call would overflow the model's context, older results too, oldest first."""
         if self.settings is None:
@@ -596,10 +609,15 @@ class TaskEngine:
         s = self.settings.get()
         if s.token_saving.mask_superseded:
             mask_superseded(convo, obs, s.token_saving.mask_batch)
-        limit = budget_for(s, "agent", s.agent_max_tokens, capped=False)
+        primary = self.router.primary("agent")
+        if not primary:
+            return  # nothing usable: the call will say so
+        limit = budget_for(s, "agent", s.agent_max_tokens, capped=False, entries=primary)
         dropped = fit_to_budget(convo, obs, limit, extra=sum(estimate_breakdown([], specs).values()))
+        for o in dropped:
+            seen.pop(o.signature, None)  # it said "call it again": the loop guard mustn't refuse that
         if dropped:
-            log.info("task %s: left out of the context to fit: %s", task_id, "; ".join(dropped))
+            log.info("task %s: left out of the context to fit: %s", task_id, "; ".join(o.summary for o in dropped))
 
     async def _handle(self, task_id: str, call: ToolCall, ctx: ToolContext, grants: set[tuple[str, str]],
                       seen: Counter, run: "_RunClock", budget: "_Budget", *, cut_off: bool = False,
@@ -626,7 +644,7 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
-        signature = call.name + json.dumps(args, sort_keys=True)
+        signature = _signature(call)
         seen[signature] += 1
         if seen[signature] > self.max_identical_calls:
             budget.consecutive_loops += 1
@@ -675,10 +693,10 @@ class TaskEngine:
             log.warning("tool %s failed: %s", tool.name, exc)
             result = ToolResult(False, f"Error: {exc}")
         return await self._end_step(task_id, step.id, tool.name, result, int((self.clock() - t0) * 1000), ctx,
-                                    observes=tool.observes, step_no=step.idx + 1)
+                                    observes=tool.observes)
 
     async def _end_step(self, task_id: str, step_id: str, tool_name: str, result: ToolResult, duration_ms: int,
-                        ctx: ToolContext, observes: str | None = None, step_no: int = 0) -> str:
+                        ctx: ToolContext, observes: str | None = None) -> str:
         thumb = None
         if result.thumbnail:
             thumb = f"tasks/{task_id}/{step_id}.jpg"
@@ -695,9 +713,10 @@ class TaskEngine:
                                             detail=_first_line(result.content), duration_ms=duration_ms))
         if result.untrusted:
             ctx.tainted = True
+        ctx.last_ok = result.ok
         if observes and result.ok:
             # the same screen as last time: say so in a line instead of sending it all again (lossless)
-            note = self._states.setdefault(task_id, StateTracker()).seen(observes, result.content, step_no)
+            note = self._states.setdefault(task_id, StateTracker()).seen(observes, result.content)
             if note is not None:
                 return note
         content = result.content
@@ -752,6 +771,7 @@ class TaskEngine:
 
     async def _finish(self, task_id: str, state: str, summary: str | None, error: str | None = None) -> None:
         self._states.pop(task_id, None)
+        self._obs.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:
             return  # already finished (e.g. a cancel raced the runner's own completion)

@@ -140,17 +140,19 @@ def test_delete_conversation_removes_its_episodes():
 
 def test_budget_drops_episodes_before_the_window():
     provider = FakeProvider(chunks=["ok"])
-    # budget = 1024 * 0.9 - 600 = 321 tokens: the persona and the message fit, a ~1000-character episode doesn't
+    # budget = 1024 * 0.9 - min(600, 1024 // 4) = 665 tokens: the persona and the message fit, three
+    # ~1000-character earlier exchanges (~750 tokens) don't
     client, svc = _client({"groq:g": provider}, max_tokens=600,
                           roles={"chat": [{"provider": "groq", "model": "g", "context_size": 1024}]},
                           memory={"episodic_min_score": 0.0})
     with client:
-        a = client.post("/api/conversations", json={}).json()
+        earlier = [client.post("/api/conversations", json={}).json() for _ in range(3)]
         b = client.post("/api/conversations", json={}).json()
         with client.websocket_connect("/ws/session") as ws:
-            _turn(ws, a["id"], "Anna " + "long story " * 300)
+            for i, conv in enumerate(earlier):
+                _turn(ws, conv["id"], f"Anna story {i} " + "long story " * 300)
             _turn(ws, b["id"], "tell me about Anna")
-    last = provider.calls[1]
+    last = provider.calls[-1]
     assert EPISODES_HEADER not in last[0].content and last[-1].content == "tell me about Anna"
 
 

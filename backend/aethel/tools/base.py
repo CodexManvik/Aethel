@@ -9,6 +9,7 @@ Verdict = Literal["allow", "ask", "deny"]
 class ToolContext:
     task_id: str | None
     tainted: bool = False  # becomes True once untrusted content entered the task
+    last_ok: bool = False  # whether the last call really ran and succeeded (not denied, looped or failed)
 
 
 @dataclass

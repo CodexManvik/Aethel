@@ -999,7 +999,7 @@ async def test_an_unchanged_screen_is_sent_as_a_note(h):
     await engine.wait_idle()
     tool_msgs = [m.content for m in provider.calls[3] if m.role == "tool"]
     assert "Button 'Save'" in tool_msgs[0]
-    assert tool_msgs[1] == "[unchanged since step 1: same screen as then]"
+    assert tool_msgs[1] == "[unchanged: the screen is exactly as in the last screen snapshot above]"
     assert [s.result for s in h.tasks.steps(task_id)][1].startswith("Window: Notepad")  # the log keeps it all
 
 
@@ -1020,9 +1020,9 @@ async def test_stale_screens_are_masked_in_one_batch(h):
     await engine.start(conversation_id=conv.id, goal="x")
     await engine.wait_idle()
     last = [m.content for m in provider.calls[-1] if m.role == "tool"]
-    assert [c.startswith("[earlier screen snapshot") for c in last] == [True, True, True, False, False]
+    assert [c.startswith("[an earlier screen snapshot") for c in last] == [True, True, True, False, False]
     before_batch = [m.content for m in provider.calls[3] if m.role == "tool"]  # 2 stale: not yet masked
-    assert not any(c.startswith("[earlier") for c in before_batch)
+    assert not any(c.startswith("[an earlier") for c in before_batch)
 
 
 async def test_masking_can_be_switched_off(h):
@@ -1040,7 +1040,7 @@ async def test_masking_can_be_switched_off(h):
     conv = h.convs.create()
     await engine.start(conversation_id=conv.id, goal="x")
     await engine.wait_idle()
-    assert not any(m.content.startswith("[earlier") for m in provider.calls[-1] if m.role == "tool")
+    assert not any(m.content.startswith("[an earlier") for m in provider.calls[-1] if m.role == "tool")
 
 
 async def test_learned_skills_switched_off_means_no_recall_no_replay_no_reflection(h, tmp_path):
@@ -1058,3 +1058,59 @@ async def test_learned_skills_switched_off_means_no_recall_no_replay_no_reflecti
     assert "untrusted" not in provider.calls[0][1].content   # no skill hints
     assert len(provider.calls) == 2                            # plan + execute: no reflection call
     assert h.tasks.get(task_id).knowledge == []
+
+
+async def test_denied_and_loop_blocked_results_never_count_as_a_newer_screen(h):
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def look(args, ctx):
+        return ToolResult(True, "the real screen " + "x" * 600)
+
+    h.settings.update({"token_saving": {"mask_batch": 1}})
+    engine, provider = h.make([
+        [plan(["Look"])],
+        [tool_call("screen_look", call_id="a")],
+        [tool_call("screen_look", call_id="b")],        # identical: allowed once more (max 2)
+        [tool_call("screen_look", call_id="c")],        # identical again: [LOOP DETECTED], not a screen
+        [tool_call("blocked_look", call_id="d")],       # denied: not a screen either
+        [tool_call("finish_task", summary="Done.")],
+    ], settings=h.settings)
+    engine.registry.register(Tool("screen_look", "", {"type": "object"}, "read", look,
+                                  lambda a: Assessment("allow", "", "look"), observes="screen"))
+    engine.registry.register(Tool("blocked_look", "", {"type": "object"}, "read", look,
+                                  lambda a: Assessment("deny", "not today", "look"), observes="screen"))
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    tool_msgs = [m.content for m in provider.calls[-1] if m.role == "tool"]
+    # the first snapshot is the last full one the model saw (the second was an "unchanged" note): it must stay
+    assert tool_msgs[0].startswith("the real screen")
+    assert tool_msgs[1].startswith("[unchanged:")
+    assert "LOOP DETECTED" in tool_msgs[2] and tool_msgs[3].startswith("Denied")
+
+
+async def test_content_left_out_to_fit_can_be_read_again(h):
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def read(args, ctx):
+        return ToolResult(True, f"contents of {args['path']} " + "y" * 20000)
+
+    # an 8k model: results are capped at 12k characters (~3k tokens), so three reads can't all stay
+    h.settings.update({"roles": {"agent": [{"provider": "groq", "model": "g", "context_size": 8192}]},
+                       "agent_max_tokens": 1024})
+    engine, provider = h.make([
+        [plan(["Read"])],
+        [tool_call("read_it", call_id="r1", path="a.txt")],
+        [tool_call("read_it", call_id="r2", path="a.txt")],
+        [tool_call("read_it", call_id="r3", path="b.txt")],
+        [tool_call("read_it", call_id="r4", path="a.txt")],  # a 3rd identical call: allowed, a.txt was dropped
+        [tool_call("finish_task", summary="Done.")],
+    ], settings=h.settings)
+    engine.registry.register(Tool("read_it", "", {"type": "object"}, "read", read,
+                                  lambda a: Assessment("allow", "", "read")))
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    last = [m.content for m in provider.calls[-1] if m.role == "tool"]
+    assert any("left out to fit; call it again" in c for c in last)
+    assert last[-1].startswith("contents of a.txt")  # not [LOOP DETECTED]

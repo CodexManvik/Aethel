@@ -95,7 +95,8 @@ class OpenAICompatProvider:
             try:
                 stream = await self._client.chat.completions.create(**kwargs)
             except openai.APIStatusError as exc:
-                if exc.status_code != 400 or "stream_options" not in _error_text(exc) or "stream_options" not in kwargs:
+                if exc.status_code not in (400, 422) or "stream_options" not in _error_text(exc) \
+                        or "stream_options" not in kwargs:
                     raise
                 NO_USAGE_OPTION.add(self._endpoint)  # an older server: ask without it from now on
                 del kwargs["stream_options"]

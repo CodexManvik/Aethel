@@ -9,6 +9,21 @@ from ..providers.base import ChatMessage
 from .builder import estimate
 
 MIN_WORTH_MASKING = 500  # characters: shorter results cost less than the stub that would replace them
+UNCHANGED_PREFIX = "[unchanged:"
+
+
+class StateTracker:
+    """The latest content of each kind of state the model was shown, so an identical one isn't sent twice."""
+
+    def __init__(self) -> None:
+        self._last: dict[str, str] = {}
+
+    def seen(self, kind: str, content: str) -> str | None:
+        """A short note to send instead when `content` is the same as the last one of this kind, else None."""
+        if self._last.get(kind) == content:
+            return f"{UNCHANGED_PREFIX} the {kind} is exactly as in the last {kind} snapshot above]"
+        self._last[kind] = content
+        return None
 
 
 @dataclass
@@ -16,9 +31,9 @@ class Observation:
     index: int               # its tool message's position in the conversation
     tool: str
     kind: str | None         # "screen" | "page" for state; None for content
-    step_no: int
     summary: str             # e.g. "fs_read of C:\\…\\question.docx", for the stub
-    full: bool = True        # False when it was sent as an "unchanged since" note
+    signature: str = ""      # the loop guard's key for the call, so a dropped result can be fetched again
+    full: bool = True        # False when it was sent as an "unchanged" note
     masked: bool = False
 
 
@@ -39,7 +54,7 @@ def mask_superseded(convo: list[ChatMessage], obs: list[Observation], batch: int
     if not stale or (len(stale) < batch and not force):
         return 0
     for o in stale:
-        convo[o.index].content = f"[earlier {o.kind} snapshot (step {o.step_no}) omitted: a newer one is below]"
+        convo[o.index].content = f"[an earlier {o.kind} snapshot, left out: a newer one is below]"
         o.masked = True
     return len(stale)
 
@@ -48,11 +63,12 @@ def conversation_tokens(convo: list[ChatMessage]) -> int:
     return sum(estimate(m.content or "") + sum(estimate(c.arguments) for c in m.tool_calls or []) for m in convo)
 
 
-def fit_to_budget(convo: list[ChatMessage], obs: list[Observation], budget: int, extra: int = 0) -> list[str]:
-    """A last resort before the model's context overflows: stale state first, then content, oldest first,
-    never the newest content observation. `extra` is what else the call sends (tool schemas).
-    Returns what was left out."""
-    dropped: list[str] = []
+def fit_to_budget(convo: list[ChatMessage], obs: list[Observation], budget: int,
+                  extra: int = 0) -> list[Observation]:
+    """A last resort, only when the call would otherwise overflow the model's context: stale state first,
+    then content, oldest first, never the newest content observation. `extra` is what else the call
+    sends (tool schemas). Returns the content observations it left out."""
+    dropped: list[Observation] = []
     if conversation_tokens(convo) + extra <= budget:
         return dropped
     mask_superseded(convo, obs, batch=1, force=True)
@@ -62,22 +78,7 @@ def fit_to_budget(convo: list[ChatMessage], obs: list[Observation], budget: int,
             break
         if len(convo[o.index].content or "") < MIN_WORTH_MASKING:
             continue
-        convo[o.index].content = f"[{o.summary} (step {o.step_no}) omitted to fit; call it again if you need it]"
+        convo[o.index].content = f"[{o.summary}: left out to fit; call it again if you need it]"
         o.masked = True
-        dropped.append(o.summary)
+        dropped.append(o)
     return dropped
-
-
-class StateTracker:
-    """The latest content of each kind of state, so an identical one isn't sent twice."""
-
-    def __init__(self) -> None:
-        self._last: dict[str, tuple[str, int]] = {}
-
-    def seen(self, kind: str, content: str, step_no: int) -> str | None:
-        """A short note to send instead when `content` is the same as the last one of this kind, else None."""
-        last = self._last.get(kind)
-        if last is not None and last[0] == content:
-            return f"[unchanged since step {last[1]}: same {kind} as then]"
-        self._last[kind] = (content, step_no)
-        return None

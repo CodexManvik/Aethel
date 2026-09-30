@@ -16,7 +16,7 @@ const ROLES: { id: string; label: string; hint: string }[] = [
   { id: "chat", label: "Conversation", hint: "Everyday talking. Fast models feel best here." },
   { id: "agent", label: "Agent", hint: "Plans and carries out tasks (Phase 1)." },
   { id: "vision", label: "Vision", hint: "Reads screenshots when an app can't be read directly (Phase 1)." },
-  { id: "utility", label: "Background", hint: "Remembering facts and other housekeeping. A small fast model is plenty; the Conversation models are used after these." },
+  { id: "utility", label: "Background", hint: "Remembering facts and other housekeeping. Empty uses the Conversation models; a small fast one (e.g. Groq llama-3.1-8b-instant) keeps this off their free-tier quota." },
 ];
 
 // Private mode keeps everything on this machine: no cloud call, not even a model listing or a test.
