@@ -812,6 +812,59 @@ async def test_recall_failure_never_blocks_a_task(h):
     assert h.tasks.get(task_id).state == "done" and "untrusted" not in provider.calls[0][1].content
 
 
+async def test_planner_sees_remembered_facts_and_records_them(h):
+    from aethel.memory.facts import FactStore
+    from tests.conftest import fake_embed
+
+    facts = FactStore(h.tasks.db, fake_embed)
+    fact = facts.add("user", "Keeps work documents in D:/Work", actor="user")
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]],
+                              settings=h.settings, facts=facts)
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="save my work documents list")
+    await engine.wait_idle()
+    planner_user = provider.calls[0][1].content
+    assert '<untrusted source="learned skills and notes">' in planner_user
+    assert "Keeps work documents in D:/Work" in planner_user
+    assert h.tasks.get(task_id).context == {"facts": [{"id": fact.id, "text": "Keeps work documents in D:/Work"}]}
+
+
+async def test_no_facts_leaves_the_planner_prompt_alone(h):
+    from aethel.memory.facts import FactStore
+    from tests.conftest import fake_embed
+
+    engine, provider = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]],
+                              settings=h.settings, facts=FactStore(h.tasks.db, fake_embed))
+    conv = h.convs.create()
+    task_id = await engine.start(conversation_id=conv.id, goal="x")
+    await engine.wait_idle()
+    assert "untrusted" not in provider.calls[0][1].content and h.tasks.get(task_id).context == {}
+
+
+async def test_a_task_goal_is_never_extracted_as_a_fact(h):
+    from aethel.memory.extract import FactExtractor
+    from aethel.memory.facts import FactStore
+    from tests.conftest import fake_embed
+
+    facts = FactStore(h.tasks.db, fake_embed)
+
+    class YesS1:
+        calls = 0
+
+        async def ask(self, *a):
+            YesS1.calls += 1
+            return {"fact": {"noul": 0.99}}
+
+    engine, _ = h.make([[plan(["Write"])], [tool_call("finish_task", summary="Done.")]])
+    conv = h.convs.create()
+    await engine.start(conversation_id=conv.id, goal="I live in Leeds, write that to a file")
+    await engine.wait_idle()
+    goal_msg = h.msgs.list(conv.id)[0]
+    ex = FactExtractor(facts=facts, messages=h.msgs, router=None, system1=YesS1(), settings=h.settings, hub=h.events)
+    assert await ex.run(conversation_id=conv.id, persona_id="aethel", user_message_id=goal_msg.id) == []
+    assert YesS1.calls == 0 and facts.list() == []
+
+
 def _learning_engine(h, tmp_path, turns):
     from aethel.memory.rsm import KnowledgeStore
     from tests.test_rsm import fake_embed
