@@ -1,18 +1,35 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useSession } from "../../stores/session";
+import { useUi } from "../../stores/ui";
+import { cn } from "../../ui/cn";
 import { PersonaMessage } from "./PersonaMessage";
 import { UserMessage } from "./UserMessage";
 
 export function MessageList() {
   const messages = useSession((s) => s.messages);
+  const focusId = useUi((s) => s.focusMessageId);
+  const [highlight, setHighlight] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && stick.current) el.scrollTo({ top: el.scrollHeight });
-  }, [messages]);
+    if (el && stick.current && !focusId) el.scrollTo({ top: el.scrollHeight });
+  }, [messages, focusId]);
+
+  // Jump to a message opened from Memory (a fact's source): scroll it to the middle and glow briefly.
+  useEffect(() => {
+    if (!focusId) return;
+    const row = ref.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(focusId)}"]`);
+    if (!row) return;
+    stick.current = false;
+    row.scrollIntoView?.({ block: "center" });
+    setHighlight(focusId);
+    useUi.getState().setFocusMessage(null);
+    const t = setTimeout(() => setHighlight(null), 2000);
+    return () => clearTimeout(t);
+  }, [focusId, messages]);
 
   return (
     <div
@@ -33,7 +50,8 @@ export function MessageList() {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className="flex flex-col"
+            data-message-id={m.id}
+            className={cn("flex flex-col rounded-xl transition-shadow", highlight === m.id && "ring-1 ring-accent/40")}
           >
             {m.role === "user" ? <UserMessage message={m} /> : <PersonaMessage message={m} />}
           </motion.div>

@@ -89,6 +89,7 @@ def system1_status(svc: Services = Depends(get_services)) -> dict:
 # ---- facts (Phase 3 spec §5) --------------------------------------------------------------
 class FactOut(Fact):
     conversation_title: str | None = None
+    added_by: Literal["extractor", "user"] = "user"  # who first added it (its source may be gone since)
 
 
 class FactIn(BaseModel):
@@ -107,7 +108,9 @@ class UndoIn(BaseModel):
 
 def _fact_out(svc: Services, fact: Fact) -> FactOut:
     conv = svc.conversations.get(fact.conversation_id) if fact.conversation_id else None
-    return FactOut(**fact.model_dump(), conversation_title=conv.title if conv else None)
+    events = svc.facts.history(fact.id)
+    return FactOut(**fact.model_dump(), conversation_title=conv.title if conv else None,
+                   added_by=events[-1].actor if events else "user")
 
 
 def _blank(text: str) -> str:

@@ -53,6 +53,8 @@ interface UiState {
   theme: ThemePref;
   motion: MotionPref;
   taskPanelId: string | null;
+  focusMessageId: string | null; // a message to scroll to and highlight once the conversation shows it
+  setFocusMessage(id: string | null): void;
   setScreen(screen: Screen): void;
   toggleThreads(): void;
   setThreadsOpen(open: boolean): void;
@@ -68,6 +70,8 @@ export const useUi = create<UiState>()((set, get) => ({
   theme: storedTheme(),
   motion: storedMotion(),
   taskPanelId: null,
+  focusMessageId: null,
+  setFocusMessage: (focusMessageId) => set({ focusMessageId }),
   setScreen: (screen) => set({ screen, threadsOpen: false }),
   toggleThreads: () => set((s) => ({ threadsOpen: !s.threadsOpen })),
   setThreadsOpen: (threadsOpen) => set({ threadsOpen }),

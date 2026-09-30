@@ -19,9 +19,11 @@ def test_fact_crud_round_trip_and_history():
         client.patch(f"/api/conversations/{conv['id']}", json={"title": "Dogs"})
         f = svc.facts.add("user", "Has a dog called Pip", actor="extractor", conversation_id=conv["id"])
         listed = client.get("/api/memory/facts").json()
-        assert [(x["text"], x["conversation_title"]) for x in listed] == [("Has a dog called Pip", "Dogs")]
+        assert [(x["text"], x["conversation_title"], x["added_by"]) for x in listed] == \
+            [("Has a dog called Pip", "Dogs", "extractor")]
         added = client.post("/api/memory/facts", json={"scope": "persona:aethel", "text": " Calls me Manny "}).json()
-        assert (added["scope"], added["text"], added["conversation_title"]) == ("persona:aethel", "Calls me Manny", None)
+        assert (added["scope"], added["text"], added["conversation_title"], added["added_by"]) == \
+            ("persona:aethel", "Calls me Manny", None, "user")
         assert [x["text"] for x in client.get("/api/memory/facts", params={"q": "manny"}).json()] == ["Calls me Manny"]
         assert [x["text"] for x in client.get("/api/memory/facts", params={"scope": "user"}).json()] == \
             ["Has a dog called Pip"]
