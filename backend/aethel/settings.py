@@ -14,9 +14,9 @@ ProviderId = Literal["groq", "gemini", "openrouter", "custom", "local"]
 class RouteEntry(BaseModel):
     provider: ProviderId
     model: str = Field(min_length=1)
-    # The model's context window in tokens, for the context builder's budget. Conservative by default:
-    # raise it for long-context models (Settings → Models).
-    context_size: int = Field(default=8192, ge=1024, le=2_000_000)
+    # The model's context window in tokens, for the context builder's budget. The hosted models Aethel
+    # suggests all take 32k or more; lower it for a smaller model. (The per-role caps usually bind first.)
+    context_size: int = Field(default=32768, ge=1024, le=2_000_000)
 
 
 class LocalLLMSettings(BaseModel):

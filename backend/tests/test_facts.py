@@ -82,3 +82,45 @@ def test_transaction_rolls_back_on_error(store):
 @pytest.mark.parametrize("scope,ok", [("user", True), ("persona:aethel", True), ("persona:", False), ("admin", False)])
 def test_valid_scope(scope, ok):
     assert valid_scope(scope) is ok
+
+
+def test_threads_can_add_and_search_at_once(store):
+    import threading
+
+    errors = []
+
+    def worker(n):
+        try:
+            for i in range(15):
+                store.add("user", f"worker {n} fact {i}", actor="user")
+                store.search(f"worker {n}", ["user"], k=3)
+        except Exception as exc:  # pragma: no cover - the assertion reports it
+            errors.append(exc)
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(store.list()) == 60
+    assert len(store.search("worker 2 fact", ["user"], k=100)) == 60
+
+
+def test_second_delete_is_a_no_op(store):
+    f = store.add("user", "Likes tea", actor="user")
+    assert store.delete(f.id, actor="user") is not None
+    assert store.delete(f.id, actor="extractor") is None
+    assert [e.op for e in store.history(f.id)] == ["delete", "add"]
+
+
+def test_search_accepts_a_precomputed_vector(store):
+    store.add("user", "Likes green tea", actor="user")
+    vec = fake_embed(["green tea"])[0]
+    assert store.search("ignored", ["user"], k=1, vector=vec)[0][0].text == "Likes green tea"
+
+
+def test_query_wildcards_are_literal(store):
+    store.add("user", "Scored 100% on the exam", actor="user")
+    store.add("user", "Likes tea", actor="user")
+    assert [f.text for f in store.list(q="100%")] == ["Scored 100% on the exam"]
+    assert store.list(q="%") == [store.list(q="100%")[0]]
+    assert store.list(q="_") == []

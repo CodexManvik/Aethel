@@ -118,3 +118,50 @@ def test_rebuild_reports_progress(env):
     seen = []
     assert idx.rebuild(lambda done, total: seen.append((done, total))) == 3
     assert seen[-1] == (3, 3) and idx.status()["indexed"] == 3
+
+
+def test_status_counts_what_catch_up_would_index(env):
+    db, convs, msgs, path = env
+    c, d = convs.create(), convs.create()
+    exchange(convs, msgs, c.id, "one", "first reply")
+    exchange(convs, msgs, c.id, "two", "", status="error")
+    exchange(convs, msgs, c.id, "open notepad", "Done.", meta={"task_id": "t"})
+    msgs.add(c.id, "user", "dangling question")
+    exchange(convs, msgs, d.id, "three", "third reply")
+    idx = EpisodicIndex(db, fake_embed, path)
+    assert idx.status()["exchanges"] == len(idx._exchanges()) == 2
+
+
+def test_stop_ends_catch_up_between_batches(env):
+    db, convs, msgs, path = env
+    c = convs.create()
+    for i in range(3):
+        exchange(convs, msgs, c.id, f"message {i}", f"reply {i}")
+    idx = EpisodicIndex(db, fake_embed, path)
+    idx.stop()
+    assert idx.catch_up() == 0
+
+
+def test_threads_can_index_and_search_at_once(env):
+    import threading
+
+    db, convs, msgs, path = env
+    c = convs.create()
+    pairs = [exchange(convs, msgs, c.id, f"topic {i} question", f"topic {i} answer") for i in range(40)]
+    idx = EpisodicIndex(db, fake_embed, path)
+    errors = []
+
+    def add(chunk):
+        try:
+            for u, a in chunk:
+                idx.add_exchange(u, a)
+                idx.search("topic", k=3, min_score=0.0)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+    threads = [threading.Thread(target=add, args=(pairs[i::4],)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and idx.status()["indexed"] == 40
+    assert len(EpisodicIndex(db, fake_embed, path).search("topic", k=50, min_score=0.0)) == 40

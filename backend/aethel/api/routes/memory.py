@@ -1,6 +1,7 @@
 """The Memory screen (spec §12.3): remembered facts, earlier conversations, skills and app notes."""
 import asyncio
 import logging
+import threading
 from typing import Literal
 
 import anyio
@@ -150,27 +151,36 @@ def fact_history(fact_id: str, svc: Services = Depends(get_services)) -> list[Fa
     return svc.facts.history(fact_id)  # still answers after a delete: the log outlives the fact
 
 
+_undo_lock = threading.Lock()  # a double click or a retry must not undo twice (e.g. re-add a fact twice)
+
+
 @router.post("/facts/undo")
 def undo_fact_change(body: UndoIn, svc: Services = Depends(get_services)) -> list[FactChange]:
     """Reverse one change the extractor made from a message (the 'Noted…' line's Undo)."""
-    msg = svc.messages.get(body.message_id)
-    raw = (msg.meta.get("facts_changed") if msg else None) or []
-    if body.index >= len(raw):
-        raise HTTPException(status_code=404, detail="No such change")
-    changes = [FactChange.model_validate(c) for c in raw]
-    c = changes[body.index]
-    if c.undone:
-        raise HTTPException(status_code=409, detail="Already undone")
-    if c.op == "add":
-        svc.facts.delete(c.fact_id, actor="user", source_message_id=msg.id)
-    elif c.op == "update" and c.old_text:
-        svc.facts.update(c.fact_id, c.old_text, actor="user", source_message_id=msg.id)
-    elif c.op == "delete" and c.old_text:
-        svc.facts.add(c.scope, c.old_text, actor="user", source_message_id=msg.id,
-                      conversation_id=msg.conversation_id)
-    changes[body.index] = c.model_copy(update={"undone": True})
-    svc.messages.update(msg.id, meta={**msg.meta, "facts_changed": [x.model_dump() for x in changes]})
-    return changes
+    with _undo_lock:
+        msg = svc.messages.get(body.message_id)
+        raw = (msg.meta.get("facts_changed") if msg else None) or []
+        if body.index >= len(raw):
+            raise HTTPException(status_code=404, detail="No such change")
+        changes = [FactChange.model_validate(c) for c in raw]
+        c = changes[body.index]
+        if c.undone:
+            raise HTTPException(status_code=409, detail="Already undone")
+        if c.op == "add":
+            svc.facts.delete(c.fact_id, actor="user", source_message_id=msg.id)
+        elif c.op == "update":
+            current = svc.facts.get(c.fact_id)
+            if current is not None and current.text != c.text:
+                # reverting would throw away a newer edit
+                raise HTTPException(status_code=409, detail="That fact has changed since; edit it in Memory")
+            if current is not None and c.old_text:
+                svc.facts.update(c.fact_id, c.old_text, actor="user", source_message_id=msg.id)
+        elif c.op == "delete" and c.old_text:
+            svc.facts.add(c.scope, c.old_text, actor="user", source_message_id=msg.id,
+                          conversation_id=msg.conversation_id)
+        changes[body.index] = c.model_copy(update={"undone": True})
+        svc.messages.update(msg.id, meta={**msg.meta, "facts_changed": [x.model_dump() for x in changes]})
+        return changes
 
 
 # ---- episodic memory --------------------------------------------------------------------
@@ -181,7 +191,7 @@ def episodic_status(svc: Services = Depends(get_services)) -> dict:
 
 @router.post("/episodic/rebuild", status_code=202)
 async def rebuild_episodic(svc: Services = Depends(get_services)) -> dict:
-    if svc.episodic.status()["rebuilding"] or _rebuilds:
+    if svc.episodic.rebuilding or _rebuilds:
         raise HTTPException(status_code=409, detail="Already rebuilding")
 
     async def run() -> None:

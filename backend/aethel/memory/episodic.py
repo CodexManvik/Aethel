@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Callable
@@ -52,6 +53,14 @@ class EpisodicIndex:
         self._lock = threading.RLock()
         self._index = None
         self._rebuilding = False
+        self._stopping = threading.Event()  # set at shutdown: a catch-up stops between batches
+
+    def stop(self) -> None:
+        self._stopping.set()
+
+    @property
+    def rebuilding(self) -> bool:
+        return self._rebuilding
 
     # ---- the index file ------------------------------------------------------------
     def _write(self, index) -> None:
@@ -153,7 +162,13 @@ class EpisodicIndex:
         todo = [p for p in self._exchanges() if p[3] not in done_ids]
         added = 0
         for start in range(0, len(todo), BATCH):
-            added += self._add_many(todo[start:start + BATCH])
+            if self._stopping.is_set():
+                break
+            try:
+                added += self._add_many(todo[start:start + BATCH])
+            except sqlite3.IntegrityError:
+                # a conversation deleted while we were embedding it: skip the batch, the next catch-up redoes the rest
+                log.info("episodic catch-up skipped a batch whose conversation was deleted")
             if on_progress is not None:
                 on_progress(min(start + BATCH, len(todo)), len(todo))
         return added
@@ -187,11 +202,12 @@ class EpisodicIndex:
             self._rebuilding = False
 
     # ---- reading -------------------------------------------------------------------
-    def search(self, query: str, *, k: int, min_score: float,
-               exclude_messages: set[str] | frozenset = frozenset()) -> list[tuple[Episode, float]]:
+    def search(self, query: str, *, k: int, min_score: float, exclude_messages: set[str] | frozenset = frozenset(),
+               vector: np.ndarray | None = None) -> list[tuple[Episode, float]]:
+        """Pass `vector` when the query is already embedded."""
         if k <= 0:
             return []
-        q = np.asarray(self.embed([query])[0], dtype=np.float32)
+        q = np.asarray(self.embed([query])[0] if vector is None else vector, dtype=np.float32)
         with self._lock:
             index = self._load()
             if len(index) == 0:
@@ -212,5 +228,14 @@ class EpisodicIndex:
         return scored[:k]
 
     def status(self) -> dict:
+        """Counted in SQL (polled during a rebuild): the same exchanges _exchanges() finds."""
         indexed = self.db.query_one("SELECT count(*) FROM episodes")[0]
-        return {"indexed": indexed, "exchanges": len(self._exchanges()), "rebuilding": self._rebuilding}
+        exchanges = self.db.query_one(
+            "SELECT count(*) FROM (SELECT role, conversation_id, content, meta,"
+            " LEAD(role) OVER w AS next_role, LEAD(conversation_id) OVER w AS next_conv,"
+            " LEAD(status) OVER w AS next_status, LEAD(content) OVER w AS next_content, LEAD(meta) OVER w AS next_meta"
+            " FROM messages WINDOW w AS (ORDER BY conversation_id, rowid))"
+            " WHERE role = 'user' AND next_role = 'assistant' AND next_conv = conversation_id"
+            " AND next_status = 'complete' AND trim(next_content) != '' AND trim(content) != ''"
+            " AND json_extract(meta, '$.task_id') IS NULL AND json_extract(next_meta, '$.task_id') IS NULL")[0]
+        return {"indexed": indexed, "exchanges": exchanges, "rebuilding": self._rebuilding}

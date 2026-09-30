@@ -54,7 +54,7 @@ def test_budget_uses_smallest_in_chain_and_cap():
         "local_llm": {"context_size": 4096}})
     assert budget_for(s, "chat", 1024) == int(4096 * 0.9) - 1024
     s2 = s.model_copy(update={"local_llm": s.local_llm.model_copy(update={"context_size": 0})})
-    # local with an unknown size falls back to its entry's context_size (8192), smaller than the cap
+    # a local model run with context_size 0 is assumed small (8192), which is below the cap
     assert budget_for(s2, "chat", 1024) == int(8192 * 0.9) - 1024
     s3 = AppSettings.model_validate({"roles": {"chat": [{"provider": "groq", "model": "g", "context_size": 131072}]}})
     assert budget_for(s3, "chat", 1024) == int(16000 * 0.9) - 1024

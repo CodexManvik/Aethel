@@ -87,3 +87,31 @@ def test_episodic_status_and_rebuild():
         assert client.get("/api/memory/episodic").json()["rebuilding"] is True
         assert client.post("/api/memory/episodic/rebuild").status_code == 409
         release.set()
+
+
+def test_undo_refuses_to_clobber_a_newer_edit():
+    client, svc = _client()
+    with client:
+        conv = svc.conversations.create()
+        f = svc.facts.add("user", "Lives in York", actor="extractor")
+        change = {"fact_id": f.id, "op": "update", "scope": "user", "text": "Lives in York", "old_text": "Lives in Leeds"}
+        msg = svc.messages.add(conv.id, "user", "…", meta={"facts_changed": [change]})
+        svc.facts.update(f.id, "Lives in Hull", actor="user")
+        r = client.post("/api/memory/facts/undo", json={"message_id": msg.id, "index": 0})
+        assert r.status_code == 409 and svc.facts.get(f.id).text == "Lives in Hull"
+
+
+def test_concurrent_undo_of_a_delete_adds_the_fact_once():
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, svc = _client()
+    with client:
+        conv = svc.conversations.create()
+        change = {"fact_id": "fact_gone", "op": "delete", "scope": "user", "text": None, "old_text": "Works at a bank"}
+        msg = svc.messages.add(conv.id, "user", "…", meta={"facts_changed": [change]})
+        with ThreadPoolExecutor(4) as pool:
+            codes = sorted(pool.map(lambda _: client.post("/api/memory/facts/undo",
+                                                          json={"message_id": msg.id, "index": 0}).status_code,
+                                    range(4)))
+        assert codes == [200, 409, 409, 409]
+        assert [f.text for f in svc.facts.list()] == ["Works at a bank"]

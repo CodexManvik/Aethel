@@ -12,7 +12,8 @@ from ..settings import AppSettings
 NEVER_DROP = 1_000_000
 SAFETY = 0.9          # token estimates are rough: keep 10% spare
 MIN_BUDGET = 256      # only a misconfigured role (reply longer than the context) falls back to this
-DEFAULT_CONTEXT = 8192
+DEFAULT_CONTEXT = 8192         # a role with no entries at all
+LOCAL_UNKNOWN_CONTEXT = 8192   # a local model run with context_size 0
 
 
 def estimate(text: str) -> int:
@@ -60,11 +61,17 @@ def build(sections: list[Section], window: list[ChatMessage], *, window_min: int
                         dropped=dropped, est_tokens=total())
 
 
+def _size(entry, settings: AppSettings) -> int:
+    if entry.provider == "local":
+        # llama-server gets -c context_size; 0 means the model's own size, which we can't know: assume a small one
+        return settings.local_llm.context_size or LOCAL_UNKNOWN_CONTEXT
+    return entry.context_size
+
+
 def budget_for(settings: AppSettings, role: str, reply_tokens: int) -> int:
     """Tokens available for the prompt: the smallest context in the role's failover chain (a switch
     mid-reply must still fit), capped per role, less the reply and a safety margin."""
-    sizes = [settings.local_llm.context_size if e.provider == "local" and settings.local_llm.context_size
-             else e.context_size for e in settings.roles.get(role, [])] or [DEFAULT_CONTEXT]
+    sizes = [_size(e, settings) for e in settings.roles.get(role, [])] or [DEFAULT_CONTEXT]
     smallest = min(sizes)
     base = min(smallest, settings.context_caps.get(role, smallest))
     return max(MIN_BUDGET, int(base * SAFETY) - reply_tokens)

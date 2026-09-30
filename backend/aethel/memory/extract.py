@@ -7,8 +7,11 @@ import json
 import logging
 import re
 
+import anyio
+
 from ..protocol import FactChange, FactsChanged
 from ..providers.base import ChatMessage, TextDelta
+from ..safety.untrusted import wrap_untrusted
 from .facts import FactStore, valid_scope
 
 log = logging.getLogger("aethel.memory")
@@ -115,12 +118,15 @@ class FactExtractor:
         if answer is None or answer["fact"]["noul"] < s.fact_threshold:
             return []
         persona_scope = f"persona:{persona_id}"
-        near = self.facts.search(user.content, ["user", persona_scope], k=NEIGHBOURS)
+        # embedding blocks: never on the event loop
+        near = await anyio.to_thread.run_sync(
+            lambda: self.facts.search(user.content, ["user", persona_scope], k=NEIGHBOURS))
         ids = {f"f{i}": fact for i, (fact, _) in enumerate(near, 1)}
         known = "\n".join(f"{key}: {fact.text}" for key, fact in ids.items()) or "(none yet)"
         prompt = f"Known facts:\n{known}\n\n"
-        if previous:
-            prompt += f"Aethel's previous reply:\n{previous[:PREVIOUS_REPLY_CHARS]}\n\n"
+        if previous:  # context only: a reply may quote web pages or files, so it's data, not instructions
+            prompt += ("Aethel's previous reply, for context:\n"
+                       + wrap_untrusted("previous reply", previous[:PREVIOUS_REPLY_CHARS]) + "\n\n")
         prompt += f"The user's message:\n{user.content}"
         convo = [ChatMessage("system", SYSTEM), ChatMessage("user", prompt)]
         ops = None
@@ -133,33 +139,46 @@ class FactExtractor:
                       ChatMessage("user", "That wasn't valid JSON. Answer with the JSON object only.")]
         if not ops:
             return []
-        changes = self._apply(ops[:MAX_OPS], ids, persona_scope, user.id, conversation_id)
+        changes = await anyio.to_thread.run_sync(self._apply, ops[:MAX_OPS], ids, persona_scope, user.id,
+                                                 conversation_id)
         if changes:
             self.messages.update(user.id, meta={**user.meta, "facts_changed": [c.model_dump() for c in changes]})
             await self.hub.publish(FactsChanged(conversation_id=conversation_id, message_id=user.id, changes=changes))
         return changes
 
     def _apply(self, ops: list, ids: dict, persona_scope: str, source: str, conversation_id: str) -> list[FactChange]:
+        """Blocking (embeds). Each operation stands alone: a malformed or failing one is skipped, and whatever
+        was applied is still returned, so it's always shown to the user (memory is never silent)."""
         changes: list[FactChange] = []
         for op in ops:
-            if not isinstance(op, dict):
+            try:
+                change = self._apply_one(op, ids, persona_scope, source, conversation_id)
+            except Exception:
+                log.warning("skipped a fact operation that failed: %r", op, exc_info=True)
                 continue
-            kind, text = op.get("op"), str(op.get("text") or "").strip()
-            if kind == "add" and text:
-                scope = {"user": "user", "persona": persona_scope}.get(op.get("scope"))
-                if scope is None or not valid_scope(scope):
-                    continue
-                f = self.facts.add(scope, text, actor="extractor", source_message_id=source,
-                                   conversation_id=conversation_id)
-                changes.append(FactChange(fact_id=f.id, op="add", scope=scope, text=f.text))
-            elif kind == "update" and text and op.get("id") in ids:
-                old = ids[op["id"]]
-                f = self.facts.update(old.id, text, actor="extractor", source_message_id=source)
-                if f is not None and f.text != old.text:
-                    changes.append(FactChange(fact_id=f.id, op="update", scope=f.scope, text=f.text,
-                                              old_text=old.text))
-            elif kind == "delete" and op.get("id") in ids:
-                old = self.facts.delete(ids[op["id"]].id, actor="extractor", source_message_id=source)
-                if old is not None:
-                    changes.append(FactChange(fact_id=old.id, op="delete", scope=old.scope, old_text=old.text))
+            if change is not None:
+                changes.append(change)
         return changes
+
+    def _apply_one(self, op, ids: dict, persona_scope: str, source: str, conversation_id: str) -> FactChange | None:
+        if not isinstance(op, dict):
+            return None
+        kind = op.get("op")
+        text = op.get("text").strip() if isinstance(op.get("text"), str) else ""
+        key = op.get("id") if isinstance(op.get("id"), str) else None  # the model may send lists, numbers…
+        if kind == "add" and text:
+            scope = {"user": "user", "persona": persona_scope}.get(op["scope"] if isinstance(op.get("scope"), str) else "")
+            if scope is None or not valid_scope(scope):
+                return None
+            f = self.facts.add(scope, text, actor="extractor", source_message_id=source, conversation_id=conversation_id)
+            return FactChange(fact_id=f.id, op="add", scope=scope, text=f.text)
+        if kind == "update" and text and key in ids:
+            old = ids[key]
+            f = self.facts.update(old.id, text, actor="extractor", source_message_id=source)
+            if f is not None and f.text != old.text:
+                return FactChange(fact_id=f.id, op="update", scope=f.scope, text=f.text, old_text=old.text)
+        if kind == "delete" and key in ids:
+            old = self.facts.delete(ids[key].id, actor="extractor", source_message_id=source)
+            if old is not None:
+                return FactChange(fact_id=old.id, op="delete", scope=old.scope, old_text=old.text)
+        return None

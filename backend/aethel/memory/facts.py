@@ -67,8 +67,9 @@ class FactStore:
             sql += " AND scope = ?"
             params.append(scope)
         if q:
-            sql += " AND lower(text) LIKE ?"
-            params.append(f"%{q.lower()}%")
+            sql += " AND lower(text) LIKE ? ESCAPE '\\'"
+            escaped = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            params.append(f"%{escaped}%")
         return [self._fact(r) for r in self.db.query(sql + " ORDER BY updated_at DESC, rowid DESC", tuple(params))]
 
     def history(self, fact_id: str) -> list[FactEvent]:
@@ -98,12 +99,15 @@ class FactStore:
         return self.get(fact_id)
 
     def update(self, fact_id: str, text: str, *, actor: str, source_message_id: str | None = None) -> Fact | None:
-        old = self.get(fact_id)
-        if old is None:
+        if self.get(fact_id) is None:
             return None
         text = _clean(text)
         vec = self._vector(text)
+        # The existence check is repeated inside the transaction: the extractor and the user can race.
         with self._lock, self.db.transaction():
+            old = self.get(fact_id)
+            if old is None:
+                return None
             self.db.execute("UPDATE facts SET text = ?, vector = ?, updated_at = ? WHERE id = ?",
                             (text, vec.tobytes(), now_iso(), fact_id))
             self._event(fact_id, "update", old.text, text, actor, source_message_id)
@@ -113,20 +117,23 @@ class FactStore:
 
     def delete(self, fact_id: str, *, actor: str, source_message_id: str | None = None) -> Fact | None:
         """Removes the row (the event log keeps its text); returns what was deleted, for undo."""
-        old = self.get(fact_id)
-        if old is None:
-            return None
         with self._lock, self.db.transaction():
+            old = self.get(fact_id)
+            if old is None:
+                return None
             self.db.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
             self._event(fact_id, "delete", old.text, None, actor, source_message_id)
             if self._vectors is not None:
                 self._vectors.pop(fact_id, None)
         return old
 
-    def search(self, query: str, scopes: list[str], k: int, min_score: float = 0.0) -> list[tuple[Fact, float]]:
-        """Brute-force cosine: a personal fact list stays in the thousands, which numpy ranks in microseconds."""
+    def search(self, query: str, scopes: list[str], k: int, min_score: float = 0.0,
+               vector: np.ndarray | None = None) -> list[tuple[Fact, float]]:
+        """Brute-force cosine: a personal fact list stays in the thousands, which numpy ranks in microseconds.
+        Pass `vector` when the query is already embedded."""
         if not scopes or k <= 0:
             return []
+        q = self._vector(query) if vector is None else np.asarray(vector, dtype=np.float32)
         with self._lock:
             if self._vectors is None:
                 self._vectors = {r["id"]: np.frombuffer(r["vector"], dtype=np.float32)
@@ -136,6 +143,6 @@ class FactStore:
             ids = [i for i in rows if i in self._vectors]
             if not ids:
                 return []
-            sims = np.stack([self._vectors[i] for i in ids]) @ self._vector(query)
+            sims = np.stack([self._vectors[i] for i in ids]) @ q
         ranked = sorted(zip(ids, map(float, sims)), key=lambda t: t[1], reverse=True)
         return [(self._fact(rows[i]), s) for i, s in ranked[:k] if s >= min_score]

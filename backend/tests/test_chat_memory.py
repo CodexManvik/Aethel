@@ -83,7 +83,7 @@ def test_same_conversation_window_is_not_repeated_as_an_episode():
     assert EPISODES_HEADER not in provider.calls[1][0].content
 
 
-def test_extraction_scheduled_after_a_complete_turn_only():
+def test_extraction_scheduled_after_a_turn_but_not_after_an_error():
     client, svc = _client({"groq:g": FakeProvider(chunks=["ok"])})
     calls = []
     svc.extractor.schedule = lambda **kw: calls.append(kw)
@@ -151,3 +151,56 @@ def test_budget_drops_episodes_before_the_window():
             _turn(ws, b["id"], "tell me about Anna")
     last = provider.calls[1]
     assert EPISODES_HEADER not in last[0].content and last[-1].content == "tell me about Anna"
+
+
+def test_slow_recall_times_out_and_the_reply_goes_ahead(monkeypatch):
+    import time
+
+    from aethel.context import recipes
+
+    monkeypatch.setattr(recipes, "RECALL_TIMEOUT_S", 0.2)
+    client, svc = _client({"groq:g": FakeProvider(chunks=["fine"])})
+    svc.facts.add("user", "Has a dog called Pip", actor="user")
+    real_search = svc.facts.search
+
+    def slow(*a, **k):
+        time.sleep(1.0)
+        return real_search(*a, **k)
+    svc.facts.search = slow
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            t0 = time.monotonic()
+            events = _turn(ws, conv["id"], "tell me about my dog")
+            elapsed = time.monotonic() - t0
+    assert events[-1]["status"] == "complete" and "context_used" not in [e["type"] for e in events]
+    assert elapsed < 0.9
+
+
+def test_embedder_failure_skips_recall_quietly():
+    client, svc = _client({"groq:g": FakeProvider(chunks=["fine"])})
+
+    def down(texts):
+        raise RuntimeError("offline")
+    svc.facts.embed = down
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            events = _turn(ws, conv["id"], "hello")
+    assert events[-1]["status"] == "complete"
+
+
+def test_a_stopped_turn_still_extracts_but_is_not_indexed():
+    client, svc = _client({"groq:g": FakeProvider(chunks=["a", "b", "c"], delay=0.3)})
+    calls = []
+    svc.extractor.schedule = lambda **kw: calls.append(kw)
+    with client:
+        conv = client.post("/api/conversations", json={}).json()
+        with client.websocket_connect("/ws/session") as ws:
+            ws.send_json({"type": "user_message", "conversation_id": conv["id"], "text": "I live in Leeds"})
+            start = ws.receive_json()
+            ws.receive_json()  # conversation_updated
+            ws.receive_json()  # first token
+            ws.send_json({"type": "stop_generation", "message_id": start["message_id"]})
+            assert ws.receive_json()["status"] == "stopped"
+    assert len(calls) == 1 and svc.episodic.status()["indexed"] == 0

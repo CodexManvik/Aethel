@@ -19,17 +19,22 @@ export function MessageList() {
   }, [messages, focusId]);
 
   // Jump to a message opened from Memory (a fact's source): scroll it to the middle and glow briefly.
+  // (The conversation is loaded before focusMessageId is set, so a missing row means the message is gone.)
   useEffect(() => {
     if (!focusId) return;
     const row = ref.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(focusId)}"]`);
+    useUi.getState().setFocusMessage(null);
     if (!row) return;
     stick.current = false;
     row.scrollIntoView?.({ block: "center" });
     setHighlight(focusId);
-    useUi.getState().setFocusMessage(null);
+  }, [focusId, messages]);
+
+  useEffect(() => {
+    if (!highlight) return;
     const t = setTimeout(() => setHighlight(null), 2000);
     return () => clearTimeout(t);
-  }, [focusId, messages]);
+  }, [highlight]);
 
   return (
     <div
