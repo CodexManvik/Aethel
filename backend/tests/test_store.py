@@ -60,6 +60,7 @@ def test_update_message_content_status_and_meta(db):
     repo.update(msg.id, content="done", status="complete", meta={"provider": "groq:x"})
     [stored] = repo.list(conv.id)
     assert (stored.content, stored.status, stored.meta) == ("done", "complete", {"provider": "groq:x"})
+    assert repo.get(msg.id) == stored and repo.get("msg_nope") is None
 
 
 def test_rename_and_cascade_delete(db):

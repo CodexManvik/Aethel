@@ -62,6 +62,17 @@ class System1Settings(BaseModel):
     ground_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
+class MemorySettings(BaseModel):
+    facts_enabled: bool = True
+    # System 1's P(yes) that a message is worth remembering. Provisional, not yet measured (eval/s1_fact.jsonl).
+    fact_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    episodic_enabled: bool = True
+    # Exact cosine an earlier exchange must reach to be recalled. Provisional, not yet measured (eval/episodic.json).
+    episodic_min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    facts_k: int = Field(default=6, ge=0, le=30)
+    episodes_k: int = Field(default=3, ge=0, le=10)
+
+
 def _check_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
     if value and not re.match(r"^https?://[^\s/]+", value):
@@ -80,6 +91,7 @@ class AppSettings(BaseModel):
     agent_max_tokens: int = Field(default=8192, ge=256, le=65536)  # tasks write whole files in one call
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
 
     @field_validator("custom_base_url")
     @classmethod
