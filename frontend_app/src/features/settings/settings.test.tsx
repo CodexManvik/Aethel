@@ -28,6 +28,8 @@ const settings: AppSettings = {
   context_caps: { chat: 16000, agent: 24000 },
   auto_approve_skills: true,
   replay_thumbnails: true,
+  use_learned_skills: true,
+  token_saving: { mask_superseded: true, mask_batch: 3 },
 };
 let rebuilds = 0;
 const providers: ProviderInfo[] = [
@@ -52,6 +54,14 @@ beforeEach(() => {
     if (path.endsWith("/models")) return { models: ["m1", "m2"] };
     if (path === "/api/tools") return { servers: { windows: "running", office: "failed: no Office" }, tools: [] };
     if (path === "/api/memory/episodic") return { indexed: 12, exchanges: 14, rebuilding: false };
+    if (path === "/api/usage?days=7") return {
+      days: 7, by_day: [],
+      total: { prompt: 15400, completion: 900, cached: 3000, calls: 9, estimated: false },
+      by_purpose: {
+        execute: { prompt: 12000, completion: 700, cached: 3000, calls: 6, estimated: false },
+        chat_reply: { prompt: 3400, completion: 200, cached: 0, calls: 3, estimated: true },
+      },
+    };
     if (path === "/api/memory/episodic/rebuild") { rebuilds += 1; return { started: true }; }
     return {};
   });
@@ -166,4 +176,23 @@ test("saving the custom endpoint confirms it, and a bad URL says why", async () 
   expect(saveError(new Error('[{"msg":"Value error, must start with http:// or https://, e.g. http://127.0.0.1:1234/v1"}]')))
     .toBe("That URL doesn't look right: it must start with http:// or https://, e.g. http://127.0.0.1:1234/v1.");
   expect(saveError(new Error("boom"))).toBe("Couldn't save: boom");
+});
+
+test("usage lists the last 7 days by purpose, biggest first, with a total", async () => {
+  renderSettings();
+  const table = await screen.findByRole("table");
+  const rows = within(table).getAllByRole("row").slice(1).map((r) => r.textContent);
+  expect(rows).toEqual(["Doing tasks12.0k7003.0k6", "Replies≈3.4k20003", "Total15.4k9003.0k9"]);
+});
+
+test("the learned-skills switch patches settings", async () => {
+  renderSettings();
+  await userEvent.click(await screen.findByRole("switch", { name: "Use what Aethel has learned" }));
+  await waitFor(() => expect(patches).toContainEqual({ use_learned_skills: false }));
+});
+
+test("the Background role is listed with the other models", async () => {
+  renderSettings();
+  expect(await screen.findByText("Background")).toBeInTheDocument();
+  expect(screen.getByText(/Remembering facts and other housekeeping/)).toBeInTheDocument();
 });

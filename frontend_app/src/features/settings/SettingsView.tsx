@@ -7,6 +7,7 @@ import { AppearanceSection } from "./AppearanceSection";
 import { ToolsSection } from "./ToolsSection";
 import { LearningSection } from "./LearningSection";
 import { MemorySection } from "./MemorySection";
+import { UsageSection } from "./UsageSection";
 
 export function SettingsView() {
   const { data: settings, error } = useSettings();
@@ -24,6 +25,7 @@ export function SettingsView() {
             <ToolsSection />
             <LearningSection settings={settings} />
             <MemorySection settings={settings} />
+            <UsageSection />
             <AppearanceSection />
           </>
         )}

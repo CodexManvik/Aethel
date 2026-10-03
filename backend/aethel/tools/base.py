@@ -9,6 +9,7 @@ Verdict = Literal["allow", "ask", "deny"]
 class ToolContext:
     task_id: str | None
     tainted: bool = False  # becomes True once untrusted content entered the task
+    last_ok: bool = False  # whether the last call really ran and succeeded (not denied, looped or failed)
 
 
 @dataclass
@@ -47,6 +48,9 @@ class Tool:
     # Tools that share a group share grants: "Allow for this task" on one
     # desktop action in Notepad covers every desktop action in Notepad.
     group: str | None = None
+    # A tool whose result is the current state of something ("screen", "page"): a newer result of the
+    # same kind supersedes it, so older ones can be left out of the model's context (token spec §5.1).
+    observes: Literal["screen", "page"] | None = None
 
     @property
     def grant_key(self) -> str:

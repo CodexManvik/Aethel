@@ -389,7 +389,7 @@ class Desktop:
             assess = lambda args: self._assess(kind, remote.name, args)  # noqa: E731
             scope = lambda args: self._scope(kind, args)  # noqa: E731
         return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope,
-                    group="desktop")
+                    group="desktop", observes="screen" if remote.name == "Snapshot" else None)
 
     async def _locate(self, args: dict, ctx: ToolContext | None) -> ToolResult:
         """Vision fallback (spec §4.2): for apps whose accessibility tree is
@@ -411,7 +411,8 @@ class Desktop:
         reply = []
         stream = self.vision.stream("vision", [ChatMessage("user", prompt,
                                                            images=[f"data:{image.mimeType};base64,{image.data}"])],
-                                    max_tokens=40)
+                                    max_tokens=40, purpose="vision_locate",
+                                    ref={"task_id": ctx.task_id} if ctx is not None and ctx.task_id else None)
         async with aclosing(stream):
             async for event in stream:
                 if isinstance(event, TextDelta):

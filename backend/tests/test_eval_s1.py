@@ -64,3 +64,49 @@ def test_episodic_floor_scores_like_chat_recall():
     assert ep.at(rows, 0.90)["precision"] is None
     # net correct - wrong - unwanted: 1 up to 0.60 (b:0 still recalled), -1 at 0.61-0.66, 0 at 0.67-0.70 …
     assert ep.choose_floor(rows) == 0.6  # … and ties go to the higher floor
+
+
+def test_extraction_scoring():
+    ex = _load("eval_extract")
+    case = {"expect": [{"op": "update", "id": "f1", "contains": ["York"]}, {"op": "add", "contains": ["dog", "pip"]}]}
+    assert ex.score(case, [{"op": "add", "scope": "user", "text": "Has a dog called Pip"},
+                           {"op": "update", "id": "f1", "text": "Lives in York"}])
+    assert not ex.score(case, [{"op": "update", "id": "f2", "text": "Lives in York"},
+                               {"op": "add", "text": "Has a dog called Pip"}])        # wrong id
+    assert not ex.score(case, [{"op": "update", "id": "f1", "text": "Lives in York"}])  # one missing
+    assert ex.score({"expect": []}, []) and not ex.score({"expect": []}, [{"op": "add", "text": "x"}])
+    assert ex.score({"expect": []}, None)
+
+
+def test_extraction_fixtures_are_well_formed():
+    import json
+    cases = json.loads((Path(__file__).resolve().parents[1] / "aethel" / "eval" / "extract_fixtures.json")
+                       .read_text(encoding="utf-8"))["cases"]
+    assert len(cases) == 20 and sum(1 for c in cases if c["expect"]) == 12
+    for c in cases:
+        for e in c["expect"]:
+            assert e["op"] in ("add", "update", "delete")
+            if e["op"] != "add":
+                assert e["id"].startswith("f") and int(e["id"][1:]) <= len(c["known"])
+
+
+def test_token_eval_summary():
+    tok = _load("eval_tokens")
+    runs = [{"success": True, "seconds": 10, "usage": {"prompt": 1000, "completion": 100, "calls": 4, "estimated": False}},
+            {"success": False, "seconds": 20, "usage": {"prompt": 3000, "completion": 300, "calls": 8, "estimated": True}}]
+    s = tok.summarise(runs)
+    assert (s["success_rate"], s["mean_prompt_tokens"], s["mean_calls"], s["estimated"]) == (0.5, 2000, 6, True)
+    assert [t[0] for t in tok.tasks()] == ["haiku", "calc", "folder", "url", "edit", "display"]
+
+
+def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
+    tok = _load("eval_tokens")
+    assert tok.schedule(["a", "b"], 2) == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
+                                           ("b", "masking on"), ("a", "masking on"), ("a", "masking off"),
+                                           ("b", "masking on"), ("b", "masking off")]
+    checks = {name: check for name, _, check in tok.tasks()}
+    (tmp_path / "result.txt").write_text("7,006,652", encoding="utf-8")
+    assert checks["calc"](tmp_path) is True
+    (tmp_path / "notes.txt").write_text("shopping\n- eggs\nbuy milk\n", encoding="utf-8")
+    assert checks["edit"](tmp_path) is True
+    assert checks["folder"](tmp_path) is False and checks["url"] is None

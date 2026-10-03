@@ -1,3 +1,4 @@
+import copy
 import json
 from itertools import count
 
@@ -95,7 +96,7 @@ class ScriptedProvider:
         self.max_tokens_seen = []
 
     async def stream(self, messages, *, temperature, max_tokens, tools=None):
-        self.calls.append(list(messages))
+        self.calls.append([copy.copy(m) for m in messages])  # as sent: the engine may edit them later
         self.tools_seen.append([t.name for t in tools or []])
         self.max_tokens_seen.append(max_tokens)
         if not self.turns:

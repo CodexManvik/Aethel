@@ -6,9 +6,18 @@ import httpx
 import openai
 from openai import AsyncOpenAI
 
-from .base import ChatMessage, ProviderError, StreamDone, StreamEvent, TextDelta, ToolCall, ToolCallsReady, ToolSpec
+from .base import (ChatMessage, ProviderError, StreamDone, StreamEvent, TextDelta, ToolCall, ToolCallsReady, ToolSpec,
+                   Usage)
 
 RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+# Endpoints that rejected stream_options this session (providers are built per call, so it's module state).
+NO_USAGE_OPTION: set[str] = set()
+
+
+def _usage(u) -> Usage:
+    details = getattr(u, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", None) if details is not None else None
+    return Usage(int(u.prompt_tokens or 0), int(u.completion_tokens or 0), int(cached or 0))
 
 
 def _error_text(exc: openai.APIStatusError) -> str:
@@ -58,6 +67,7 @@ class OpenAICompatProvider:
     ):
         self.label = f"{provider}:{model}"
         self.model = model
+        self._endpoint = base_url.rstrip("/")
         self._client = AsyncOpenAI(
             base_url=base_url, api_key=api_key, http_client=http_client, timeout=timeout, max_retries=0
         )
@@ -79,12 +89,25 @@ class OpenAICompatProvider:
         }
         if tools:
             kwargs["tools"] = _wire_tools(tools)
+        if self._endpoint not in NO_USAGE_OPTION:
+            kwargs["stream_options"] = {"include_usage": True}  # a last chunk with the token counts
         try:
-            stream = await self._client.chat.completions.create(**kwargs)
+            try:
+                stream = await self._client.chat.completions.create(**kwargs)
+            except openai.APIStatusError as exc:
+                if exc.status_code not in (400, 422) or "stream_options" not in _error_text(exc) \
+                        or "stream_options" not in kwargs:
+                    raise
+                NO_USAGE_OPTION.add(self._endpoint)  # an older server: ask without it from now on
+                del kwargs["stream_options"]
+                stream = await self._client.chat.completions.create(**kwargs)
             finish = None
+            usage: Usage | None = None
             pending: dict[int, dict] = {}  # tool calls arrive as deltas keyed by index
             last_index: int | None = None
             async for chunk in stream:
+                if getattr(chunk, "usage", None) is not None:
+                    usage = _usage(chunk.usage)
                 if not chunk.choices:
                     continue
                 choice = chunk.choices[0]
@@ -122,7 +145,7 @@ class OpenAICompatProvider:
                     ToolCall(id=s["id"] or f"call_{i}", name=s["name"], arguments=s["arguments"] or "{}")
                     for i, s in sorted(pending.items())
                 ])
-            yield StreamDone(finish)
+            yield StreamDone(finish, usage)
         except openai.APIStatusError as exc:
             raise ProviderError(
                 f"{self.label}: HTTP {exc.status_code}: {_error_text(exc)}",

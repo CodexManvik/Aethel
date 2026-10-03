@@ -15,7 +15,7 @@ from ..providers.base import ChatMessage, ProviderError, TextDelta
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
-from .persona import system_prompt
+from .persona import system_prompt, time_note
 
 log = logging.getLogger("aethel.chat")
 TITLE_MAX = 48
@@ -127,7 +127,8 @@ class ChatService:
             if recalled["facts"] or recalled["episodes"]:
                 self.messages.update(assistant.id, meta={"context": recalled})
                 await publish(ContextUsed(message_id=assistant.id, **recalled))
-            stream = self.router.stream("chat", prompt, on_switch=on_switch)
+            stream = self.router.stream("chat", prompt, on_switch=on_switch, purpose="chat_reply",
+                                        ref={"message_id": assistant.id})
             async with aclosing(stream):
                 async for ev in stream:
                     if isinstance(ev, TextDelta):
@@ -173,12 +174,9 @@ class ChatService:
             m for m in self.messages.list(conv.id, limit=settings.history_window + 1)
             if m.id != exclude_id and m.status != "error" and m.content
         ]
-        system = system_prompt()
         note = self.task_note(conv.id) if self.task_note else None
-        if note:
-            system += "\n\n" + note
         built, recalled = await chat_context(
-            system=system, window=[ChatMessage(m.role, m.content) for m in history], query=query,
+            system=system_prompt(), window=[ChatMessage(m.role, m.content) for m in history], query=query,
             persona_id=conv.persona_id, facts=self.facts, episodic=self.episodic, settings=settings,
-            exclude_messages={m.id for m in history})
+            exclude_messages={m.id for m in history}, tail="\n\n".join(filter(None, [note, time_note()])))
         return built.messages, recalled

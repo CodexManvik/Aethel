@@ -42,7 +42,18 @@ def gate_state(user_text: str, previous_reply: str | None) -> dict:
     return state
 
 
-def _parse(raw: str) -> list | None:
+def extraction_messages(known: list[str], previous: str | None, message: str) -> list[ChatMessage]:
+    """The one extraction prompt (also used by scripts/eval_extract.py): known facts are f1, f2… in order."""
+    listed = "\n".join(f"f{i}: {text}" for i, text in enumerate(known, 1)) or "(none yet)"
+    prompt = f"Known facts:\n{listed}\n\n"
+    if previous:  # context only: a reply may quote web pages or files, so it's data, not instructions
+        prompt += ("Aethel's previous reply, for context:\n"
+                   + wrap_untrusted("previous reply", previous[:PREVIOUS_REPLY_CHARS]) + "\n\n")
+    prompt += f"The user's message:\n{message}"
+    return [ChatMessage("system", SYSTEM), ChatMessage("user", prompt)]
+
+
+def parse_ops(raw: str) -> list | None:
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     try:
         ops = json.loads(m.group(0))["ops"] if m else None
@@ -99,9 +110,10 @@ class FactExtractor:
         before = [m for m in history[:idx] if m.role == "assistant" and m.content]
         return before[-1].content if before else None
 
-    async def _complete(self, messages: list[ChatMessage]) -> str:
+    async def _complete(self, messages: list[ChatMessage], message_id: str | None = None) -> str:
         parts = []
-        async for ev in self.router.stream("chat", messages, temperature=0.1):
+        async for ev in self.router.stream("utility", messages, temperature=0.1, purpose="fact_extract",
+                                           ref={"message_id": message_id} if message_id else None):
             if isinstance(ev, TextDelta):
                 parts.append(ev.text)
         return "".join(parts)
@@ -122,17 +134,11 @@ class FactExtractor:
         near = await anyio.to_thread.run_sync(
             lambda: self.facts.search(user.content, ["user", persona_scope], k=NEIGHBOURS))
         ids = {f"f{i}": fact for i, (fact, _) in enumerate(near, 1)}
-        known = "\n".join(f"{key}: {fact.text}" for key, fact in ids.items()) or "(none yet)"
-        prompt = f"Known facts:\n{known}\n\n"
-        if previous:  # context only: a reply may quote web pages or files, so it's data, not instructions
-            prompt += ("Aethel's previous reply, for context:\n"
-                       + wrap_untrusted("previous reply", previous[:PREVIOUS_REPLY_CHARS]) + "\n\n")
-        prompt += f"The user's message:\n{user.content}"
-        convo = [ChatMessage("system", SYSTEM), ChatMessage("user", prompt)]
+        convo = extraction_messages([f.text for f in ids.values()], previous, user.content)
         ops = None
         for _ in range(2):
-            raw = await self._complete(convo)
-            ops = _parse(raw)
+            raw = await self._complete(convo, user.id)
+            ops = parse_ops(raw)
             if ops is not None:
                 break
             convo += [ChatMessage("assistant", raw),

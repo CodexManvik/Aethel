@@ -94,3 +94,56 @@ def test_images_travel_as_content_parts():
         {"type": "text", "text": "where is Save?"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}
     assert _wire_message(ChatMessage("user", "plain")) == {"role": "user", "content": "plain"}
+
+
+def _usage_chunk(prompt, completion, cached=None):
+    usage = {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt + completion}
+    if cached is not None:
+        usage["prompt_tokens_details"] = {"cached_tokens": cached}
+    return "data: " + json.dumps({"id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "m",
+                                  "choices": [], "usage": usage}) + "\n\n"
+
+
+async def test_usage_chunk_is_reported():
+    from aethel.providers.base import Usage
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        body = _chunk("hi") + _chunk(finish="stop") + _usage_chunk(120, 7, 64) + "data: [DONE]\n\n"
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = [e async for e in _provider(handler).stream([ChatMessage("user", "hi")], temperature=0.5, max_tokens=8)]
+    assert events[-1] == StreamDone("stop", Usage(120, 7, 64))
+    assert seen["body"]["stream_options"] == {"include_usage": True}
+
+
+async def test_no_usage_reported_is_none():
+    def handler(request):
+        body = _chunk("hi") + _chunk(finish="stop") + "data: [DONE]\n\n"
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = [e async for e in _provider(handler).stream([ChatMessage("user", "hi")], temperature=0.5, max_tokens=8)]
+    assert events[-1] == StreamDone("stop", None)
+
+
+async def test_stream_options_rejected_falls_back_once():
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "stream_options" in body:
+            return httpx.Response(400, json={"error": {"message": "Unknown parameter: 'stream_options'"}})
+        text = _chunk("ok") + _chunk(finish="stop") + "data: [DONE]\n\n"
+        return httpx.Response(200, text=text, headers={"content-type": "text/event-stream"})
+
+    from aethel.providers import openai_compat
+    try:
+        for _ in range(2):  # a fresh provider each time, as the router's factory builds them
+            events = [e async for e in _provider(handler).stream([ChatMessage("user", "hi")], temperature=0.5,
+                                                                max_tokens=8)]
+            assert events[0] == TextDelta("ok")
+        assert ["stream_options" in b for b in bodies] == [True, False, False]
+    finally:
+        openai_compat.NO_USAGE_OPTION.clear()

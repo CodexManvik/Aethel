@@ -119,7 +119,9 @@ def test_make_title_and_prompt():
     assert make_title("  hello\n  world  ") == "hello world"
     long = make_title("x" * 100)
     assert len(long) == 48 and long.endswith("…")
-    assert "Current local time" in system_prompt()
+    from aethel.chat.persona import time_note
+    assert "Aethel" in system_prompt() and "Current local time" not in system_prompt()
+    assert time_note().startswith("Current local time: ")
 
 
 @pytest.mark.anyio

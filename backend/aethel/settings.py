@@ -40,6 +40,11 @@ def default_roles() -> dict[str, list[RouteEntry]]:
             RouteEntry(provider="local", model="local"),
         ],
         "vision": [RouteEntry(provider="gemini", model="gemini-2.5-flash")],
+        # Background housekeeping (fact extraction); the chat models follow it in the chain (providers/router.py).
+        # Empty until scripts/eval_extract.py shows a small model extracts as well as chat (not yet measured):
+        # the candidate is Groq llama-3.1-8b-instant (Groq's free-tier limits are per model, so it would keep
+        # this off the chat model's quota). Empty also means no provider the chat chain doesn't already use.
+        "utility": [],
     }
 
 
@@ -81,6 +86,13 @@ class MemorySettings(BaseModel):
     episodes_k: int = Field(default=3, ge=0, le=10)
 
 
+class TokenSavingSettings(BaseModel):
+    # Leave stale screen/page snapshots out of a task's context once a newer one exists (token spec §5.1).
+    # On by default; scripts/eval_tokens.py confirms it doesn't cost task success (not yet measured).
+    mask_superseded: bool = True
+    mask_batch: int = Field(default=3, ge=1, le=20)  # rewrite earlier messages at most once per this many
+
+
 def _check_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
     if value and not re.match(r"^https?://[^\s/]+", value):
@@ -100,6 +112,7 @@ class AppSettings(BaseModel):
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    token_saving: TokenSavingSettings = Field(default_factory=TokenSavingSettings)
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
 
@@ -109,6 +122,9 @@ class AppSettings(BaseModel):
         return _check_base_url(value)
     replay_thumbnails: bool = True  # a small screenshot after each on-screen step, kept only on this PC
     auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
+    # Off: tasks run without learned skills or macros and nothing new is learned (E1's "LLM only" condition,
+    # and scripts/eval_tokens.py, which compares full LLM runs).
+    use_learned_skills: bool = True
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

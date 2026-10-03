@@ -1,0 +1,25 @@
+{
+  "about": "Hand-written fact-extraction cases (token spec §5.2). 'expect' lists the operations a careful extractor makes; add/update match when the text contains every word in 'contains' (case-insensitive); update/delete must name the right id. [] means no change.",
+  "cases": [
+    {"known": [], "previous": null, "message": "I've just adopted a dog called Pip", "expect": [{"op": "add", "contains": ["dog", "Pip"]}]},
+    {"known": ["Lives in Leeds"], "previous": null, "message": "actually I moved to York last month", "expect": [{"op": "update", "id": "f1", "contains": ["York"]}]},
+    {"known": ["Works at a bank"], "previous": null, "message": "I quit the bank, I'm a data analyst now", "expect": [{"op": "update", "id": "f1", "contains": ["data analyst"]}]},
+    {"known": ["Has a cat called Luna"], "previous": null, "message": "Luna passed away last week, I don't have a cat anymore", "expect": [{"op": "delete", "id": "f1"}]},
+    {"known": [], "previous": "What's your dog called?", "message": "Pip", "expect": [{"op": "add", "contains": ["Pip"]}]},
+    {"known": [], "previous": null, "message": "I'm vegetarian and allergic to peanuts", "expect": [{"op": "add", "contains": ["vegetarian"]}, {"op": "add", "contains": ["peanut"]}]},
+    {"known": [], "previous": null, "message": "call me Manny from now on", "expect": [{"op": "add", "contains": ["Manny"]}]},
+    {"known": ["Sister is called Anna"], "previous": null, "message": "no, my sister is called Aisha, Anna is my cousin", "expect": [{"op": "update", "id": "f1", "contains": ["Aisha"]}, {"op": "add", "contains": ["Anna", "cousin"]}]},
+    {"known": ["Studies computer science"], "previous": null, "message": "I'm in my final year of computer science now", "expect": [{"op": "update", "id": "f1", "contains": ["final year"]}]},
+    {"known": [], "previous": null, "message": "my birthday is on the 14th of March", "expect": [{"op": "add", "contains": ["14", "March"]}]},
+    {"known": ["Drives a Honda Civic"], "previous": null, "message": "sold the Civic, I just take the bus now", "expect": [{"op": "delete", "id": "f1"}]},
+    {"known": [], "previous": null, "message": "I prefer short answers, please don't write essays", "expect": [{"op": "add", "contains": ["short"]}]},
+    {"known": [], "previous": null, "message": "what's the capital of Australia?", "expect": []},
+    {"known": ["Lives in Leeds"], "previous": null, "message": "open notepad and write a poem about Leeds", "expect": []},
+    {"known": [], "previous": null, "message": "that film was so overrated", "expect": []},
+    {"known": [], "previous": null, "message": "if I lived in Paris I'd eat croissants every day", "expect": []},
+    {"known": ["Has a dog called Pip"], "previous": null, "message": "Pip is still my dog, he's doing great", "expect": []},
+    {"known": [], "previous": "Want me to open Spotify?", "message": "no thanks", "expect": []},
+    {"known": [], "previous": null, "message": "my friend's cousin lives in Canada apparently", "expect": []},
+    {"known": [], "previous": null, "message": "thanks, that's really helpful", "expect": []}
+  ]
+}

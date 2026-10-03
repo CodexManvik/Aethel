@@ -93,6 +93,14 @@ def get_task(task_id: str, svc: Services = Depends(get_services)) -> TaskDetail:
     return _detail(svc, task)
 
 
+@router.get("/{task_id}/usage")
+def task_usage(task_id: str, svc: Services = Depends(get_services)) -> dict:
+    """Tokens this task's LLM calls used so far (token-efficiency spec §3)."""
+    if svc.tasks.get(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return svc.usage.task_totals(task_id)
+
+
 @router.post("/{task_id}/rollback")
 def rollback_task(task_id: str, svc: Services = Depends(get_services)) -> RollbackOut:
     task = svc.tasks.get(task_id)

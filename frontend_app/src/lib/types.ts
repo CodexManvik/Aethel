@@ -47,6 +47,8 @@ export interface AppSettings {
   context_caps: Record<string, number>;
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;
+  use_learned_skills: boolean;
+  token_saving: { mask_superseded: boolean; mask_batch: number };
 }
 
 export interface MemorySettings {

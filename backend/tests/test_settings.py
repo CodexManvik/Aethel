@@ -17,7 +17,8 @@ def service():
 
 def test_defaults_have_a_chain_for_each_role(service):
     s = service.get()
-    assert set(s.roles) == {"chat", "agent", "vision"}
+    assert set(s.roles) == {"chat", "agent", "vision", "utility"}
+    assert s.roles["utility"] == []  # falls back to chat until eval_extract.py says a small model is good enough
     assert s.roles["chat"][0] == RouteEntry(provider="groq", model="llama-3.3-70b-versatile")
     assert s.roles["chat"][-1].provider == "local"
     assert s.private_mode is False

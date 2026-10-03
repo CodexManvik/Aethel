@@ -36,8 +36,17 @@ class ToolCallsReady:
 
 
 @dataclass
+class Usage:
+    """Tokens as the provider counted them for one call."""
+    prompt: int
+    completion: int
+    cached: int = 0  # prompt tokens served from the provider's prompt cache
+
+
+@dataclass
 class StreamDone:
     finish_reason: str | None
+    usage: Usage | None = None  # None when the provider didn't report it
 
 
 StreamEvent = Union[TextDelta, ToolCallsReady, StreamDone]
