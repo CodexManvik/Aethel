@@ -36,7 +36,7 @@ from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import Assessment, ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
-from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
+from ..tools.groups import ALWAYS_ON_REQUEST, CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
 from ..tools.web import SourceList, unlisted_read
 from .checks import Check, CheckResult, run_checks_with
@@ -370,8 +370,10 @@ class TaskEngine:
                 self.tasks.set_plan(task_id, steps, [c.model_dump() for c in checks])
                 await self.hub.publish(TaskPlan(task_id=task_id, steps=steps, checks=[c.describe() for c in checks]))
                 record = self.tasks.get(task_id)
-            if self._groups_on():  # the core tools, what the plan and the learned skills point to, what was used
-                self._groups[task_id] = set(CORE) | planned | self._skill_groups(shown) | self._groups_for_steps(task_id)
+            base = self._base_groups(task_id)
+            if self._groups_on() or self._available(task_id) - base:  # something starts deferred (the browser always does)
+                # what starts active, what the plan and the learned skills point to, and what was already used
+                self._groups[task_id] = set(base) | planned | self._skill_groups(shown) | self._groups_for_steps(task_id)
             checks = [Check.model_validate(c) for c in record.checks]
             await self._set_state(task_id, "running")
             convo = [
@@ -556,8 +558,11 @@ class TaskEngine:
         groups: set[str] = set()
         for skill_id in skill_ids:
             skill = self.knowledge.get(skill_id) or {}
-            if any(k in str(app).lower() for app in skill.get("apps") or [] for k in ("word", "excel", "powerpoint")):
+            apps = [str(app).lower() for app in skill.get("apps") or []]
+            if any(k in app for app in apps for k in ("word", "excel", "powerpoint")):
                 groups.add("office")
+            if "browser" in apps:  # a skill recorded as working in Aethel's own (background) browser
+                groups.add("browser")
             for step in (skill.get("macro_def") or {}).get("steps") or []:
                 tool = self.registry.get(step.get("tool"))
                 if tool is not None:
@@ -573,6 +578,11 @@ class TaskEngine:
     def _available(self, task_id: str) -> set[str]:
         """The tool groups this task may use at all: everything registered, but the web only where it's on."""
         return self.registry.groups() - (set() if self._web_on(task_id) else {"web"})
+
+    def _base_groups(self, task_id: str) -> set[str]:
+        """The groups a task starts with: only the core ones when tool groups are on, else everything it may use
+        except the groups that are always on request."""
+        return set(CORE) if self._groups_on() else self._available(task_id) - ALWAYS_ON_REQUEST
 
     def _offered(self, task_id: str) -> list[ToolSpec]:
         """The tools for the next executor call: what's active, the plan tools, and use_tools while a group is left."""
@@ -631,11 +641,11 @@ class TaskEngine:
             -> tuple[list[str], list[Check], set[str]]:
         spec = SUBMIT_PLAN
         valid: list[str] = []
-        available = self._available(task_id)
-        if self._groups_on():  # the core tools in full, the rest as a catalogue the plan can pick from
-            valid = inactive_groups(available, CORE)
-            listed = self.registry.specs(CORE, compact=self._compact())
-            catalogue = catalogue_line(available, CORE)
+        available, base = self._available(task_id), self._base_groups(task_id)
+        valid = inactive_groups(available, base)
+        if self._groups_on() or valid:  # the starting tools in full, the rest as a catalogue the plan can pick from
+            listed = self.registry.specs(base & available, compact=self._compact())
+            catalogue = catalogue_line(available, base)
             spec = submit_plan_spec(valid)
         else:
             listed, catalogue = self.registry.specs(available, compact=self._compact()), ""

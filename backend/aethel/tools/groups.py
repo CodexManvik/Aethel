@@ -15,6 +15,9 @@ GROUPS: dict[str, str] = {
 GROUP_LABELS: dict[str, str] = {"desktop_extra": "extra desktop", "office": "Word and Excel", "files": "file search",
                                 "web": "web", "browser": "browser"}
 CORE = frozenset({"core"})
+# Groups that start deferred even when "send only the tools a task needs" is off: the browser's ~13 tools would
+# otherwise ride along with every task, and most tasks never touch it.
+ALWAYS_ON_REQUEST = frozenset({"browser"})
 CATALOGUE_START = "More tools on request"  # what catalogue_line() opens with, so it can be found and replaced
 
 
