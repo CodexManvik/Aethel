@@ -12,8 +12,10 @@ class CreateIn(BaseModel):
     persona_id: str = "aethel"
 
 
-class RenameIn(BaseModel):
-    title: str = Field(max_length=200)
+class UpdateIn(BaseModel):
+    """Either field may be sent. web: true or false, or null to follow Settings (absent leaves it alone)."""
+    title: str | None = Field(default=None, max_length=200)
+    web: bool | None = None
 
 
 def _require(svc: Services, conv_id: str) -> Conversation:
@@ -34,9 +36,13 @@ def create_conversation(body: CreateIn, svc: Services = Depends(get_services)) -
 
 
 @router.patch("/{conv_id}")
-def rename_conversation(conv_id: str, body: RenameIn, svc: Services = Depends(get_services)) -> Conversation:
-    _require(svc, conv_id)
-    return svc.conversations.rename(conv_id, body.title.strip())
+def update_conversation(conv_id: str, body: UpdateIn, svc: Services = Depends(get_services)) -> Conversation:
+    conv = _require(svc, conv_id)
+    if "title" in body.model_fields_set and body.title is not None:
+        conv = svc.conversations.rename(conv_id, body.title.strip())
+    if "web" in body.model_fields_set:  # null is a value here: "follow Settings"
+        conv = svc.conversations.set_web(conv_id, body.web)
+    return conv
 
 
 @router.delete("/{conv_id}", status_code=204)
