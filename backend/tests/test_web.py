@@ -94,6 +94,29 @@ async def test_search_numbers_results_and_keeps_a_urls_number(monkeypatch):
         (3, "New", "https://c.example/n")]
 
 
+async def test_a_result_whose_address_isnt_a_plain_web_address_is_dropped(monkeypatch):
+    """Source URLs end up in a markdown link and an href: a hostile result mustn't smuggle markdown or a script."""
+    monkeypatch.setattr(web, "_search", lambda q, n: [
+        {"title": "Evil", "href": "javascript:alert(1)", "body": "x"},
+        {"title": "Newline", "href": "https://a.example/x\n\n# injected heading", "body": "x"},
+        {"title": "Space", "href": "https://a.example/a b", "body": "x"},
+        {"title": "Angle", "href": "https://a.example/<script>", "body": "x"},
+        {"title": "Quote", "href": 'https://a.example/"onmouseover=1', "body": "x"},
+        {"title": "Fine", "href": "https://ok.example/page?q=1&r=(2)", "body": "ok"}])
+    tools, sources, _ = make_tools(lambda r: httpx.Response(500))
+    result = await call(tools["web_search"], query="x")
+    assert result.content == "[1] Fine — https://ok.example/page?q=1&r=(2)\n    ok"
+    assert [s.url for s in sources.all()] == ["https://ok.example/page?q=1&r=(2)"]
+
+
+async def test_reading_an_address_with_whitespace_or_markup_is_refused_before_any_request():
+    tools, sources, seen = make_tools(lambda r: html("T", "body"))
+    for url in ("https://a.example/x\n\n# hi", "https://a.example/a b", 'https://a.example/"x', "https://a.example/<b>"):
+        result = await call(tools["web_read"], url=url)
+        assert not result.ok and "web address" in result.content
+    assert seen == [] and sources.all() == []
+
+
 async def test_search_limits_results_and_survives_a_failing_or_empty_search(monkeypatch):
     asked = []
     monkeypatch.setattr(web, "_search", lambda q, n: asked.append(n) or [])

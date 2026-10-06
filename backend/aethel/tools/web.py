@@ -32,6 +32,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
                          "Chrome/126.0 Safari/537.36 Aethel", "Accept": "text/html,text/plain;q=0.9,*/*;q=0.1"}
 BLOCKED = "I can't open that address: it isn't the public web (it's this computer or a private network)."
 TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+# What may be read or listed as a source. Source URLs end up in a markdown link and an href, so anything that
+# could break out of either (whitespace, control characters, quotes, angle brackets) is refused outright.
+_WEB_ADDRESS = re.compile(r"^https?://[^\s<>\"\x00-\x1f]+$", re.IGNORECASE)
 
 
 class BlockedAddress(Exception):
@@ -173,8 +176,8 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
         sources, lines = sources_for(ctx), []
         for row in rows:
             url = str(row.get("href") or row.get("url") or "").strip()
-            if not url:
-                continue
+            if not _WEB_ADDRESS.match(url):
+                continue  # not a plain web address: never listed, never numbered, never linked
             title = _flat(row.get("title")) or _title_from(url)
             lines.append(f"[{sources.add(url, title)}] {title} — {url}")
             if snippet := _flat(row.get("body"), SNIPPET_CHARS):
@@ -183,6 +186,8 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
 
     async def read(args: dict, ctx: ToolContext) -> ToolResult:
         url = str(args.get("url") or "").strip()
+        if not _WEB_ADDRESS.match(url):
+            return ToolResult(False, "That isn't a web address I can open (it must be a plain http:// or https:// link).")
         try:
             start = max(0, int(args.get("start") or 0))
         except (TypeError, ValueError):
@@ -194,7 +199,7 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
             return ToolResult(False, str(exc))
         except TimeoutError:
             return ToolResult(False, "The page took too long to load.")
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
             return ToolResult(False, f"I couldn't load the page: {_flat(str(exc), 200) or type(exc).__name__}")
         markup = body.decode(charset, errors="replace") if charset else body.decode("utf-8", errors="replace")
         if ctype == "text/plain":

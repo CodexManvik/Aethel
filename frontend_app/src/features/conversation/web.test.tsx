@@ -50,13 +50,22 @@ test("no footnotes or Sources while the reply is still streaming, or when there 
   expect(screen.getByText(/It rains in April/).textContent).toContain("[1]");
 });
 
-test("citeText keeps parentheses and spaces in a URL working and leaves code alone", () => {
-  expect(citeText("a [1] b", [{ n: 1, title: "t", url: "https://x.example/a b_(1)" }]))
-    .toBe('a [1](<https://x.example/a b_(1)> "cite") b');
+test("citeText keeps parentheses in a URL working and leaves code alone", () => {
+  expect(citeText("a [1] b", [{ n: 1, title: "t", url: "https://x.example/a_(1)?q=(2)" }]))
+    .toBe('a [1](<https://x.example/a_(1)?q=(2)> "cite") b');
   expect(citeText("link [1](https://z.example) and [1]", sources)).toBe(
     'link [1](https://z.example) and [1](<https://www.a.example/rain> "cite")');   // an existing link isn't doubled
   expect(citeText("`[1]`", sources)).toBe("`[1]`");
   expect(citeText("no sources [1]", [])).toBe("no sources [1]");
+});
+
+test("a source that isn't an http(s) address is never linked, whatever the server sent", () => {
+  const odd = [{ n: 1, title: "Script", url: "javascript:alert(1)" }, { n: 2, title: "Fine", url: "https://ok.example/p" }];
+  expect(citeText("a [1] b [2]", odd)).toBe('a [1] b [2](<https://ok.example/p> "cite")');
+  render(<PersonaMessage message={reply({ content: "a [1] b [2]", sources: odd })} />);
+  expect(screen.queryByRole("link", { name: "Script" })).not.toBeInTheDocument();
+  expect(screen.getByRole("list", { name: "Sources" }).textContent).toContain("1. Script");   // listed, as text
+  expect([...document.querySelectorAll("a")].map((a) => a.getAttribute("href"))).not.toContain("javascript:alert(1)");
 });
 
 // ---- the activity line ------------------------------------------------------------------------------------------
