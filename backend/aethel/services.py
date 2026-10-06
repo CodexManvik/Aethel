@@ -35,6 +35,7 @@ from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.office import Office, office_spec
 from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
+from .tools.web import SourceList, web_tools
 from .usage import UsageLog
 
 AUTO = object()
@@ -101,6 +102,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     registry = ToolRegistry()
     for tool in [*fs_tools(permissions, changes), shell_tool(permissions), *([open_url_tool()] if os.name == "nt" else [])]:
         registry.register(tool)
+    # Always registered, offered only where the web is on (chat: effective_web; tasks: the engine). The numbered
+    # sources belong to the turn or task asking, carried on its ToolContext.
+    for tool in web_tools(lambda ctx: ctx.sources if ctx.sources is not None else SourceList(), http_client):
+        registry.register(tool)
     approvals = ApprovalBroker(hub)
     system1 = System1(db, settings)
     knowledge = KnowledgeStore(aethel_home() / "knowledge", _embed)
@@ -112,7 +117,8 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                         registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
                         system1=system1, facts=facts)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
-                       task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor)
+                       task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor,
+                       web_tools=lambda: [registry.get(name) for name in registry.names("web")])
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,

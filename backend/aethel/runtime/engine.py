@@ -17,6 +17,7 @@ import anyio
 from pydantic import ValidationError
 
 from ..chat.service import make_title
+from ..chat.web_loop import effective_web
 from ..context.builder import budget_for, estimate
 from ..context.observations import UNCHANGED_PREFIX, Observation, StateTracker, fit_to_budget, mask_superseded
 from ..usage import estimate_breakdown
@@ -24,8 +25,8 @@ from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
-                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskNote, TaskPlan, TaskState,
-                        VerificationResult)
+                        SkillLearned, Source, Sources, StepFinished, StepStarted, TaskCreated, TaskNote, TaskPlan,
+                        TaskState, VerificationResult)
 from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady, ToolSpec
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..safety.approvals import ApprovalBroker
@@ -37,6 +38,7 @@ from ..tools.base import ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
 from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
+from ..tools.web import SourceList
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
@@ -215,6 +217,8 @@ class TaskEngine:
         # task_id -> the tool groups on offer. Absent: every tool is offered (token_saving.tool_groups is off).
         self._groups: dict[str, set[str]] = {}
         self._catalogue: dict[str, str] = {}  # task_id -> the catalogue line last appended to its system prompt
+        self._web: dict[str, bool] = {}       # task_id -> whether the web is on for its conversation
+        self._sources: dict[str, SourceList] = {}  # task_id -> the web sources it has met, numbered
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -341,6 +345,10 @@ class TaskEngine:
             self._obs.pop(task_id, None)
             self._groups.pop(task_id, None)
             self._catalogue.pop(task_id, None)  # a fresh conversation starts without one
+            conv = self.conversations.get(record.conversation_id)
+            self._web[task_id] = bool(self.settings is not None and conv is not None
+                                      and effective_web(self.settings.get(), conv))
+            self._sources[task_id] = SourceList()  # [n] numbers are per task, from the first web result
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
@@ -369,12 +377,12 @@ class TaskEngine:
             await self._set_state(task_id, "running")
             convo = [
                 ChatMessage("system", executor_system(record.goal, record.plan, [c.describe() for c in checks],
-                                                      datetime.now().astimezone())),
+                                                      datetime.now().astimezone(), web=self._web[task_id])),
                 ChatMessage("user", record.goal),
             ]
             if learned:
                 convo.append(ChatMessage("user", learned))
-            ctx = ToolContext(task_id=task_id)
+            ctx = ToolContext(task_id=task_id, sources=self._sources[task_id])
             if note:
                 prior_steps = self.tasks.steps(task_id)
                 if any(s.ok and s.untrusted for s in prior_steps):
@@ -557,12 +565,18 @@ class TaskEngine:
                     groups.add(tool.toolgroup)
         return groups - CORE
 
+    def _available(self, task_id: str) -> set[str]:
+        """The tool groups this task may use at all: everything registered, but the web only where it's on."""
+        return self.registry.groups() - (set() if self._web.get(task_id) else {"web"})
+
     def _offered(self, task_id: str) -> list[ToolSpec]:
         """The tools for the next executor call: what's active, the plan tools, and use_tools while a group is left."""
-        active = self._groups.get(task_id)  # None: groups are off, every tool is offered
-        specs = self.registry.specs(active, compact=self._compact()) + [COMPLETE_STEP, FINISH_TASK]
+        active = self._groups.get(task_id)  # None: groups are off, every available tool is offered
+        available = self._available(task_id)
+        specs = self.registry.specs(available if active is None else active & available, compact=self._compact())
+        specs += [COMPLETE_STEP, FINISH_TASK]
         if active is not None:
-            left = inactive_groups(self.registry.groups(), active)
+            left = inactive_groups(available, active)
             if left:
                 specs.append(use_tools_spec(left))
         return specs
@@ -578,7 +592,7 @@ class TaskEngine:
         # Strip exactly what was appended last time, never "whatever follows the marker": the goal and the plan
         # are in this prompt too, and text of theirs that looks like the catalogue must not cut it short.
         base = content[:-len(last) - 2] if last and content.endswith("\n\n" + last) else content
-        line = catalogue_line(self.registry.groups(), active)
+        line = catalogue_line(self._available(task_id), active)
         convo[0].content = base + (f"\n\n{line}" if line else "")
         self._catalogue[task_id] = line
 
@@ -594,7 +608,7 @@ class TaskEngine:
     async def _use_tools(self, task_id: str, call: ToolCall, args: dict, seen: Counter, budget: "_Budget") -> str:
         """Asking for a group changes what the model can ask for, never what it may do: no step, no approval."""
         group = args.get("group")
-        asked = inactive_groups(self.registry.groups(), CORE)  # every group but core that has tools
+        asked = inactive_groups(self._available(task_id), CORE)  # every group but core that has tools
         if group not in asked:
             budget.consecutive_loops = 0
             return f"Error: there's no tool group {group!r}. Groups: {', '.join(asked) or 'none'}."
@@ -612,13 +626,14 @@ class TaskEngine:
             -> tuple[list[str], list[Check], set[str]]:
         spec = SUBMIT_PLAN
         valid: list[str] = []
+        available = self._available(task_id)
         if self._groups_on():  # the core tools in full, the rest as a catalogue the plan can pick from
-            valid = inactive_groups(self.registry.groups(), CORE)
+            valid = inactive_groups(available, CORE)
             listed = self.registry.specs(CORE, compact=self._compact())
-            catalogue = catalogue_line(self.registry.groups(), CORE)
+            catalogue = catalogue_line(available, CORE)
             spec = submit_plan_spec(valid)
         else:
-            listed, catalogue = self.registry.specs(compact=self._compact()), ""
+            listed, catalogue = self.registry.specs(available, compact=self._compact()), ""
         tools = "\n".join(f"- {s.name}: {s.description}" for s in listed) + (f"\n\n{catalogue}" if catalogue else "")
         messages = [ChatMessage("system", PLANNER_SYSTEM),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
@@ -755,6 +770,10 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
+        if tool.toolgroup == "web" and not self._web.get(task_id):
+            budget.consecutive_loops = 0
+            return ("Error: web access is off for this conversation. Don't try it again; use what you have, or finish "
+                    "and tell the user they can switch the web on in the prompt box.")
         if task_id in self._groups:
             # The model called a tool it wasn't offered (a name it remembered or guessed): that's a request for
             # its group. Adding it here, then running the call as usual, keeps grouping lossless, with the same
@@ -891,6 +910,8 @@ class TaskEngine:
         self._obs.pop(task_id, None)
         self._groups.pop(task_id, None)
         self._catalogue.pop(task_id, None)
+        self._web.pop(task_id, None)
+        met = self._sources.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:
             return  # already finished (e.g. a cancel raced the runner's own completion)
@@ -900,8 +921,12 @@ class TaskEngine:
             text = "Okay, I've stopped that task."
         else:
             text = (summary + "\n\n" if summary else "") + f"I couldn't finish this: {error}"
+        listed = [Source(n=s.n, title=s.title, url=s.url) for s in met.all()] if met is not None else []
         msg = self.messages.add(record.conversation_id, "assistant", text,
-                                meta={"task_id": task_id, "task_state": state})
+                                meta={"task_id": task_id, "task_state": state,
+                                      **({"sources": [s.model_dump() for s in listed]} if listed else {})})
+        if listed:  # before the task's end, so the answer's [n] can become footnotes where it appears
+            await self.hub.publish(Sources(message_id=msg.id, task_id=task_id, sources=listed))
         self.tasks.set_state(task_id, state, summary=summary, error=error)
         await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state,
                                          summary=summary, error=error, message_id=msg.id, message_text=text))
