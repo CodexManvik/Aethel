@@ -100,3 +100,100 @@ def test_repair_rebuilds_after_a_rescued_run_and_breaks_after_two_failures(tmp_p
     assert repair(store, skill["id"], goal, rescued, False) == "repair failed"
     assert repair(store, skill["id"], goal, rescued, False) == "broken"
     assert store.get(skill["id"])["macro"] == "broken"
+
+
+# ---- browser steps (Phase 3 spec §7.6) ----------------------------------------------------------------------------
+BSTABLE = "Search Bing for something. Search the web with Bing for a query. browser"
+
+
+def bstep(i, tool, args, element=None, ok=True, host="www.bing.com"):
+    meta = {"app": "browser", **({"element": {"role": element[0], "name": element[1], "window": host}} if element else {})}
+    return StepRecord(id=f"b{i}", task_id="t", idx=i, tool=tool, args=args, summary="", verdict="allow", ok=ok,
+                      result="", duration_ms=10, created_at="", meta=meta)
+
+
+def bing_run(query="leeds library hours"):
+    return [
+        bstep(0, "browser_navigate", {"url": "https://www.bing.com/"}),
+        bstep(1, "browser_snapshot", {}),
+        bstep(2, "browser_type", {"target": "e5", "element": "Search box", "text": query, "submit": True},
+              ("textbox", "Search")),
+        bstep(3, "browser_wait_for", {"time": 2}),
+        bstep(4, "browser_click", {"target": "e21", "element": "first result"}, ("link", "Opening hours")),
+        bstep(5, "browser_tabs", {"action": "list"}),
+    ]
+
+
+def test_a_browser_run_compiles_by_role_name_and_host_never_by_ref():
+    m = macro.compile_macro("search Bing for leeds library hours", bing_run(), BSTABLE)
+    assert m["template"] == "search Bing for {p1}" and m["params"] == ["p1"]
+    assert [s["tool"] for s in m["steps"]] == ["browser_navigate", "browser_type", "browser_click"]   # looking is dropped
+    typed = m["steps"][1]
+    assert typed["args"] == {"text": "{p1}", "submit": True}                    # a ref belongs to one snapshot: never kept
+    assert typed["target"] == {"role": "textbox", "name": "Search", "window": "www.bing.com"}
+    assert m["steps"][2]["args"] == {} and m["steps"][2]["target"]["window"] == "www.bing.com"
+    assert all("target" not in s["args"] and "element" not in s["args"] for s in m["steps"])
+
+
+def test_a_url_with_the_query_in_it_becomes_a_parameter_too():
+    run = [bstep(0, "browser_navigate", {"url": "https://www.bing.com/search?q=leeds+library+hours"}),
+           bstep(1, "browser_click", {"target": "e9"}, ("link", "Opening hours"))]
+    m = macro.compile_macro("search Bing for leeds library hours", run, BSTABLE)
+    assert m["steps"][0]["args"] == {"url": "https://www.bing.com/search?q={p1+}"}
+    values = macro.bind(m["template"], "search bing for jazz piano lessons")
+    assert macro.fill(m["steps"][0]["args"], values)["url"] == "https://www.bing.com/search?q=jazz+piano+lessons"
+    # a long constant address is normal (only typed text is judged to be generated content)
+    long_url = "https://www.example.org/" + "a" * 120
+    assert macro.compile_macro("open it", [bstep(0, "browser_navigate", {"url": long_url})]) is not None
+
+
+def test_a_form_fill_a_blind_action_or_generated_text_makes_a_browser_run_uncompilable():
+    form = [bstep(0, "browser_navigate", {"url": "https://shop.example/"}),
+            bstep(1, "browser_fill_form", {"fields": [{"target": "e3", "name": "Name", "type": "textbox", "value": "Ada"}]})]
+    assert macro.compile_macro("fill in the form", form) is None            # form values aren't a navigation pattern
+    blind = [bstep(0, "browser_click", {"target": "e4"})]                     # nothing recorded about the element
+    assert macro.compile_macro("click it", blind) is None
+    typed_blind = [bstep(0, "browser_type", {"target": "e5", "text": "x"})]
+    assert macro.compile_macro("type x", typed_blind) is None                 # a browser_type always needs its target
+    essay = [bstep(0, "browser_type", {"target": "e5", "text": "A long generated paragraph that goes on and on."},
+                   ("textbox", "Comment"))]
+    assert macro.compile_macro("write a comment", essay) is None
+    assert macro.compile_macro("x", [bstep(0, "browser_snapshot", {}), bstep(1, "browser_tabs", {"action": "list"})]) is None
+
+
+def test_keys_dialogs_and_going_back_replay_without_a_target():
+    run = [bstep(0, "browser_navigate", {"url": "https://a.example/"}), bstep(1, "browser_press_key", {"key": "Escape"}),
+           bstep(2, "browser_handle_dialog", {"accept": True}), bstep(3, "browser_navigate_back", {})]
+    m = macro.compile_macro("do the dance", run)
+    assert [s["tool"] for s in m["steps"]] == ["browser_navigate", "browser_press_key", "browser_handle_dialog",
+                                               "browser_navigate_back"]
+    assert m["steps"][1]["args"] == {"key": "Escape"} and "target" not in m["steps"][1]
+
+
+def test_browser_and_desktop_steps_mix_in_one_macro():
+    run = [step(0, "win_app", {"mode": "launch", "name": "firefox"}), *bing_run()[:3]]
+    m = macro.compile_macro("search Bing for leeds library hours", run, BSTABLE)
+    assert [s["tool"] for s in m["steps"]] == ["win_app", "browser_navigate", "browser_type"]
+
+
+def test_the_structure_of_a_browser_run_ignores_values_refs_and_looking():
+    assert macro.structure(bing_run("leeds library hours")) == macro.structure(bing_run("jazz piano lessons"))
+    refs = bing_run()
+    refs[2] = bstep(2, "browser_type", {"target": "e99", "text": "x"}, ("textbox", "Search"))
+    assert macro.structure(refs) == macro.structure(bing_run())              # a different ref is the same step
+    assert macro.structure(bing_run()[:3]) != macro.structure(bing_run())
+    assert macro.structure([bstep(0, "browser_click", {}, ("button", "Go"), ok=False)]) == ""
+
+
+def test_a_browser_macro_reads_as_a_plan():
+    m = macro.compile_macro("search Bing for leeds library hours", bing_run(), BSTABLE)
+    values = {"p1": "jazz piano"}
+    assert [macro.describe(s, values) for s in m["steps"]] == [
+        "Go to https://www.bing.com/", "Type “jazz piano” into “Search”", "Click “Opening hours”"]
+    assert macro.describe({"tool": "browser_navigate_back", "args": {}}, {}) == "Go back"
+    assert macro.describe({"tool": "browser_press_key", "args": {"key": "Escape"}}, {}) == "Press Escape"
+    assert macro.describe({"tool": "browser_select_option", "args": {"values": ["Green"]},
+                           "target": {"role": "combobox", "name": "Colour", "window": "x"}}, {}) == "Choose Green in “Colour”"
+    assert macro.describe({"tool": "browser_hover", "args": {}, "target": {"role": "link", "name": "Menu", "window": "x"}}, {}) \
+        == "Hover over “Menu”"
+    assert macro.describe({"tool": "browser_handle_dialog", "args": {"accept": True}}, {}) == "Accept the dialog"

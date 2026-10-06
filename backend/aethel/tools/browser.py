@@ -103,8 +103,9 @@ class PageElement:
 
 def parse_page(text: str) -> tuple[str | None, list[PageElement]]:
     """(the page's URL, its named elements with refs) from a snapshot result. Tolerant: whatever doesn't match is skipped."""
-    found = re.search(r"^- Page URL: (\S+)", text, re.MULTILINE)
-    url = found.group(1) if found else None
+    # either the server's own "- Page URL: …" or the "Page: title — url" line the model is shown (see _digest)
+    found = re.search(r"^- Page URL: (\S+)|^Page: (?:.* — )?(\S+)\s*$", text, re.MULTILINE)
+    url = (found.group(1) or found.group(2)) if found else None
     host = host_of(url) if url else None
     elements = []
     for m in _ELEMENT_LINE.finditer(text):

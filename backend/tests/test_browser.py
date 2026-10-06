@@ -347,3 +347,14 @@ def test_the_servers_to_keep_the_browser_out_of_are_found_from_settings(monkeypa
     assert local_ports(local, mine) == [1234, 8181]
     cloud = AppSettings.model_validate({"custom_base_url": "https://api.example.com/v1"})
     assert local_ports(local, cloud) == [8181]                                            # not a local server
+
+
+async def test_what_the_snapshot_tool_returns_parses_back_into_the_same_elements(b):
+    """Macro replay finds elements by parsing the snapshot tool's own result, so the two formats must agree."""
+    _, tools, _, _ = b
+    shown = (await run(tools["browser_snapshot"])).content
+    assert shown.startswith("Page: Probe form — http://127.0.0.1:8799/page.html\n")
+    url, again = br.parse_page(shown)
+    assert url == "http://127.0.0.1:8799/page.html"
+    assert [(e.ref, e.role, e.name, e.window) for e in again] == [(e.ref, e.role, e.name, e.window) for e in br.parse_page(PAGE)[1]]
+    assert br.parse_page("Page: http://x.example/a")[0] == "http://x.example/a"          # a page with no title

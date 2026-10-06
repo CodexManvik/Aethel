@@ -35,6 +35,7 @@ from ..safety.untrusted import wrap_untrusted
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import Assessment, ToolContext, ToolResult
+from ..tools.browser import parse_page
 from ..tools.desktop import parse_snapshot
 from ..tools.groups import ALWAYS_ON_REQUEST, CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
@@ -457,12 +458,16 @@ class TaskEngine:
         values = bind(skill["macro_def"].get("template", ""), goal)
         return (skill, values) if values is not None else None
 
-    async def _snapshot(self, ctx: ToolContext) -> list | None:
-        tool = self.registry.get("win_snapshot")
+    async def _snapshot(self, ctx: ToolContext, browser: bool = False) -> list | None:
+        """The elements on the screen (or, for a browser step, on the page) right now, or None if it can't be looked at.
+        Calling the tool's handler directly also tells the browser adapter which refs are live."""
+        tool = self.registry.get("browser_snapshot" if browser else "win_snapshot")
         if tool is None:
             return None
         result = await tool.handler({}, ctx)
-        return parse_snapshot(result.content) if result.ok else None
+        if not result.ok:
+            return None
+        return parse_page(result.content)[1] if browser else parse_snapshot(result.content)
 
     async def _run_macro(self, task_id: str, skill: dict, values: dict, ctx: ToolContext, grants: set,
                          run: "_RunClock", budget: "_Budget") -> str | None:
@@ -475,13 +480,18 @@ class TaskEngine:
             await self._gate(task_id, run)
             args = fill(step.get("args") or {}, values)
             if step.get("target"):
-                elements = await self._snapshot(ctx)
+                in_browser = step["tool"].startswith("browser_")
+                elements = await self._snapshot(ctx, browser=in_browser)
                 if elements is None:
-                    return self._handover_note(skill, done, describe(step, values), "desktop control isn't connected")
+                    return self._handover_note(skill, done, describe(step, values),
+                                               "the browser isn't connected" if in_browser else "desktop control isn't connected")
                 element, how = await ground(step["target"], elements, self.system1, threshold, _similar)
                 if element is None:
                     return self._handover_note(skill, done, describe(step, values), how)
-                args["loc"] = [element.x, element.y]
+                if in_browser:  # this snapshot's ref for the element: never stored, found again every time
+                    args["target"], args["element"] = element.ref, element.name
+                else:
+                    args["loc"] = [element.x, element.y]
             seen: Counter = Counter()
             call = ToolCall(id=f"macro-{i}", name=step["tool"], arguments=json.dumps(args))
             # A replayed step's output is read by no model (the next step comes from the macro,
