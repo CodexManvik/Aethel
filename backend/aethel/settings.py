@@ -17,6 +17,12 @@ class RouteEntry(BaseModel):
     # The model's context window in tokens, for the context builder's budget. The hosted models Aethel
     # suggests all take 32k or more; lower it for a smaller model. (The per-role caps usually bind first.)
     context_size: int = Field(default=32768, ge=1024, le=2_000_000)
+    # A model that reasons before it answers (Gemma 4, Qwen3 thinking...) spends output tokens on it first, so it
+    # gets at least REASONING_REPLY_TOKENS to reply in, and the context budget reserves that much.
+    reasoning: bool = False
+
+
+REASONING_REPLY_TOKENS = 2048
 
 
 class LocalLLMSettings(BaseModel):

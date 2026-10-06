@@ -109,6 +109,20 @@ test("adding a fallback to the chat role and saving sends the whole chain", asyn
   );
 });
 
+test("a model that thinks before answering is marked on its row and saved with the chain", async () => {
+  renderSettings();
+  const chat = await screen.findByTestId("role-chat");
+  const thinks = within(chat).getByRole("checkbox", { name: "Thinks before answering" });
+  expect(thinks).not.toBeChecked();
+  expect(within(screen.getByTestId("role-agent")).getByRole("checkbox", { name: "Thinks before answering" })).not.toBeChecked();
+  await userEvent.click(thinks);
+  expect(thinks).toBeChecked();
+  await userEvent.click(within(chat).getByRole("button", { name: "Save chat models" }));
+  await waitFor(() =>
+    expect(patches).toContainEqual({ roles: { chat: [{ provider: "groq", model: "llama-3.3-70b-versatile", reasoning: true }] } }),
+  );
+});
+
 test("private mode: no model listing or Test for cloud providers, local still works", async () => {
   const privateSettings: AppSettings = {
     ...settings,

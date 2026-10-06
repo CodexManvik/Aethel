@@ -23,6 +23,7 @@ export interface RouteEntry {
   provider: ProviderId;
   model: string;
   context_size?: number;
+  reasoning?: boolean;
 }
 
 export interface LocalLLMSettings {
