@@ -23,6 +23,13 @@ export interface ApprovalUi {
   tier: "read" | "write" | "irreversible";
 }
 
+// A quiet line in the activity that isn't a step ("Asked for Word and Excel tools"); `at` is how many steps
+// came before it, which is where it sits in the list.
+export interface NoteUi {
+  text: string;
+  at: number;
+}
+
 export interface CheckUi {
   description: string;
   passed: boolean | null;
@@ -38,6 +45,7 @@ export interface TaskUi {
   planDone: number[];
   checks: CheckUi[];
   steps: StepUi[];
+  notes: NoteUi[];
   approvals: ApprovalUi[];
   summary: string | null;
   error: string | null;
@@ -57,7 +65,7 @@ export function applyTaskEvent(tasks: TaskMap, ev: ServerEvent): TaskMap {
         ...tasks,
         [ev.task_id]: {
           id: ev.task_id, conversationId: ev.conversation_id, goal: ev.goal, state: "planning", plan: [],
-          planDone: [], checks: [], steps: [], approvals: [], summary: null, error: null,
+          planDone: [], checks: [], steps: [], notes: [], approvals: [], summary: null, error: null,
         },
       };
     case "task_plan":
@@ -67,6 +75,8 @@ export function applyTaskEvent(tasks: TaskMap, ev: ServerEvent): TaskMap {
     case "plan_progress":
       return patch(tasks, ev.task_id, (t) =>
         t.planDone.includes(ev.index) ? t : { ...t, planDone: [...t.planDone, ev.index].sort((a, b) => a - b) });
+    case "task_note":
+      return patch(tasks, ev.task_id, (t) => ({ ...t, notes: [...t.notes, { text: ev.text, at: t.steps.length }] }));
     case "step_started":
       return patch(tasks, ev.task_id, (t) => ({
         ...t,
@@ -116,6 +126,7 @@ export function fromDetail(d: TaskDetail): TaskUi {
       id: s.id, tool: s.tool, summary: s.summary, verdict: s.verdict, ok: s.ok,
       detail: (s.result ?? "").split("\n")[0], durationMs: s.duration_ms,
     })),
+    notes: [], // live-only: a note isn't stored, so a reloaded task shows its steps without them
     approvals: d.approvals.map((a) => ({ id: a.approval_id, stepId: a.step_id, tool: a.tool, summary: a.summary,
       reason: a.reason, tier: a.tier })),
     summary: d.task.summary,

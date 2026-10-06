@@ -49,7 +49,7 @@ export interface AppSettings {
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;
   use_learned_skills: boolean;
-  token_saving: { mask_superseded: boolean; mask_batch: number };
+  token_saving: { mask_superseded: boolean; mask_batch: number; compact_schemas: boolean; tool_groups: boolean };
 }
 
 export interface MemorySettings {

@@ -11,6 +11,9 @@ GROUPS: dict[str, str] = {
     "web": "search the web and read pages, with citations",
     "browser": "your own background web browser: open pages, click, type, fill forms",
 }
+# How the task panel names a group: "Asked for Word and Excel tools"
+GROUP_LABELS: dict[str, str] = {"desktop_extra": "extra desktop", "office": "Word and Excel", "files": "file search",
+                                "web": "web", "browser": "browser"}
 CORE = frozenset({"core"})
 CATALOGUE_START = "More tools on request"  # what catalogue_line() opens with, so it can be found and replaced
 

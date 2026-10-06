@@ -24,7 +24,7 @@ from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
-                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState,
+                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskNote, TaskPlan, TaskState,
                         VerificationResult)
 from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady, ToolSpec
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
@@ -35,7 +35,7 @@ from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
-from ..tools.groups import CATALOGUE_START, CORE, catalogue_line, inactive_groups, use_tools_spec
+from ..tools.groups import CATALOGUE_START, CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
@@ -575,9 +575,17 @@ class TaskEngine:
         line = catalogue_line(self.registry.groups(), active)
         convo[0].content = base + (f"\n\n{line}" if line else "")
 
-    def _use_tools(self, task_id: str, call: ToolCall, args: dict, seen: Counter, budget: "_Budget") -> str:
-        """Asking for a group changes what the model can ask for, never what it may do: no step, no approval."""
+    async def _add_group(self, task_id: str, group: str) -> bool:
+        """Offer a group from the next call on, with a quiet line in the task's activity. False if it already was."""
         active = self._groups[task_id]
+        if group in active:
+            return False
+        active.add(group)
+        await self.hub.publish(TaskNote(task_id=task_id, text=f"Asked for {GROUP_LABELS.get(group, group)} tools"))
+        return True
+
+    async def _use_tools(self, task_id: str, call: ToolCall, args: dict, seen: Counter, budget: "_Budget") -> str:
+        """Asking for a group changes what the model can ask for, never what it may do: no step, no approval."""
         group = args.get("group")
         asked = inactive_groups(self.registry.groups(), CORE)  # every group but core that has tools
         if group not in asked:
@@ -589,9 +597,8 @@ class TaskEngine:
             budget.consecutive_loops += 1
             return "[LOOP DETECTED] You've already asked for these tools. Use them, or try something different."
         budget.consecutive_loops = 0
-        if group in active:
+        if not await self._add_group(task_id, group):
             return f"The {group} tools are already available."
-        active.add(group)
         return f"Added {group} tools: {', '.join(self.registry.names(group))}."
 
     async def _plan(self, task_id: str, goal: str, learned: str | None = None) \
@@ -735,7 +742,7 @@ class TaskEngine:
                 return "Noted."
             return "Error: there's no plan step with that index."
         if call.name == "use_tools" and task_id in self._groups:
-            return self._use_tools(task_id, call, args, seen, budget)
+            return await self._use_tools(task_id, call, args, seen, budget)
         tool = self.registry.get(call.name)
         if tool is None:
             budget.consecutive_loops = 0
@@ -743,7 +750,7 @@ class TaskEngine:
         if task_id in self._groups:
             # The model used a tool it wasn't offered (it guessed the name from the catalogue): that's a request
             # for its group. Adding it here, then running the call as usual, is what keeps grouping lossless.
-            self._groups[task_id].add(tool.toolgroup)
+            await self._add_group(task_id, tool.toolgroup)
         signature = _signature(call)
         seen[signature] += 1
         if seen[signature] > self.max_identical_calls:

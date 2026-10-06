@@ -87,6 +87,13 @@ class PlanProgress(Event):
     index: int
 
 
+class TaskNote(Event):
+    """A quiet line in a task's activity that isn't a step, e.g. "Asked for Word and Excel tools"."""
+    type: Literal["task_note"] = "task_note"
+    task_id: str
+    text: str
+
+
 class StepStarted(Event):
     type: Literal["step_started"] = "step_started"
     task_id: str
@@ -203,8 +210,8 @@ class ContextUsed(Event):
 
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
-          TaskCreated, TaskPlan, PlanProgress, StepStarted, StepFinished, ApprovalNeeded, ApprovalResolved,
-          VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed],
+          TaskCreated, TaskPlan, PlanProgress, TaskNote, StepStarted, StepFinished, ApprovalNeeded,
+          ApprovalResolved, VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed],
     Field(discriminator="type"),
 ]
 

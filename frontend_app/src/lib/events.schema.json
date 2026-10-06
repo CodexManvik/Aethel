@@ -911,6 +911,33 @@
       "title": "TaskCreated",
       "type": "object"
     },
+    "TaskNote": {
+      "additionalProperties": false,
+      "description": "A quiet line in a task's activity that isn't a step, e.g. \"Asked for Word and Excel tools\".",
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_note",
+          "default": "task_note",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "text"
+      ],
+      "title": "TaskNote",
+      "type": "object"
+    },
     "TaskPlan": {
       "additionalProperties": false,
       "properties": {
@@ -1191,6 +1218,7 @@
           "step_finished": "#/$defs/StepFinished",
           "step_started": "#/$defs/StepStarted",
           "task_created": "#/$defs/TaskCreated",
+          "task_note": "#/$defs/TaskNote",
           "task_plan": "#/$defs/TaskPlan",
           "task_state": "#/$defs/TaskState",
           "token": "#/$defs/Token",
@@ -1225,6 +1253,9 @@
         },
         {
           "$ref": "#/$defs/PlanProgress"
+        },
+        {
+          "$ref": "#/$defs/TaskNote"
         },
         {
           "$ref": "#/$defs/StepStarted"

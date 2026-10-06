@@ -22,8 +22,9 @@ def _grouped_registry(engine):
         return Tool(name, f"{name}.", {"type": "object"}, "read", run, lambda a: Assessment("allow", "", name),
                     toolgroup=group)
 
-    engine.registry.register(fake("word_new", "office"))
-    engine.registry.register(fake("dc_search", "files"))
+    for name, group in (("word_new", "office"), ("dc_search", "files")):
+        engine.registry.unregister(name)  # a test may build more than one engine on the same registry
+        engine.registry.register(fake(name, group))
     return calls
 
 
@@ -140,6 +141,38 @@ async def test_the_planner_sees_the_plain_submit_plan_when_groups_are_off(g):
     await run_goal(g.h, engine)
     from aethel.runtime.prompts import SUBMIT_PLAN
     assert next(s for s in provider.specs_seen[0] if s.name == "submit_plan") == SUBMIT_PLAN
+
+
+def notes(g):
+    return [e for e in g.h.events if e["type"] == "task_note"]
+
+
+async def test_asking_for_a_group_leaves_one_quiet_note_in_the_activity(g):
+    turns = [[plan(["Make a doc"])], [tool_call("use_tools", call_id="u1", group="office")],
+             [tool_call("use_tools", call_id="u2", group="office")], [tool_call("word_new", call_id="w1")],
+             [tool_call("finish_task", summary="Done.")]]
+    engine, provider, _ = g.make(turns)
+    task_id = await run_goal(g.h, engine)
+    assert [(n["task_id"], n["text"]) for n in notes(g)] == [(task_id, "Asked for Word and Excel tools")]  # once
+
+
+async def test_a_group_added_by_calling_its_tool_leaves_the_same_note(g):
+    turns = [[plan(["Search"])], [tool_call("dc_search", call_id="d1")], [tool_call("finish_task", summary="Done.")]]
+    engine, provider, _ = g.make(turns)
+    await run_goal(g.h, engine)
+    assert [n["text"] for n in notes(g)] == ["Asked for file search tools"]
+
+
+async def test_no_notes_when_groups_are_off_or_the_planner_picked_them(g):
+    engine, provider, _ = g.make([[plan(["x"])], [tool_call("word_new", call_id="w")],
+                                  [tool_call("finish_task", summary="Done.")]], groups_on=False)
+    await run_goal(g.h, engine)
+    assert notes(g) == []
+    turns = [[tool_call("submit_plan", steps=["Search"], checks=[], tool_groups=["files"])],
+             [tool_call("dc_search", call_id="d1")], [tool_call("finish_task", summary="Done.")]]
+    engine, provider, _ = g.make(turns)
+    await run_goal(g.h, engine)
+    assert notes(g) == []  # it was there from the start: nothing was asked for
 
 
 async def test_a_resumed_task_and_a_learned_skill_bring_back_the_groups_they_need(g):
