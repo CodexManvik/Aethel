@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ListChecks, Square } from "lucide-react";
 import { cn } from "../../ui/cn";
 
@@ -7,9 +7,10 @@ interface Props {
   onStop: () => void;
   streaming: boolean;
   placeholder?: string;
+  leading?: ReactNode; // controls after the Task pill (the web pill)
 }
 
-export function PromptBox({ onSend, onStop, streaming, placeholder = "Say something to Aethel…" }: Props) {
+export function PromptBox({ onSend, onStop, streaming, placeholder = "Say something to Aethel…", leading }: Props) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"chat" | "task">("chat");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -48,6 +49,7 @@ export function PromptBox({ onSend, onStop, streaming, placeholder = "Say someth
       >
         <ListChecks size={13} /> Task
       </button>
+      {leading}
       <textarea
         ref={ref}
         aria-label="Message"

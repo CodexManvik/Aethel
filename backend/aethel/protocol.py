@@ -208,10 +208,35 @@ class ContextUsed(Event):
     episodes: list[RecalledEpisode]
 
 
+class ToolActivity(Event):
+    """What a reply or task is doing on the web right now: 'Searching "rain"', 'Reading bbc.co.uk'."""
+    type: Literal["tool_activity"] = "tool_activity"
+    message_id: str | None
+    task_id: str | None
+    kind: Literal["search", "read"]
+    label: str
+
+
+class Source(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    n: int
+    title: str
+    url: str
+
+
+class Sources(Event):
+    """The numbered web sources a reply or task used, sent before it ends so [n] can become a footnote."""
+    type: Literal["sources"] = "sources"
+    message_id: str | None
+    task_id: str | None
+    sources: list[Source]
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, TaskNote, StepStarted, StepFinished, ApprovalNeeded,
-          ApprovalResolved, VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed],
+          ApprovalResolved, VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed,
+          ToolActivity, Sources],
     Field(discriminator="type"),
 ]
 

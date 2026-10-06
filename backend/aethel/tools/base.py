@@ -10,6 +10,7 @@ class ToolContext:
     task_id: str | None
     tainted: bool = False  # becomes True once untrusted content entered the task
     last_ok: bool = False  # whether the last call really ran and succeeded (not denied, looped or failed)
+    sources: object | None = None  # tools.web.SourceList: the web sources numbered so far this turn or task
 
 
 @dataclass

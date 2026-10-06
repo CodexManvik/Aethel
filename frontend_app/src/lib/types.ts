@@ -7,6 +7,7 @@ export interface Conversation {
   persona_id: string;
   created_at: string;
   updated_at: string;
+  web?: boolean | null; // this conversation's web switch; null or absent follows Settings
 }
 
 export interface Message {

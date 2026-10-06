@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ServerEvent } from "../lib/events";
-import type { FactChange, RecalledEpisode, RecalledFact } from "../lib/events.gen";
+import type { FactChange, RecalledEpisode, RecalledFact, Source } from "../lib/events.gen";
 import type { Message, MessageStatus } from "../lib/types";
 import type { SocketStatus } from "../lib/ws";
 
@@ -19,6 +19,8 @@ export interface UiMessage {
   clientId?: string;
   noted?: FactChange[];  // user messages: what Aethel remembered from them (with Undo)
   recalled?: Recalled;   // replies: the facts and earlier moments that went into them
+  activity?: string;     // replies being written: what Aethel is doing on the web right now
+  sources?: Source[];    // replies that used the web: the numbered sources behind their [n]
 }
 
 export interface Notice {
@@ -32,6 +34,7 @@ export interface SessionData {
   streamingId: string | null;
   notices: Notice[];
   socketStatus: SocketStatus;
+  pendingSources: Record<string, Source[]>; // a task's sources arrive before the message they belong to
 }
 
 let noticeSeq = 0;
@@ -46,6 +49,8 @@ export function toUiMessages(messages: Message[]): UiMessage[] {
       const recalled = m.meta?.context as Recalled | undefined;
       if (noted?.length) ui.noted = noted;
       if (recalled && (recalled.facts?.length || recalled.episodes?.length)) ui.recalled = recalled;
+      const sources = m.meta?.sources as Source[] | undefined;
+      if (sources?.length) ui.sources = sources;
       return ui;
     });
 }
@@ -70,14 +75,15 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       if (!has(ev.message_id)) return data;
       return {
         ...data,
-        messages: data.messages.map((m) => (m.id === ev.message_id ? { ...m, content: m.content + ev.text } : m)),
+        messages: data.messages.map((m) =>
+          m.id === ev.message_id ? { ...m, content: m.content + ev.text, activity: undefined } : m),
       };
     case "message_end":
       if (!has(ev.message_id)) return data;
       return {
         ...data,
         streamingId: data.streamingId === ev.message_id ? null : data.streamingId,
-        messages: data.messages.map((m) => (m.id === ev.message_id ? { ...m, status: ev.status } : m)),
+        messages: data.messages.map((m) => (m.id === ev.message_id ? { ...m, status: ev.status, activity: undefined } : m)),
       };
     case "error":
       if (ev.message_id && has(ev.message_id)) {
@@ -110,6 +116,13 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       return has(ev.message_id) ? setOn(data, ev.message_id, { noted: ev.changes }) : data;
     case "context_used":
       return has(ev.message_id) ? setOn(data, ev.message_id, { recalled: { facts: ev.facts, episodes: ev.episodes } }) : data;
+    case "tool_activity":
+      return ev.message_id && has(ev.message_id) ? setOn(data, ev.message_id, { activity: ev.label }) : data;
+    case "sources":
+      if (!ev.message_id) return data;
+      return has(ev.message_id)
+        ? setOn(data, ev.message_id, { sources: ev.sources })
+        : { ...data, pendingSources: { ...data.pendingSources, [ev.message_id]: ev.sources } };
     case "task_created": {
       if (ev.conversation_id !== data.conversationId) return data;
       return {
@@ -122,9 +135,12 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
     case "task_state": {
       if (ev.conversation_id !== data.conversationId || !ev.message_id || !ev.message_text) return data;
       if (has(ev.message_id)) return data;
+      const { [ev.message_id]: sources, ...rest } = data.pendingSources;
       return {
         ...data,
-        messages: [...data.messages, { id: ev.message_id, role: "assistant", content: ev.message_text, status: "complete" }],
+        pendingSources: rest,
+        messages: [...data.messages, { id: ev.message_id, role: "assistant", content: ev.message_text, status: "complete",
+          ...(sources ? { sources } : {}) }],
       };
     }
     default:
@@ -138,6 +154,7 @@ interface SessionState extends SessionData {
   apply(ev: ServerEvent): void;
   setSocketStatus(status: SocketStatus): void;
   dismissNotice(id: string): void;
+  addNotice(text: string): void;
   replaceMessages(conversationId: string, fetched: UiMessage[]): void;
   setNoted(messageId: string, noted: FactChange[]): void;
 }
@@ -148,10 +165,12 @@ export const useSession = create<SessionState>()((set) => ({
   streamingId: null,
   notices: [],
   socketStatus: "connecting",
+  pendingSources: {},
   setConversation: (conversationId, messages) =>
     set({
       conversationId,
       messages,
+      pendingSources: {},
       streamingId: messages.find((m) => m.status === "streaming")?.id ?? null,
     }),
   addPendingUser: (text, clientId) =>
@@ -161,6 +180,7 @@ export const useSession = create<SessionState>()((set) => ({
   apply: (ev) => set((s) => applyEvent(s, ev)),
   setSocketStatus: (socketStatus) => set({ socketStatus }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
+  addNotice: (text) => set((s) => ({ notices: [...s.notices, notice(text)] })),
   setNoted: (messageId, noted) => set((s) => setOn(s, messageId, { noted })),
   replaceMessages: (conversationId, fetched) =>
     set((s) => {

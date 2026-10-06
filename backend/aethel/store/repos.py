@@ -25,6 +25,7 @@ class Conversation(BaseModel):
     persona_id: str
     created_at: str
     updated_at: str
+    web: bool | None = None  # this conversation's web switch; None follows Settings
 
 
 class Message(BaseModel):
@@ -72,6 +73,11 @@ class ConversationRepo:
         self.db.execute(
             "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?", (title, now_iso(), conv_id)
         )
+        return self.get(conv_id)
+
+    def set_web(self, conv_id: str, web: bool | None) -> Conversation | None:
+        """True or False for this conversation, None to follow Settings again. Doesn't count as activity."""
+        self.db.execute("UPDATE conversations SET web = ? WHERE id = ?", (None if web is None else int(web), conv_id))
         return self.get(conv_id)
 
     def delete(self, conv_id: str) -> bool:

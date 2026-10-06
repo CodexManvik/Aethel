@@ -682,6 +682,79 @@
       "title": "SkillLearned",
       "type": "object"
     },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "title": "N",
+          "type": "integer"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "n",
+        "title",
+        "url"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Sources": {
+      "additionalProperties": false,
+      "description": "The numbered web sources a reply or task used, sent before it ends so [n] can become a footnote.",
+      "properties": {
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message Id"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "type": {
+          "const": "sources",
+          "default": "sources",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id",
+        "task_id",
+        "sources"
+      ],
+      "title": "Sources",
+      "type": "object"
+    },
     "StartTask": {
       "additionalProperties": false,
       "properties": {
@@ -1094,6 +1167,61 @@
       "title": "Token",
       "type": "object"
     },
+    "ToolActivity": {
+      "additionalProperties": false,
+      "description": "What a reply or task is doing on the web right now: 'Searching \"rain\"', 'Reading bbc.co.uk'.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "search",
+            "read"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "type": {
+          "const": "tool_activity",
+          "default": "tool_activity",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message_id",
+        "task_id",
+        "kind",
+        "label"
+      ],
+      "title": "ToolActivity",
+      "type": "object"
+    },
     "UserMessage": {
       "additionalProperties": false,
       "properties": {
@@ -1215,6 +1343,7 @@
           "plan_progress": "#/$defs/PlanProgress",
           "provider_switched": "#/$defs/ProviderSwitched",
           "skill_learned": "#/$defs/SkillLearned",
+          "sources": "#/$defs/Sources",
           "step_finished": "#/$defs/StepFinished",
           "step_started": "#/$defs/StepStarted",
           "task_created": "#/$defs/TaskCreated",
@@ -1222,6 +1351,7 @@
           "task_plan": "#/$defs/TaskPlan",
           "task_state": "#/$defs/TaskState",
           "token": "#/$defs/Token",
+          "tool_activity": "#/$defs/ToolActivity",
           "verification": "#/$defs/VerificationResult"
         },
         "propertyName": "type"
@@ -1286,6 +1416,12 @@
         },
         {
           "$ref": "#/$defs/ContextUsed"
+        },
+        {
+          "$ref": "#/$defs/ToolActivity"
+        },
+        {
+          "$ref": "#/$defs/Sources"
         }
       ],
       "title": "Server"

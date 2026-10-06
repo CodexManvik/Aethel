@@ -54,6 +54,12 @@ test("a note alone still shows the activity section", () => {
   expect(screen.getByText("Asked for file search tools")).toBeInTheDocument();
 });
 
+test("web approvals read in plain words", async () => {
+  const { approvalVerb } = await import("./ApprovalCard");
+  expect(approvalVerb("web_read")).toBe("read a web page");
+  expect(approvalVerb("web_search")).toBe("search the web");
+});
+
 test("irreversible approvals can't be granted for the whole task", () => {
   useTasks.setState({ tasks: { t1: task({ approvals: [{ ...task().approvals[0], tier: "irreversible" }] }) } });
   render(<TaskPanel />);

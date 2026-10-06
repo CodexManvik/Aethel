@@ -35,6 +35,7 @@ from .tools.mcp_hub import McpHub, ServerSpec
 from .tools.office import Office, office_spec
 from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
+from .tools.web import SourceList, web_tools
 from .usage import UsageLog
 
 AUTO = object()
@@ -54,6 +55,7 @@ class Services:
     hub: EventHub
     chat: ChatService
     http_client: httpx.AsyncClient  # shared by every provider the default factory builds
+    web_http: httpx.AsyncClient     # the web tools' own: no env proxies, no cookies shared with provider traffic
     permissions: Permissions
     changes: ChangeLog
     registry: ToolRegistry
@@ -92,6 +94,9 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     keys = KeyStore()
     local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
     http_client = DefaultAsyncHttpxClient()
+    # Not the providers' client: an environment proxy would resolve names itself, behind the SSRF check's back, and
+    # pages' cookies must never ride along with a call to a model provider. Redirects are followed by hand.
+    web_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     factory = provider_factory or make_provider_factory(http_client)
     usage = UsageLog(db)
     router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory, usage=usage)
@@ -100,6 +105,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     changes = ChangeLog(db)
     registry = ToolRegistry()
     for tool in [*fs_tools(permissions, changes), shell_tool(permissions), *([open_url_tool()] if os.name == "nt" else [])]:
+        registry.register(tool)
+    # Always registered, offered only where the web is on (chat: effective_web; tasks: the engine). The numbered
+    # sources belong to the turn or task asking, carried on its ToolContext.
+    for tool in web_tools(lambda ctx: ctx.sources if ctx.sources is not None else SourceList(), web_http):
         registry.register(tool)
     approvals = ApprovalBroker(hub)
     system1 = System1(db, settings)
@@ -112,11 +121,12 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                         registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
                         system1=system1, facts=facts)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
-                       task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor)
+                       task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor,
+                       web_tools=lambda: [registry.get(name) for name in registry.names("web")])
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
-        http_client=http_client, permissions=permissions, changes=changes, registry=registry,
+        http_client=http_client, web_http=web_http, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub) if mcp_servers is None else mcp_servers,

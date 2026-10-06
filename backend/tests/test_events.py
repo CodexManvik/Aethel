@@ -67,7 +67,7 @@ def test_schema_marks_type_required_on_every_event():
                  "ErrorEvent", "UserMessage", "StopGeneration",
                  "TaskCreated", "TaskPlan", "PlanProgress", "StepStarted", "StepFinished", "ApprovalNeeded",
                  "ApprovalResolved", "VerificationResult", "TaskState", "StartTask", "TaskControl", "ApprovalDecision",
-                 "FactsChanged", "ContextUsed", "TaskNote"):
+                 "FactsChanged", "ContextUsed", "TaskNote", "ToolActivity", "Sources"):
         assert "type" in defs[name]["required"], name
     assert "client_id" in defs["MessageStart"]["required"]
 

@@ -38,7 +38,9 @@ export type Server =
   | SkillLearned
   | CursorIntent
   | FactsChanged
-  | ContextUsed;
+  | ContextUsed
+  | ToolActivity
+  | Sources;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -151,6 +153,18 @@ export type Text5 = string;
 export type Facts = RecalledFact[];
 export type MessageId8 = string;
 export type Type25 = "context_used";
+export type Kind = "search" | "read";
+export type Label1 = string;
+export type MessageId9 = string | null;
+export type TaskId14 = string | null;
+export type Type26 = "tool_activity";
+export type MessageId10 = string | null;
+export type N = number;
+export type Title2 = string;
+export type Url = string;
+export type Sources1 = Source[];
+export type TaskId15 = string | null;
+export type Type27 = "sources";
 
 export interface AethelProtocol {
   client: Client;
@@ -362,4 +376,28 @@ export interface RecalledEpisode {
 export interface RecalledFact {
   id: Id1;
   text: Text5;
+}
+/**
+ * What a reply or task is doing on the web right now: 'Searching "rain"', 'Reading bbc.co.uk'.
+ */
+export interface ToolActivity {
+  kind: Kind;
+  label: Label1;
+  message_id: MessageId9;
+  task_id: TaskId14;
+  type: Type26;
+}
+/**
+ * The numbered web sources a reply or task used, sent before it ends so [n] can become a footnote.
+ */
+export interface Sources {
+  message_id: MessageId10;
+  sources: Sources1;
+  task_id: TaskId15;
+  type: Type27;
+}
+export interface Source {
+  n: N;
+  title: Title2;
+  url: Url;
 }

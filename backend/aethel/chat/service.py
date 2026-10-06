@@ -7,15 +7,19 @@ from typing import Callable
 
 import anyio
 
+from ..context.builder import budget_for
 from ..context.recipes import chat_context
 from ..hub import EventHub
 from ..protocol import (ContextUsed, ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched,
-                        Token, UserMessage)
+                        Source, Sources, Token, UserMessage)
 from ..providers.base import ChatMessage, ProviderError, TextDelta
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..settings import SettingsService
-from ..store.repos import ConversationRepo, MessageRepo
+from ..store.repos import Conversation, ConversationRepo, MessageRepo
+from ..tools.base import Tool, ToolContext
+from ..tools.web import SourceList
 from .persona import system_prompt, time_note
+from .web_loop import WEB_NOTE, effective_web, run_web_turn
 
 log = logging.getLogger("aethel.chat")
 TITLE_MAX = 48
@@ -30,7 +34,9 @@ class ChatService:
     def __init__(self, *, conversations: ConversationRepo, messages: MessageRepo, router: RoleRouter,
                  settings: SettingsService, hub: EventHub,
                  task_note: Callable[[str], str | None] | None = None,
-                 facts=None, episodic=None, extractor=None):
+                 facts=None, episodic=None, extractor=None,
+                 web_tools: Callable[[], list[Tool]] | None = None):
+        self.web_tools = web_tools  # the web tools to offer when a conversation has the web on; None: never
         self.conversations = conversations
         self.messages = messages
         self.router = router
@@ -111,6 +117,10 @@ class ChatService:
         self._active[assistant.id] = asyncio.current_task()
         parts = self._partials[assistant.id] = []
         status = "complete"
+        web_tools = self._web_tools_for(conv)
+        sources = SourceList() if web_tools else None
+        if sources is not None:
+            sources.seed(event.text)  # an address the user wrote is theirs to ask for
         try:
             await publish(MessageStart(conversation_id=conv.id, message_id=assistant.id,
                                        user_message_id=user_msg.id, client_id=event.client_id))
@@ -123,17 +133,22 @@ class ChatService:
                 await publish(ProviderSwitched(role=sw.role, from_provider=sw.from_label, to_provider=sw.to_label,
                                                reason=sw.reason, message_id=assistant.id))
 
-            prompt, recalled = await self._context(conv, assistant.id, event.text)
+            prompt, recalled = await self._context(conv, assistant.id, event.text, web=bool(web_tools))
             if recalled["facts"] or recalled["episodes"]:
                 self.messages.update(assistant.id, meta={"context": recalled})
                 await publish(ContextUsed(message_id=assistant.id, **recalled))
-            stream = self.router.stream("chat", prompt, on_switch=on_switch, purpose="chat_reply",
-                                        ref={"message_id": assistant.id})
-            async with aclosing(stream):
-                async for ev in stream:
-                    if isinstance(ev, TextDelta):
-                        parts.append(ev.text)
-                        await publish(Token(message_id=assistant.id, text=ev.text))
+            if web_tools:
+                s = self.settings.get()
+                deltas = run_web_turn(
+                    router=self.router, prompt=prompt, tools=web_tools, ctx=ToolContext(task_id=None),
+                    sources=sources, publish=publish, message_id=assistant.id, on_switch=on_switch,
+                    budget=budget_for(s, "chat", s.max_tokens, capped=False, entries=self.router.primary("chat")))
+            else:
+                deltas = self._plain_turn(prompt, on_switch, assistant.id)
+            async with aclosing(deltas):
+                async for text in deltas:
+                    parts.append(text)
+                    await publish(Token(message_id=assistant.id, text=text))
         except asyncio.CancelledError:
             status = "stopped"
             if assistant.id not in self._stop_requested:
@@ -151,6 +166,12 @@ class ChatService:
                                      message_id=assistant.id))
         finally:
             self.messages.update(assistant.id, content="".join(parts), status=status)
+            if sources is not None and sources.all():  # before the end of the message, so [n] can become footnotes
+                listed = [Source(n=s.n, title=s.title, url=s.url) for s in sources.all()]
+                saved = self.messages.get(assistant.id)  # None if the conversation was deleted mid-reply
+                if saved is not None:
+                    self.messages.update(assistant.id, meta={**saved.meta, "sources": [s.model_dump() for s in listed]})
+                    await publish(Sources(message_id=assistant.id, task_id=None, sources=listed))
             self._active.pop(assistant.id, None)
             self._partials.pop(assistant.id, None)
             self._stop_requested.discard(assistant.id)
@@ -168,7 +189,22 @@ class ChatService:
         if status in ("complete", "stopped") and self.extractor is not None:
             self.extractor.schedule(conversation_id=conv.id, persona_id=conv.persona_id, user_message_id=user_msg.id)
 
-    async def _context(self, conv, exclude_id: str, query: str) -> tuple[list[ChatMessage], dict]:
+    def _web_tools_for(self, conv: Conversation) -> list[Tool]:
+        """The web tools this conversation may use: none unless the web is on for it (private mode: never)."""
+        if self.web_tools is None or not effective_web(self.settings.get(), conv):
+            return []
+        return self.web_tools()
+
+    async def _plain_turn(self, prompt: list[ChatMessage], on_switch, message_id: str):
+        """A reply with no tools: the model's text as it streams."""
+        stream = self.router.stream("chat", prompt, on_switch=on_switch, purpose="chat_reply",
+                                    ref={"message_id": message_id})
+        async with aclosing(stream):
+            async for ev in stream:
+                if isinstance(ev, TextDelta):
+                    yield ev.text
+
+    async def _context(self, conv, exclude_id: str, query: str, web: bool = False) -> tuple[list[ChatMessage], dict]:
         settings = self.settings.get()
         history = [
             m for m in self.messages.list(conv.id, limit=settings.history_window + 1)
@@ -178,5 +214,6 @@ class ChatService:
         built, recalled = await chat_context(
             system=system_prompt(), window=[ChatMessage(m.role, m.content) for m in history], query=query,
             persona_id=conv.persona_id, facts=self.facts, episodic=self.episodic, settings=settings,
-            exclude_messages={m.id for m in history}, tail="\n\n".join(filter(None, [note, time_note()])))
+            exclude_messages={m.id for m in history},
+            tail="\n\n".join(filter(None, [note, time_note(), WEB_NOTE if web else None])))
         return built.messages, recalled

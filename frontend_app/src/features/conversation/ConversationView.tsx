@@ -6,6 +6,7 @@ import { greeting } from "./greeting";
 import { MessageList } from "./MessageList";
 import { Notices } from "./Notices";
 import { PromptBox } from "./PromptBox";
+import { WebPill } from "./WebPill";
 import { useSendMessage, useStartTask } from "./useConversations";
 
 export function ConversationView() {
@@ -22,6 +23,7 @@ export function ConversationView() {
       onSend={(t, mode) => void (mode === "task" ? startTask(t) : send(t))}
       onStop={() => void stop()}
       streaming={!!streamingId}
+      leading={<WebPill />}
     />
   );
 
