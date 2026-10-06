@@ -24,7 +24,7 @@ export function LearningSection({ settings }: { settings: AppSettings }) {
         <Switch label="Use what Aethel has learned" checked={settings.use_learned_skills}
           onCheckedChange={(v) => update.mutate({ use_learned_skills: v })} />
       </Field>
-      <Field label="Send only the tools a task needs" hint="Other tools stay one request away. Saves most of each step's tokens.">
+      <Field label="Send only the tools a task needs" hint="Other tools stay one request away, so each step sends fewer tokens. Off until it has been measured on real tasks.">
         <Switch label="Send only the tools a task needs" checked={settings.token_saving.tool_groups}
           onCheckedChange={(v) => update.mutate({ token_saving: { tool_groups: v } })} />
       </Field>

@@ -156,6 +156,9 @@ def test_token_eval_only_approves_the_task_own_windows():
     assert tok.decide("calc", "win_type", "Type “1234” in applicationframehost", "write") == "allow_once"
     assert tok.decide("display", "win_click", "Click “System” in applicationframehost", "write") == "allow_once"
     assert tok.decide("haiku", "win_type", "Type “x” in applicationframehost", "write") == "deny"
+    # whole words only: "edge" must not match a window that merely contains it
+    assert tok.decide("url", "win_click", "Click “x” in Microsoft Edge", "write") == "allow_once"
+    assert tok.decide("url", "win_click", "Click “x” in Knowledge Base - Chrome", "write") == "deny"
     assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
     assert tok.decide("display", "shell", "run something", "write") == "deny"
 

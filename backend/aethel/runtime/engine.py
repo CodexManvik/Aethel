@@ -35,7 +35,7 @@ from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
-from ..tools.groups import CATALOGUE_START, CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
+from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
@@ -214,6 +214,7 @@ class TaskEngine:
         self._obs: dict[str, list[Observation]] = {}  # task_id -> its tool results in this run's conversation
         # task_id -> the tool groups on offer. Absent: every tool is offered (token_saving.tool_groups is off).
         self._groups: dict[str, set[str]] = {}
+        self._catalogue: dict[str, str] = {}  # task_id -> the catalogue line last appended to its system prompt
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -339,6 +340,7 @@ class TaskEngine:
             self._states.pop(task_id, None)
             self._obs.pop(task_id, None)
             self._groups.pop(task_id, None)
+            self._catalogue.pop(task_id, None)  # a fresh conversation starts without one
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
@@ -571,9 +573,14 @@ class TaskEngine:
         active = self._groups.get(task_id)
         if active is None:
             return
-        base = convo[0].content.split("\n\n" + CATALOGUE_START, 1)[0]
+        last = self._catalogue.get(task_id, "")
+        content = convo[0].content
+        # Strip exactly what was appended last time, never "whatever follows the marker": the goal and the plan
+        # are in this prompt too, and text of theirs that looks like the catalogue must not cut it short.
+        base = content[:-len(last) - 2] if last and content.endswith("\n\n" + last) else content
         line = catalogue_line(self.registry.groups(), active)
         convo[0].content = base + (f"\n\n{line}" if line else "")
+        self._catalogue[task_id] = line
 
     async def _add_group(self, task_id: str, group: str) -> bool:
         """Offer a group from the next call on, with a quiet line in the task's activity. False if it already was."""
@@ -733,6 +740,9 @@ class TaskEngine:
             return f"Error: the arguments for {call.name} were not a JSON object. Try again."
         if call.name == "finish_task":
             return "Finishing up."
+        if call.name == "use_tools" and task_id in self._groups:
+            # Not an action: it doesn't use up the step budget (its own loop guard still applies).
+            return await self._use_tools(task_id, call, args, seen, budget)
         budget.calls_made += 1
         if call.name == "complete_plan_step":
             budget.consecutive_loops = 0
@@ -741,15 +751,15 @@ class TaskEngine:
                 await self.hub.publish(PlanProgress(task_id=task_id, index=index))
                 return "Noted."
             return "Error: there's no plan step with that index."
-        if call.name == "use_tools" and task_id in self._groups:
-            return await self._use_tools(task_id, call, args, seen, budget)
         tool = self.registry.get(call.name)
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
         if task_id in self._groups:
-            # The model used a tool it wasn't offered (it guessed the name from the catalogue): that's a request
-            # for its group. Adding it here, then running the call as usual, is what keeps grouping lossless.
+            # The model called a tool it wasn't offered (a name it remembered or guessed): that's a request for
+            # its group. Adding it here, then running the call as usual, keeps grouping lossless, with the same
+            # assessment, approval and step log below as any other call. (A provider that rejects a call to a
+            # tool that wasn't in the request never gets here: use_tools is the reliable route.)
             await self._add_group(task_id, tool.toolgroup)
         signature = _signature(call)
         seen[signature] += 1
@@ -880,6 +890,7 @@ class TaskEngine:
         self._states.pop(task_id, None)
         self._obs.pop(task_id, None)
         self._groups.pop(task_id, None)
+        self._catalogue.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:
             return  # already finished (e.g. a cancel raced the runner's own completion)

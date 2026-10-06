@@ -77,6 +77,43 @@ def test_a_long_property_description_keeps_its_first_sentence():
     assert nl["properties"]["p"]["description"] == "First line"
 
 
+def test_a_cut_never_leaves_a_meaningless_stub():
+    pad = " More detail here." * 20
+    listing = "Mode: one of\n- launch: start an app\n- switch: focus a window" + " and a tail with no end" * 10
+    cases = [
+        # "e.g." isn't a sentence end
+        ("Absolute path, e.g. C:/Users/me/file.txt for a file in your profile." + pad,
+         "Absolute path, e.g. C:/Users/me/file.txt for a file in your profile."),
+        ("Use i.e. the full name. Then more." + pad, "Use i.e. the full name."),
+        # a first sentence too short to mean anything: take the next one too
+        ("Ok. Second sentence has the real meaning of the field." + pad,
+         "Ok. Second sentence has the real meaning of the field."),
+        # a list intro ("Mode:") with its items: no clean boundary, so the description stays whole
+        (listing, listing.strip()),
+    ]
+    for text, want in cases:
+        got = compact_schema({"type": "object", "properties": {"p": {"type": "string", "description": text}}})
+        assert got["properties"]["p"]["description"] == want
+
+
+def test_a_long_tool_description_is_cut_at_a_real_sentence_end_not_at_e_g():
+    text = "Search the page, e.g. for a button. " + "Then read what you found. " * 20
+    cut = compact_spec(ToolSpec("t", text, {}), None).description
+    assert len(cut) <= 300 and cut.endswith(".") and not cut.endswith("e.g.")
+    assert cut.startswith("Search the page, e.g. for a button. Then read what you found.")
+    no_ends = compact_spec(ToolSpec("t", "word " * 100, {}), None).description
+    assert len(no_ends) <= 301 and no_ends.endswith("…")
+
+
+def test_a_required_nullable_property_keeps_its_null_branch():
+    schema = {"type": "object", "required": ["a"], "properties": {
+        "a": {"anyOf": [{"type": "string"}, {"type": "null"}]},     # required, but may be null: keep as is
+        "b": {"anyOf": [{"type": "string"}, {"type": "null"}]}}}    # optional: omitting it already means none
+    out = compact_schema(schema)["properties"]
+    assert out["a"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
+    assert out["b"] == {"type": "string"}
+
+
 def test_compact_spec_prefers_the_curated_description_else_cuts_at_a_sentence():
     spec = ToolSpec("t", "Do the thing.   Then   more.\n    Even more words here. " + "tail " * 100, NOISY)
     assert compact_spec(spec, "Curated.").description == "Curated."

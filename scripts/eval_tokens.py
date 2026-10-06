@@ -23,6 +23,7 @@ On your own model: --base-url http://127.0.0.1:8080/v1 --model model.gguf --cont
 import argparse
 import asyncio
 import json
+import re
 import shutil
 import statistics
 import sys
@@ -71,7 +72,8 @@ def decide(task: str, tool: str, summary: str, tier: str) -> str:
         return "allow_once" if str(WORK).lower() in summary.lower() else "deny"
     if tool.startswith("win_"):
         where = summary.rsplit(" in ", 1)[-1].lower() if " in " in summary else ""
-        return "allow_once" if any(w in where for w in WINDOWS.get(task, ())) else "deny"
+        # whole words: "edge" is Microsoft Edge, not "Knowledge Base - Chrome"
+        return "allow_once" if any(re.search(rf"\b{re.escape(w)}\b", where) for w in WINDOWS.get(task, ())) else "deny"
     return "deny"
 
 
