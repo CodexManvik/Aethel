@@ -76,7 +76,8 @@ class FileCommander:
                     self.changes.record_before_write(str(path), ctx.task_id)
             return await self.hub.call(SERVER, remote.name, args)
 
-        return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope)
+        return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope,
+                    toolgroup="files")
 
     def adapt(self, hub, remote_tools: list[mt.Tool]) -> list[Tool]:
         self.hub = hub

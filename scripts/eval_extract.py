@@ -3,7 +3,8 @@
 Runs every case in backend/aethel/eval/extract_fixtures.json through the real extraction prompt on the
 first model of the utility role and the first model of the chat role, with your keys, and scores exact
 agreement with the expected operations. Spends a few thousand tokens per model: run it yourself.
-Writes ~/.aethel/eval/extract.json. Usage: py -3.11 scripts/eval_extract.py"""
+Writes ~/.aethel/eval/extract.json. Usage: py -3.11 scripts/eval_extract.py
+Or one endpoint of your own: --base-url http://127.0.0.1:8080/v1 --model model.gguf --max-tokens 2000"""
 import asyncio
 import json
 import sys
@@ -38,7 +39,7 @@ def score(case: dict, ops: list | None) -> bool:
     return True
 
 
-async def run_model(entry, settings, keys, cases) -> dict:
+async def run_model(entry, settings, keys, cases, max_tokens: int = 300) -> dict:
     import httpx
 
     from aethel.memory.extract import extraction_messages, parse_ops
@@ -55,7 +56,7 @@ async def run_model(entry, settings, keys, cases) -> dict:
         for case in cases:
             text = []
             async for ev in provider.stream(extraction_messages(case["known"], case["previous"], case["message"]),
-                                            temperature=0.1, max_tokens=300):
+                                            temperature=0.1, max_tokens=max_tokens):
                 if isinstance(ev, TextDelta):
                     text.append(ev.text)
             ops = parse_ops("".join(text))
@@ -64,10 +65,10 @@ async def run_model(entry, settings, keys, cases) -> dict:
     return {"model": f"{entry.provider}:{entry.model}", "right": right, "n": len(results), "results": results}
 
 
-async def main() -> None:
+async def main(args) -> None:
     from aethel.keys import KeyStore
     from aethel.paths import aethel_home, db_path
-    from aethel.settings import SettingsService
+    from aethel.settings import RouteEntry, SettingsService
     from aethel.store.db import Database
 
     cases = json.loads(DATA.read_text(encoding="utf-8"))["cases"]
@@ -75,12 +76,16 @@ async def main() -> None:
     settings = SettingsService(db).get()
     keys = KeyStore()
     out = {}
-    for role in ("utility", "chat"):
-        entries = settings.roles.get(role) or []
-        if not entries:
+    if args.base_url:  # one given OpenAI-compatible endpoint (e.g. your own llama-server), not your roles
+        settings = settings.model_copy(update={"custom_base_url": args.base_url.rstrip("/")})
+        runs = {"endpoint": RouteEntry(provider="custom", model=args.model)}
+    else:
+        runs = {role: (settings.roles.get(role) or [None])[0] for role in ("utility", "chat")}
+    for role, entry in runs.items():
+        if entry is None:
             print(f"{role}: no model set")
             continue
-        out[role] = await run_model(entries[0], settings, keys, cases)
+        out[role] = await run_model(entry, settings, keys, cases, args.max_tokens)
         r = out[role]
         print(f"{role} ({r['model']}): " + (r.get("error") or f"{r['right']}/{r['n']} right"))
         for item in r.get("results", []):
@@ -98,4 +103,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base-url", help="score one OpenAI-compatible endpoint instead of your roles")
+    parser.add_argument("--model", default="model.gguf")
+    parser.add_argument("--max-tokens", type=int, default=300, help="raise for thinking models (they reason first)")
+    asyncio.run(main(parser.parse_args()))

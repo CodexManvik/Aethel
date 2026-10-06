@@ -1114,3 +1114,38 @@ async def test_content_left_out_to_fit_can_be_read_again(h):
     last = [m.content for m in provider.calls[-1] if m.role == "tool"]
     assert any("left out to fit; call it again" in c for c in last)
     assert last[-1].startswith("contents of a.txt")  # not [LOOP DETECTED]
+
+
+NOISY_SCHEMA = {"type": "object", "title": "noisy_toolArguments",
+                "properties": {"q": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Q"}}}
+
+
+def _noisy_tool():
+    from aethel.tools.base import Assessment, Tool, ToolResult
+
+    async def run(args, ctx):
+        return ToolResult(True, "ok")
+
+    return Tool("noisy_tool", "Does a thing.\n\n    A long upstream paragraph.", NOISY_SCHEMA, "read", run,
+                lambda a: Assessment("allow", "", "x"))
+
+
+async def test_compact_schemas_are_what_the_executor_sends_and_can_be_switched_off(h):
+    turns = [[plan(["Do it"])], [tool_call("finish_task", summary="Done.")]]
+    engine, provider = h.make(turns, settings=h.settings)
+    engine.registry.register(_noisy_tool())
+    await engine.start(conversation_id=h.convs.create().id, goal="x")
+    await engine.wait_idle()
+    sent = next(s for s in provider.specs_seen[1] if s.name == "noisy_tool")
+    assert sent.parameters == {"type": "object", "properties": {"q": {"type": "string"}}}
+    assert "title" not in json.dumps(sent.parameters)
+    assert NOISY_SCHEMA["title"] == "noisy_toolArguments"  # the tool's own schema is untouched
+
+    h.settings.update({"token_saving": {"compact_schemas": False}})
+    engine, provider = h.make([[plan(["Do it"])], [tool_call("finish_task", summary="Done.")]], settings=h.settings)
+    # the same registry, its tool registered again: the earlier compact copy must not be served back
+    engine.registry.unregister("noisy_tool")
+    engine.registry.register(_noisy_tool())
+    await engine.start(conversation_id=h.convs.create().id, goal="x")
+    await engine.wait_idle()
+    assert next(s for s in provider.specs_seen[1] if s.name == "noisy_tool").parameters == NOISY_SCHEMA

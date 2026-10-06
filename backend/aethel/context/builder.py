@@ -7,7 +7,7 @@ included are returned, so a reply can say what it recalled (and E5 can measure i
 from dataclasses import dataclass, field
 
 from ..providers.base import ChatMessage
-from ..settings import AppSettings
+from ..settings import REASONING_REPLY_TOKENS, AppSettings
 
 NEVER_DROP = 1_000_000
 SAFETY = 0.9          # token estimates are rough: keep 10% spare
@@ -81,4 +81,6 @@ def budget_for(settings: AppSettings, role: str, reply_tokens: int, capped: bool
     sizes = [_size(e, settings) for e in chosen] or [DEFAULT_CONTEXT]
     smallest = min(sizes)
     base = min(smallest, settings.context_caps.get(role, smallest)) if capped else smallest
+    if any(getattr(e, "reasoning", False) for e in chosen):  # any of them may be the one that answers
+        reply_tokens = max(reply_tokens, REASONING_REPLY_TOKENS)
     return max(MIN_BUDGET, int(base * SAFETY) - min(reply_tokens, base // 4))

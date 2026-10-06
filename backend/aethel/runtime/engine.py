@@ -24,7 +24,7 @@ from ..context.recipes import facts_section
 from ..hub import EventHub
 from ..paths import aethel_home
 from ..protocol import (CheckOutcome, ConversationUpdated, ErrorEvent, PlanProgress, ProviderSwitched,
-                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskPlan, TaskState,
+                        SkillLearned, StepFinished, StepStarted, TaskCreated, TaskNote, TaskPlan, TaskState,
                         VerificationResult)
 from ..providers.base import ChatMessage, ProviderError, StreamDone, TextDelta, ToolCall, ToolCallsReady, ToolSpec
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
@@ -35,12 +35,14 @@ from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
+from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
 from .reflect import learn
-from .prompts import COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt, resume_note
+from .prompts import (COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt,
+                      resume_note, submit_plan_spec)
 from .store import TERMINAL_STATES, TaskRepo
 
 log = logging.getLogger("aethel.tasks")
@@ -147,6 +149,13 @@ def _parse_plan(raw: str) -> tuple[list[str], list[Check]] | None:
     return steps, checks
 
 
+def _parse_groups(raw: str, valid: list[str]) -> set[str]:
+    """The tool groups a plan names (submit_plan's optional tool_groups), minus any that don't exist."""
+    args = _parse_args(raw) or {}
+    named = args.get("tool_groups")
+    return {g for g in named if g in valid} if isinstance(named, list) else set()
+
+
 def _first_line(text: str) -> str:
     return (text.strip().splitlines() or [""])[0][:200]
 
@@ -203,6 +212,9 @@ class TaskEngine:
         self._learning: set[asyncio.Task] = set()  # reflection passes still running after their task ended
         self._states: dict[str, StateTracker] = {}  # task_id -> the last screen/page the model saw
         self._obs: dict[str, list[Observation]] = {}  # task_id -> its tool results in this run's conversation
+        # task_id -> the tool groups on offer. Absent: every tool is offered (token_saving.tool_groups is off).
+        self._groups: dict[str, set[str]] = {}
+        self._catalogue: dict[str, str] = {}  # task_id -> the catalogue line last appended to its system prompt
 
     # ---- public API --------------------------------------------------------
     async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
@@ -327,13 +339,18 @@ class TaskEngine:
             # A resumed task starts a fresh conversation: nothing the model saw before is in it.
             self._states.pop(task_id, None)
             self._obs.pop(task_id, None)
+            self._groups.pop(task_id, None)
+            self._catalogue.pop(task_id, None)  # a fresh conversation starts without one
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
             replay: tuple[dict, dict] | None = None  # (skill, parameter values) when a compiled macro fits
+            planned: set[str] = set()  # tool groups the planner expects to need
+            shown: list[str] = []      # the skills the planner was shown
             if not record.plan:
                 await self._set_state(task_id, "planning")
                 hints = await self._recall(record.goal)
+                shown = hints.skill_ids
                 if hints.skill_ids:
                     self.tasks.set_knowledge(task_id, hints.skill_ids, hints.chosen)
                 hint_text = await self._with_facts(task_id, record.goal, hints.text)
@@ -342,10 +359,12 @@ class TaskEngine:
                 if replay is not None:  # the learned steps are the plan: no planning call at all
                     steps, checks = [describe(s, replay[1]) for s in replay[0]["macro_def"]["steps"]], []
                 else:
-                    steps, checks = await self._plan(task_id, record.goal, learned)
+                    steps, checks, planned = await self._plan(task_id, record.goal, learned)
                 self.tasks.set_plan(task_id, steps, [c.model_dump() for c in checks])
                 await self.hub.publish(TaskPlan(task_id=task_id, steps=steps, checks=[c.describe() for c in checks]))
                 record = self.tasks.get(task_id)
+            if self._groups_on():  # the core tools, what the plan and the learned skills point to, what was used
+                self._groups[task_id] = set(CORE) | planned | self._skill_groups(shown) | self._groups_for_steps(task_id)
             checks = [Check.model_validate(c) for c in record.checks]
             await self._set_state(task_id, "running")
             convo = [
@@ -511,17 +530,105 @@ class TaskEngine:
         self.tasks.set_context(task_id, {"facts": [{"id": f.id, "text": f.text} for f, _ in hits]})
         return combined
 
-    async def _plan(self, task_id: str, goal: str, learned: str | None = None) -> tuple[list[str], list[Check]]:
-        tools = "\n".join(f"- {s.name}: {s.description}" for s in self.registry.specs())
+    def _compact(self) -> bool:
+        return self.settings is not None and self.settings.get().token_saving.compact_schemas
+
+    # ---- tool groups on demand (token spec §6) -----------------------------------------------------
+    def _groups_on(self) -> bool:
+        return self.settings is not None and self.settings.get().token_saving.tool_groups
+
+    def _groups_for_steps(self, task_id: str) -> set[str]:
+        """The non-core groups of the tools a task already used: a resumed task carries them again."""
+        used = [self.registry.get(s.tool) for s in self.tasks.steps(task_id)]
+        return {t.toolgroup for t in used if t is not None} - CORE
+
+    def _skill_groups(self, skill_ids: list[str]) -> set[str]:
+        """The groups a learned skill is about: its apps (Word, Excel...) and the tools of its macro."""
+        if self.knowledge is None:
+            return set()
+        groups: set[str] = set()
+        for skill_id in skill_ids:
+            skill = self.knowledge.get(skill_id) or {}
+            if any(k in str(app).lower() for app in skill.get("apps") or [] for k in ("word", "excel", "powerpoint")):
+                groups.add("office")
+            for step in (skill.get("macro_def") or {}).get("steps") or []:
+                tool = self.registry.get(step.get("tool"))
+                if tool is not None:
+                    groups.add(tool.toolgroup)
+        return groups - CORE
+
+    def _offered(self, task_id: str) -> list[ToolSpec]:
+        """The tools for the next executor call: what's active, the plan tools, and use_tools while a group is left."""
+        active = self._groups.get(task_id)  # None: groups are off, every tool is offered
+        specs = self.registry.specs(active, compact=self._compact()) + [COMPLETE_STEP, FINISH_TASK]
+        if active is not None:
+            left = inactive_groups(self.registry.groups(), active)
+            if left:
+                specs.append(use_tools_spec(left))
+        return specs
+
+    def _sync_catalogue(self, task_id: str, convo: list[ChatMessage]) -> None:
+        """The system prompt ends with the one-line catalogue of the groups still on request. It's rewritten
+        only when a group was added, so between additions the prompt, and the provider's cache of it, is stable."""
+        active = self._groups.get(task_id)
+        if active is None:
+            return
+        last = self._catalogue.get(task_id, "")
+        content = convo[0].content
+        # Strip exactly what was appended last time, never "whatever follows the marker": the goal and the plan
+        # are in this prompt too, and text of theirs that looks like the catalogue must not cut it short.
+        base = content[:-len(last) - 2] if last and content.endswith("\n\n" + last) else content
+        line = catalogue_line(self.registry.groups(), active)
+        convo[0].content = base + (f"\n\n{line}" if line else "")
+        self._catalogue[task_id] = line
+
+    async def _add_group(self, task_id: str, group: str) -> bool:
+        """Offer a group from the next call on, with a quiet line in the task's activity. False if it already was."""
+        active = self._groups[task_id]
+        if group in active:
+            return False
+        active.add(group)
+        await self.hub.publish(TaskNote(task_id=task_id, text=f"Asked for {GROUP_LABELS.get(group, group)} tools"))
+        return True
+
+    async def _use_tools(self, task_id: str, call: ToolCall, args: dict, seen: Counter, budget: "_Budget") -> str:
+        """Asking for a group changes what the model can ask for, never what it may do: no step, no approval."""
+        group = args.get("group")
+        asked = inactive_groups(self.registry.groups(), CORE)  # every group but core that has tools
+        if group not in asked:
+            budget.consecutive_loops = 0
+            return f"Error: there's no tool group {group!r}. Groups: {', '.join(asked) or 'none'}."
+        signature = _signature(call)
+        seen[signature] += 1
+        if seen[signature] > self.max_identical_calls:
+            budget.consecutive_loops += 1
+            return "[LOOP DETECTED] You've already asked for these tools. Use them, or try something different."
+        budget.consecutive_loops = 0
+        if not await self._add_group(task_id, group):
+            return f"The {group} tools are already available."
+        return f"Added {group} tools: {', '.join(self.registry.names(group))}."
+
+    async def _plan(self, task_id: str, goal: str, learned: str | None = None) \
+            -> tuple[list[str], list[Check], set[str]]:
+        spec = SUBMIT_PLAN
+        valid: list[str] = []
+        if self._groups_on():  # the core tools in full, the rest as a catalogue the plan can pick from
+            valid = inactive_groups(self.registry.groups(), CORE)
+            listed = self.registry.specs(CORE, compact=self._compact())
+            catalogue = catalogue_line(self.registry.groups(), CORE)
+            spec = submit_plan_spec(valid)
+        else:
+            listed, catalogue = self.registry.specs(compact=self._compact()), ""
+        tools = "\n".join(f"- {s.name}: {s.description}" for s in listed) + (f"\n\n{catalogue}" if catalogue else "")
         messages = [ChatMessage("system", PLANNER_SYSTEM),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
         for _ in range(2):
-            calls, text, _ = await self._complete(task_id, messages, [SUBMIT_PLAN], "plan")
+            calls, text, _ = await self._complete(task_id, messages, [spec], "plan")
             call = next((c for c in calls if c.name == "submit_plan"), None)
             parsed = _parse_plan(call.arguments) if call is not None else None
             if parsed is not None:
-                return parsed
+                return (*parsed, _parse_groups(call.arguments, valid))
             messages.append(ChatMessage("assistant", text, tool_calls=calls or None))
             for c in calls:
                 messages.append(ChatMessage("tool", "That plan wasn't usable.", tool_call_id=c.id))
@@ -553,7 +660,6 @@ class TaskEngine:
 
     async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[tuple[str, str]],
                        run: "_RunClock", budget: "_Budget") -> Outcome:
-        specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
         nudged = False
         obs = self._obs.setdefault(task_id, [])  # the tool results in convo, for trimming (token spec §5.1)
@@ -561,6 +667,8 @@ class TaskEngine:
             if budget.calls_made >= self.max_steps or run.total_seconds() > self.max_seconds:
                 return Outcome(await self._final_summary(task_id, convo), True)
             await self._gate(task_id, run)
+            self._sync_catalogue(task_id, convo)
+            specs = self._offered(task_id)  # per call: a group the model asked for last turn is in it now
             self._trim(task_id, convo, obs, specs, seen)
             calls, text, finish_reason = await self._complete(task_id, convo, specs)
             convo.append(ChatMessage("assistant", text, tool_calls=calls or None))
@@ -632,6 +740,9 @@ class TaskEngine:
             return f"Error: the arguments for {call.name} were not a JSON object. Try again."
         if call.name == "finish_task":
             return "Finishing up."
+        if call.name == "use_tools" and task_id in self._groups:
+            # Not an action: it doesn't use up the step budget (its own loop guard still applies).
+            return await self._use_tools(task_id, call, args, seen, budget)
         budget.calls_made += 1
         if call.name == "complete_plan_step":
             budget.consecutive_loops = 0
@@ -644,6 +755,12 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
+        if task_id in self._groups:
+            # The model called a tool it wasn't offered (a name it remembered or guessed): that's a request for
+            # its group. Adding it here, then running the call as usual, keeps grouping lossless, with the same
+            # assessment, approval and step log below as any other call. (A provider that rejects a call to a
+            # tool that wasn't in the request never gets here: use_tools is the reliable route.)
+            await self._add_group(task_id, tool.toolgroup)
         signature = _signature(call)
         seen[signature] += 1
         if seen[signature] > self.max_identical_calls:
@@ -772,6 +889,8 @@ class TaskEngine:
     async def _finish(self, task_id: str, state: str, summary: str | None, error: str | None = None) -> None:
         self._states.pop(task_id, None)
         self._obs.pop(task_id, None)
+        self._groups.pop(task_id, None)
+        self._catalogue.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:
             return  # already finished (e.g. a cancel raced the runner's own completion)

@@ -26,6 +26,15 @@ test("a task's full lifecycle folds into one TaskUi", () => {
   expect([t.state, t.summary]).toEqual(["done", "Saved."]);
 });
 
+test("a task note is kept with how many steps came before it", () => {
+  let s = applyTaskEvent({}, created);
+  s = applyTaskEvent(s, { type: "task_note", task_id: "t1", text: "Asked for Word and Excel tools" });
+  s = applyTaskEvent(s, { type: "step_started", task_id: "t1", step_id: "s1", tool: "word_new", summary: "x", verdict: "allow" });
+  s = applyTaskEvent(s, { type: "task_note", task_id: "t1", text: "Asked for file search tools" });
+  expect(s.t1.notes).toEqual([{ text: "Asked for Word and Excel tools", at: 0 }, { text: "Asked for file search tools", at: 1 }]);
+  expect(applyTaskEvent({}, { type: "task_note", task_id: "nope", text: "x" })).toEqual({});
+});
+
 test("events for unknown tasks are ignored and terminal states clear approvals", () => {
   const s = applyTaskEvent({}, { type: "plan_progress", task_id: "nope", index: 0 });
   expect(s).toEqual({});

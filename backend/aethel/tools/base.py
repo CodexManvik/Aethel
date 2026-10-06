@@ -51,6 +51,9 @@ class Tool:
     # A tool whose result is the current state of something ("screen", "page"): a newer result of the
     # same kind supersedes it, so older ones can be left out of the model's context (token spec §5.1).
     observes: Literal["screen", "page"] | None = None
+    # Which tools a task carries by default (tools/groups.py): "core" always, the rest on request.
+    # Not `group` above: that one decides what an approval covers, this one what the model is offered.
+    toolgroup: str = "core"
 
     @property
     def grant_key(self) -> str:

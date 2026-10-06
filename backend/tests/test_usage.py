@@ -44,6 +44,19 @@ def test_record_and_totals(db):
     assert t["total"]["prompt"] == 150 and len(t["by_day"]) == 1
 
 
+def test_task_breakdown_lists_each_calls_estimated_parts_in_order(db):
+    log = UsageLog(db)
+    for purpose, tools, ref in [("plan", 700, "t1"), ("execute", 900, "t1"), ("execute", 400, "t1"),
+                                ("execute", 5, "t2")]:
+        log.record(role="agent", purpose=purpose, provider="groq", model="m", ref={"task_id": ref},
+                   usage=Usage(10, 1, 0), breakdown={"system": 3, "tools": tools}, status="ok", latency_ms=1)
+    log.record(role="agent", purpose="execute", provider="groq", model="m", ref={"task_id": "t1"},
+               usage=None, breakdown={"tools": 111}, status="error", latency_ms=1, started=False)  # never ran
+    assert [b["tools"] for b in log.task_breakdown("t1")] == [900, 400]            # execute calls that ran
+    assert [b["tools"] for b in log.task_breakdown("t1", "plan")] == [700]
+    assert log.task_breakdown("nope") == []
+
+
 def _router(db, providers, chain):
     settings = SettingsService(db)
     settings.update({"roles": {"chat": [{"provider": "groq", "model": m} for m in chain]}})

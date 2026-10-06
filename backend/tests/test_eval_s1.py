@@ -101,7 +101,7 @@ def test_token_eval_summary():
 
 def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
     tok = _load("eval_tokens")
-    assert tok.schedule(["a", "b"], 2) == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
+    assert tok.schedule(["a", "b"], 2, "masking") == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
                                            ("b", "masking on"), ("a", "masking on"), ("a", "masking off"),
                                            ("b", "masking on"), ("b", "masking off")]
     checks = {name: check for name, _, check in tok.tasks()}
@@ -110,3 +110,83 @@ def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
     (tmp_path / "notes.txt").write_text("shopping\n- eggs\nbuy milk\n", encoding="utf-8")
     assert checks["edit"](tmp_path) is True
     assert checks["folder"](tmp_path) is False and checks["url"] is None
+
+
+def test_token_eval_has_two_axes_and_pins_everything_else(tmp_path):
+    tok = _load("eval_tokens")
+    flip = [("a", "groups off"), ("a", "groups on"), ("b", "groups off"), ("b", "groups on"),
+            ("a", "groups on"), ("a", "groups off"), ("b", "groups on"), ("b", "groups off")]
+    assert tok.schedule(["a", "b"], 2, "groups") == flip
+    assert tok.schedule(["a"], 1, "masking") == [("a", "masking off"), ("a", "masking on")]
+    assert list(tok.arms_for("groups")) == ["groups off", "groups on"]
+    # compaction is lossless, so it's the baseline of every arm; the axis under test is the only difference
+    base = {"compact_schemas": True, "mask_superseded": True, "mask_batch": 3, "tool_groups": False}
+    assert tok.arms_for("groups")["groups off"] == base
+    assert tok.arms_for("groups")["groups on"] == {**base, "tool_groups": True}
+    assert tok.arms_for("masking")["masking off"] == {**base, "mask_superseded": False}
+    assert tok.arms_for("masking")["masking on"] == {**base, "mask_batch": 1}   # the strict version, as before
+
+
+def test_token_eval_summary_reports_the_schema_tokens_and_the_verdict_on_the_arms():
+    tok = _load("eval_tokens")
+    usage = {"prompt": 1000, "completion": 50, "calls": 4, "estimated": False}
+    runs = [{"success": True, "seconds": 10.0, "usage": usage, "tool_tokens": 9000.0},
+            {"success": False, "seconds": 20.0, "usage": usage, "tool_tokens": 3000.0},
+            {"success": True, "seconds": 12.0, "usage": usage, "tool_tokens": None}]  # no execute call recorded
+    s = tok.summarise(runs)
+    assert s["mean_tool_tokens"] == 6000.0 and s["success_rate"] == round(2 / 3, 3)
+    assert tok.summarise([])["mean_tool_tokens"] is None
+    off = {"summary": {"runs": 12, "success_rate": round(10 / 12, 3)}}
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": round(9 / 12, 3)}}) == "no_drop"   # one run fewer
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": round(8 / 12, 3)}}) == "drop"
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": 1.0}}) == "no_drop"
+    assert tok.verdict(off, {"summary": {"runs": 0, "success_rate": None}}) == "not_measured"
+
+
+def test_token_eval_only_approves_the_task_own_windows():
+    tok = _load("eval_tokens")
+    work = str(tok.WORK)
+    assert tok.decide("haiku", "win_type", "Type “Rain softly falls…” in notepad", "write") == "allow_once"
+    assert tok.decide("haiku", "win_type", "Type “Pitter patter…” in whatsapp.root", "write") == "deny"
+    assert tok.decide("haiku", "win_shortcut", "Press enter in whatsapp.root", "write") == "deny"
+    assert tok.decide("haiku", "win_shortcut", "Press ctrl+s", "write") == "deny"   # no window named: no
+    assert tok.decide("haiku", "fs_write", work + r"\haiku.txt", "write") == "allow_once"
+    assert tok.decide("haiku", "fs_write", r"C:\Users\x\Desktop\a.txt", "write") == "deny"
+    # Store apps (Calculator, Settings) report their host window rather than their own name.
+    assert tok.decide("calc", "win_type", "Type “1234” in applicationframehost", "write") == "allow_once"
+    assert tok.decide("display", "win_click", "Click “System” in applicationframehost", "write") == "allow_once"
+    assert tok.decide("haiku", "win_type", "Type “x” in applicationframehost", "write") == "deny"
+    # whole words only: "edge" must not match a window that merely contains it
+    assert tok.decide("url", "win_click", "Click “x” in Microsoft Edge", "write") == "allow_once"
+    assert tok.decide("url", "win_click", "Click “x” in Knowledge Base - Chrome", "write") == "deny"
+    assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
+    assert tok.decide("display", "shell", "run something", "write") == "deny"
+
+
+def test_schema_report_ranks_tools_by_their_share_of_the_tokens():
+    rep = _load("tool_schema_report")
+    from aethel.providers.base import ToolSpec
+    specs = [ToolSpec("a", "x", {}), ToolSpec("b", "x", {}), ToolSpec("c", "x", {})]
+    rows = rep.report(specs, [100, 300, 600], {"a": "core", "b": "office", "c": "files"})
+    assert [r["tool"] for r in rows] == ["c", "b", "a"]
+    assert [r["tokens"] for r in rows] == [600, 300, 100]
+    assert [r["share"] for r in rows] == [0.6, 0.3, 0.1]
+    assert [r["group"] for r in rows] == ["files", "office", "core"]
+    assert rep.by_group(rows) == {"files": 600, "office": 300, "core": 100}
+
+
+def test_schema_report_estimates_when_there_is_no_tokenizer():
+    rep = _load("tool_schema_report")
+    assert rep.count_tokens(["x" * 40, "y" * 7], None) == [10, 1]
+    # nothing is listening there: it estimates instead of failing
+    assert rep.count_tokens(["x" * 40], "http://127.0.0.1:9/v1") == [10]
+    assert rep.exact_counts(["x" * 40], "http://127.0.0.1:9/v1") is None
+
+
+def test_schema_report_measures_what_the_provider_receives():
+    import json
+    from aethel.providers.base import ToolSpec
+    rep = _load("tool_schema_report")
+    spec = ToolSpec("win_wait", "Wait.", {"type": "object", "properties": {"duration": {"type": "number"}}})
+    wire = json.loads(rep.spec_json(spec))
+    assert wire["function"]["name"] == "win_wait" and wire["function"]["parameters"]["properties"]["duration"]

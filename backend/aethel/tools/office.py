@@ -73,7 +73,7 @@ class Office:
             return await self.hub.call(SERVER, name, args)
 
         return Tool(name, remote.description or name, remote.inputSchema or {"type": "object"}, tier, handler,
-                    assess, grant_scope=scope, group="office")
+                    assess, grant_scope=scope, group="office", toolgroup="office")
 
     def adapt(self, hub, remote_tools: list[mt.Tool]) -> list[Tool]:
         self.hub = hub

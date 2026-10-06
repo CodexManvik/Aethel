@@ -12,7 +12,7 @@ const task = (over: Partial<TaskUi> = {}): TaskUi => ({
   steps: [{ id: "s1", tool: "fs_write", summary: "C:/Users/me/Desktop/haiku.txt", verdict: "ask", ok: null, detail: "", durationMs: null }],
   approvals: [{ id: "a1", stepId: "s1", tool: "fs_write", summary: "C:/Users/me/Desktop/haiku.txt",
     reason: "Outside the folders I'm allowed to write without asking.", tier: "write" }],
-  summary: null, error: null, ...over,
+  notes: [], summary: null, error: null, ...over,
 });
 
 let sent: unknown[];
@@ -32,6 +32,26 @@ test("shows the goal, plan with a ticked step, and an approval card that answers
   expect(within(card).getByText("C:/Users/me/Desktop/haiku.txt")).toBeInTheDocument();
   await userEvent.click(within(card).getByRole("button", { name: "Allow for this task" }));
   expect(sent).toEqual([{ type: "approval_decision", approval_id: "a1", decision: "allow_task" }]);
+});
+
+test("a quiet note sits in the activity where it happened, and isn't a step", () => {
+  useTasks.setState({ tasks: { t1: task({
+    approvals: [], state: "running",
+    steps: [{ id: "s1", tool: "fs_read", summary: "C:/a.txt", verdict: "allow", ok: true, detail: "", durationMs: 4 },
+      { id: "s2", tool: "word_new", summary: "a new document", verdict: "allow", ok: true, detail: "", durationMs: 9 }],
+    notes: [{ text: "Asked for Word and Excel tools", at: 1 }],
+  }) } });
+  render(<TaskPanel />);
+  const items = within(screen.getByText("Activity").parentElement as HTMLElement).getAllByRole("listitem");
+  expect(items.map((li) => li.textContent)).toEqual([
+    expect.stringContaining("fs_read"), "Asked for Word and Excel tools", expect.stringContaining("word_new")]);
+  expect(items[1]).toHaveAttribute("data-note", "true");
+});
+
+test("a note alone still shows the activity section", () => {
+  useTasks.setState({ tasks: { t1: task({ approvals: [], steps: [], notes: [{ text: "Asked for file search tools", at: 0 }] }) } });
+  render(<TaskPanel />);
+  expect(screen.getByText("Asked for file search tools")).toBeInTheDocument();
 });
 
 test("irreversible approvals can't be granted for the whole task", () => {

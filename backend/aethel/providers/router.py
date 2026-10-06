@@ -7,7 +7,7 @@ import anyio
 import httpx
 
 from ..keys import KeyStore
-from ..settings import AppSettings, RouteEntry, SettingsService
+from ..settings import REASONING_REPLY_TOKENS, AppSettings, RouteEntry, SettingsService
 from ..usage import UsageLog, estimate_breakdown
 from .base import ChatMessage, LLMProvider, ProviderError, StreamDone, StreamEvent, ToolSpec, Usage
 from .catalog import api_key_for, base_url_for
@@ -122,7 +122,8 @@ class RoleRouter:
             t0 = time.perf_counter()
             try:
                 async for event in provider.stream(
-                    messages, temperature=temp, max_tokens=limit, tools=tools
+                    messages, temperature=temp, tools=tools,
+                    max_tokens=max(limit, REASONING_REPLY_TOKENS) if entry.reasoning else limit,  # thinking uses it first
                 ):
                     started = True
                     if isinstance(event, StreamDone):

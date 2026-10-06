@@ -28,6 +28,7 @@ export type Server =
   | TaskCreated
   | TaskPlan
   | PlanProgress
+  | TaskNote
   | StepStarted
   | StepFinished
   | ApprovalNeeded
@@ -78,36 +79,39 @@ export type Type13 = "task_plan";
 export type Index = number;
 export type TaskId4 = string;
 export type Type14 = "plan_progress";
+export type TaskId5 = string;
+export type Text2 = string;
+export type Type15 = "task_note";
 export type StepId = string;
 export type Summary = string;
-export type TaskId5 = string;
+export type TaskId6 = string;
 export type Tool = string;
-export type Type15 = "step_started";
+export type Type16 = "step_started";
 export type Verdict = "allow" | "ask" | "deny";
 export type Detail = string;
 export type DurationMs = number;
 export type Ok = boolean;
 export type StepId1 = string;
-export type TaskId6 = string;
-export type Type16 = "step_finished";
+export type TaskId7 = string;
+export type Type17 = "step_finished";
 export type ApprovalId1 = string;
 export type Reason1 = string;
 export type StepId2 = string;
 export type Summary1 = string;
-export type TaskId7 = string;
+export type TaskId8 = string;
 export type Tier = "read" | "write" | "irreversible";
 export type Tool1 = string;
-export type Type17 = "approval_needed";
+export type Type18 = "approval_needed";
 export type ApprovalId2 = string;
 export type Decision1 = "allow_once" | "allow_task" | "deny";
-export type TaskId8 = string;
-export type Type18 = "approval_resolved";
+export type TaskId9 = string;
+export type Type19 = "approval_resolved";
 export type Description = string;
 export type Detail1 = string;
 export type Passed = boolean;
 export type Results = CheckOutcome[];
-export type TaskId9 = string;
-export type Type19 = "verification";
+export type TaskId10 = string;
+export type Type20 = "verification";
 export type ConversationId6 = string;
 export type Error = string | null;
 export type MessageId6 = string | null;
@@ -115,38 +119,38 @@ export type MessageText = string | null;
 export type State =
   "planning" | "running" | "waiting_approval" | "paused" | "verifying" | "done" | "failed" | "cancelled";
 export type Summary2 = string | null;
-export type TaskId10 = string;
-export type Type20 = "task_state";
+export type TaskId11 = string;
+export type Type21 = "task_state";
 export type Created = boolean;
 export type SkillId = string;
-export type TaskId11 = string;
+export type TaskId12 = string;
 export type Title1 = string;
-export type Type21 = "skill_learned";
+export type Type22 = "skill_learned";
 export type Label = string;
-export type TaskId12 = string | null;
-export type Type22 = "cursor_intent";
+export type TaskId13 = string | null;
+export type Type23 = "cursor_intent";
 export type X = number;
 export type Y = number;
 export type FactId = string;
 export type OldText = string | null;
 export type Op = "add" | "update" | "delete";
 export type Scope = string;
-export type Text2 = string | null;
+export type Text3 = string | null;
 export type Undone = boolean;
 export type Changes = FactChange[];
 export type ConversationId7 = string;
 export type MessageId7 = string;
-export type Type23 = "facts_changed";
+export type Type24 = "facts_changed";
 export type ConversationId8 = string;
 export type CreatedAt = string;
 export type Id = string;
-export type Text3 = string;
+export type Text4 = string;
 export type Episodes = RecalledEpisode[];
 export type Id1 = string;
-export type Text4 = string;
+export type Text5 = string;
 export type Facts = RecalledFact[];
 export type MessageId8 = string;
-export type Type24 = "context_used";
+export type Type25 = "context_used";
 
 export interface AethelProtocol {
   client: Client;
@@ -243,12 +247,20 @@ export interface PlanProgress {
   task_id: TaskId4;
   type: Type14;
 }
+/**
+ * A quiet line in a task's activity that isn't a step, e.g. "Asked for Word and Excel tools".
+ */
+export interface TaskNote {
+  task_id: TaskId5;
+  text: Text2;
+  type: Type15;
+}
 export interface StepStarted {
   step_id: StepId;
   summary: Summary;
-  task_id: TaskId5;
+  task_id: TaskId6;
   tool: Tool;
-  type: Type15;
+  type: Type16;
   verdict: Verdict;
 }
 export interface StepFinished {
@@ -256,29 +268,29 @@ export interface StepFinished {
   duration_ms: DurationMs;
   ok: Ok;
   step_id: StepId1;
-  task_id: TaskId6;
-  type: Type16;
+  task_id: TaskId7;
+  type: Type17;
 }
 export interface ApprovalNeeded {
   approval_id: ApprovalId1;
   reason: Reason1;
   step_id: StepId2;
   summary: Summary1;
-  task_id: TaskId7;
+  task_id: TaskId8;
   tier: Tier;
   tool: Tool1;
-  type: Type17;
+  type: Type18;
 }
 export interface ApprovalResolved {
   approval_id: ApprovalId2;
   decision: Decision1;
-  task_id: TaskId8;
-  type: Type18;
+  task_id: TaskId9;
+  type: Type19;
 }
 export interface VerificationResult {
   results: Results;
-  task_id: TaskId9;
-  type: Type19;
+  task_id: TaskId10;
+  type: Type20;
 }
 export interface CheckOutcome {
   description: Description;
@@ -292,8 +304,8 @@ export interface TaskState {
   message_text: MessageText;
   state: State;
   summary: Summary2;
-  task_id: TaskId10;
-  type: Type20;
+  task_id: TaskId11;
+  type: Type21;
 }
 /**
  * After a task, reflection wrote or reinforced a skill (spec §6.3).
@@ -301,17 +313,17 @@ export interface TaskState {
 export interface SkillLearned {
   created: Created;
   skill_id: SkillId;
-  task_id: TaskId11;
+  task_id: TaskId12;
   title: Title1;
-  type: Type21;
+  type: Type22;
 }
 /**
  * Where the next pointer action lands, for the ghost cursor overlay (spec §4.4). Physical pixels.
  */
 export interface CursorIntent {
   label: Label;
-  task_id: TaskId12;
-  type: Type22;
+  task_id: TaskId13;
+  type: Type23;
   x: X;
   y: Y;
 }
@@ -322,14 +334,14 @@ export interface FactsChanged {
   changes: Changes;
   conversation_id: ConversationId7;
   message_id: MessageId7;
-  type: Type23;
+  type: Type24;
 }
 export interface FactChange {
   fact_id: FactId;
   old_text: OldText;
   op: Op;
   scope: Scope;
-  text: Text2;
+  text: Text3;
   undone: Undone;
 }
 /**
@@ -339,15 +351,15 @@ export interface ContextUsed {
   episodes: Episodes;
   facts: Facts;
   message_id: MessageId8;
-  type: Type24;
+  type: Type25;
 }
 export interface RecalledEpisode {
   conversation_id: ConversationId8;
   created_at: CreatedAt;
   id: Id;
-  text: Text3;
+  text: Text4;
 }
 export interface RecalledFact {
   id: Id1;
-  text: Text4;
+  text: Text5;
 }

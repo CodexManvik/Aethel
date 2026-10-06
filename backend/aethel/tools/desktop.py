@@ -44,6 +44,8 @@ EXPOSED = {
     "Clipboard": ("win_clipboard", "write", "clipboard"),
     "DisplayInventory": ("win_displays", "read", None),
 }
+# Offered on request rather than with every call (tools/groups.py): the rest of the desktop tools are core.
+EXTRA_TOOLS = {"win_move", "win_multi_select", "win_multi_edit", "win_displays"}
 # Labels only mean something on an annotated screenshot the model never sees;
 # the rest are screenshot options whose image we drop anyway.
 HIDDEN_PARAMS = {"label", "labels", "use_vision", "width_reference_line", "height_reference_line"}
@@ -389,7 +391,8 @@ class Desktop:
             assess = lambda args: self._assess(kind, remote.name, args)  # noqa: E731
             scope = lambda args: self._scope(kind, args)  # noqa: E731
         return Tool(name, remote.description or name, schema, tier, handler, assess, grant_scope=scope,
-                    group="desktop", observes="screen" if remote.name == "Snapshot" else None)
+                    group="desktop", observes="screen" if remote.name == "Snapshot" else None,
+                    toolgroup="desktop_extra" if name in EXTRA_TOOLS else "core")
 
     async def _locate(self, args: dict, ctx: ToolContext | None) -> ToolResult:
         """Vision fallback (spec §4.2): for apps whose accessibility tree is

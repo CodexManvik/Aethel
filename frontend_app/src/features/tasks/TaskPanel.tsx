@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Pause, Play, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +18,10 @@ const STATE_LABEL: Record<string, string> = {
   planning: "planning", running: "working", waiting_approval: "needs you", paused: "paused",
   verifying: "checking", done: "done", failed: "couldn't finish", cancelled: "stopped",
 };
+
+function Note({ text }: { text: string }) {
+  return <li data-note="true" className="pl-3.5 text-[11.5px] italic text-faint">{text}</li>;
+}
 
 export function TaskPanel() {
   const taskId = useUi((s) => s.taskPanelId);
@@ -61,19 +66,23 @@ export function TaskPanel() {
             </ol>
           )}
 
-          {task.steps.length > 0 && (
+          {(task.steps.length > 0 || task.notes.length > 0) && (
             <section>
               <p className="mb-2 text-[10.5px] uppercase tracking-[0.14em] text-faint">Activity</p>
               <ul className="flex flex-col gap-1.5">
-                {task.steps.map((s) => (
-                  <li key={s.id} className="flex items-baseline gap-2 text-[12px]">
-                    <span className={cn("size-1.5 shrink-0 rounded-full",
-                      s.ok === null ? "breathe bg-faint" : s.ok ? "bg-ink" : "bg-accent")} />
-                    <span className="shrink-0 font-mono text-muted">{s.tool}</span>
-                    <span className="min-w-0 truncate text-ink" title={s.summary}>{s.summary}</span>
-                    {s.durationMs !== null && <span className="ml-auto shrink-0 text-faint">{s.durationMs} ms</span>}
-                  </li>
+                {task.steps.map((s, i) => (
+                  <Fragment key={s.id}>
+                    {task.notes.filter((n) => n.at === i).map((n, j) => <Note key={`n${i}-${j}`} text={n.text} />)}
+                    <li className="flex items-baseline gap-2 text-[12px]">
+                      <span className={cn("size-1.5 shrink-0 rounded-full",
+                        s.ok === null ? "breathe bg-faint" : s.ok ? "bg-ink" : "bg-accent")} />
+                      <span className="shrink-0 font-mono text-muted">{s.tool}</span>
+                      <span className="min-w-0 truncate text-ink" title={s.summary}>{s.summary}</span>
+                      {s.durationMs !== null && <span className="ml-auto shrink-0 text-faint">{s.durationMs} ms</span>}
+                    </li>
+                  </Fragment>
                 ))}
+                {task.notes.filter((n) => n.at >= task.steps.length).map((n, j) => <Note key={`end${j}`} text={n.text} />)}
               </ul>
             </section>
           )}

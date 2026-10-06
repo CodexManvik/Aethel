@@ -25,7 +25,7 @@ const detail = (id: string, state: TaskStateName, approvals: TaskDetail["approva
 const staleTask: TaskUi = {
   id: "t1", conversationId: "c1", goal: "goal t1", state: "waiting_approval", plan: ["a"], planDone: [], checks: [],
   steps: [], approvals: [{ id: "a1", stepId: "s1", tool: "fs_write", summary: "C:/x.txt", reason: "r", tier: "write" }],
-  summary: null, error: null,
+  notes: [], summary: null, error: null,
 };
 
 let sent: unknown[];

@@ -66,6 +66,13 @@ class UsageLog:
     def task_totals(self, task_id: str) -> dict:
         return self._sum(self.db.query("SELECT * FROM llm_calls WHERE task_id = ?", (task_id,)))
 
+    def task_breakdown(self, task_id: str, purpose: str = "execute") -> list[dict]:
+        """The estimated prompt parts (system, tools, history, observations) of each call of this purpose
+        that actually ran, oldest first."""
+        rows = self.db.query("SELECT breakdown FROM llm_calls WHERE task_id = ? AND purpose = ?"
+                             " AND prompt_tokens IS NOT NULL ORDER BY created_at, rowid", (task_id, purpose))
+        return [json.loads(r["breakdown"]) for r in rows]
+
     def totals(self, days: int) -> dict:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = self.db.query("SELECT * FROM llm_calls WHERE created_at >= ? ORDER BY created_at", (since,))

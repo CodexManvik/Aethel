@@ -17,6 +17,12 @@ class RouteEntry(BaseModel):
     # The model's context window in tokens, for the context builder's budget. The hosted models Aethel
     # suggests all take 32k or more; lower it for a smaller model. (The per-role caps usually bind first.)
     context_size: int = Field(default=32768, ge=1024, le=2_000_000)
+    # A model that reasons before it answers (Gemma 4, Qwen3 thinking...) spends output tokens on it first, so it
+    # gets at least REASONING_REPLY_TOKENS to reply in, and the context budget reserves that much.
+    reasoning: bool = False
+
+
+REASONING_REPLY_TOKENS = 2048
 
 
 class LocalLLMSettings(BaseModel):
@@ -91,6 +97,13 @@ class TokenSavingSettings(BaseModel):
     # On by default; scripts/eval_tokens.py confirms it doesn't cost task success (not yet measured).
     mask_superseded: bool = True
     mask_batch: int = Field(default=3, ge=1, le=20)  # rewrite earlier messages at most once per this many
+    # Send tool schemas without JSON-schema annotation and with short curated descriptions (tools/compact.py).
+    # On: every parameter, type, enum and required flag is kept, so a tool is called the same way.
+    compact_schemas: bool = True
+    # A task carries the core tools plus a catalogue of the rest; `use_tools` adds a group on request
+    # (tools/groups.py). Off: every call carries every tool. Not measured yet; it's turned on by default only
+    # if `scripts/eval_tokens.py --axis groups` shows no drop in task success.
+    tool_groups: bool = False
 
 
 def _check_base_url(value: str) -> str:

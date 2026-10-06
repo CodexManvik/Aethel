@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 
 from ..providers.base import ToolSpec
@@ -40,6 +41,17 @@ SUBMIT_PLAN = ToolSpec(
         "required": ["steps", "checks"],
     },
 )
+
+def submit_plan_spec(groups: list[str] | None = None) -> ToolSpec:
+    """submit_plan; with tool groups on it also lets the planner name the groups it expects to need."""
+    if not groups:
+        return SUBMIT_PLAN
+    params = copy.deepcopy(SUBMIT_PLAN.parameters)
+    params["properties"]["tool_groups"] = {
+        "type": "array", "items": {"type": "string", "enum": groups},
+        "description": "Tool groups you expect to need, from the 'more tools on request' list (may be empty)"}
+    return ToolSpec(SUBMIT_PLAN.name, SUBMIT_PLAN.description, params)
+
 
 COMPLETE_STEP = ToolSpec(
     "complete_plan_step",

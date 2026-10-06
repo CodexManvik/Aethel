@@ -29,7 +29,7 @@ const settings: AppSettings = {
   auto_approve_skills: true,
   replay_thumbnails: true,
   use_learned_skills: true,
-  token_saving: { mask_superseded: true, mask_batch: 3 },
+  token_saving: { mask_superseded: true, mask_batch: 3, compact_schemas: true, tool_groups: false },
 };
 let rebuilds = 0;
 const providers: ProviderInfo[] = [
@@ -106,6 +106,20 @@ test("adding a fallback to the chat role and saving sends the whole chain", asyn
     expect(patches).toContainEqual({
       roles: { chat: [{ provider: "groq", model: "llama-3.3-70b-versatile" }, { provider: "local", model: "local" }] },
     }),
+  );
+});
+
+test("a model that thinks before answering is marked on its row and saved with the chain", async () => {
+  renderSettings();
+  const chat = await screen.findByTestId("role-chat");
+  const thinks = within(chat).getByRole("checkbox", { name: "Thinks before answering" });
+  expect(thinks).not.toBeChecked();
+  expect(within(screen.getByTestId("role-agent")).getByRole("checkbox", { name: "Thinks before answering" })).not.toBeChecked();
+  await userEvent.click(thinks);
+  expect(thinks).toBeChecked();
+  await userEvent.click(within(chat).getByRole("button", { name: "Save chat models" }));
+  await waitFor(() =>
+    expect(patches).toContainEqual({ roles: { chat: [{ provider: "groq", model: "llama-3.3-70b-versatile", reasoning: true }] } }),
   );
 });
 
@@ -189,6 +203,15 @@ test("the learned-skills switch patches settings", async () => {
   renderSettings();
   await userEvent.click(await screen.findByRole("switch", { name: "Use what Aethel has learned" }));
   await waitFor(() => expect(patches).toContainEqual({ use_learned_skills: false }));
+});
+
+test("the tool-groups switch is off by default and patches only itself", async () => {
+  renderSettings();
+  const sw = await screen.findByRole("switch", { name: "Send only the tools a task needs" });
+  expect(sw).not.toBeChecked();
+  expect(screen.getByText(/Other tools stay one request away/)).toBeInTheDocument();
+  await userEvent.click(sw);
+  await waitFor(() => expect(patches).toContainEqual({ token_saving: { tool_groups: true } }));
 });
 
 test("the Background role is listed with the other models", async () => {
