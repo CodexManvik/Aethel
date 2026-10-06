@@ -34,6 +34,9 @@ class ServerSpec:
     command: list[str]
     adapt: Adapter
     env: dict[str, str] = field(default_factory=dict)  # on top of the SDK's minimal safe environment
+    # Called on a restart for the command to relaunch with, so a setting changed since (e.g. Show browser) applies;
+    # None, or returning None, keeps this one.
+    rebuild: Callable[[], "ServerSpec | None"] | None = None
 
 
 @dataclass
@@ -134,7 +137,7 @@ class McpHub:
         if conn is None or conn.stop.is_set():
             return  # unknown, or already restarting
         await self._shutdown(conn)
-        self._launch(conn.spec)
+        self._launch((conn.spec.rebuild() if conn.spec.rebuild else None) or conn.spec)
 
     async def stop(self) -> None:
         for conn in list(self._conns.values()):

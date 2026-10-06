@@ -147,8 +147,8 @@ PAGE = ('Page: Bing — https://www.bing.com/\n'
 BROWSER_MACRO = {"template": "search Bing for {p1}", "params": ["p1"], "steps": [
     {"tool": "browser_navigate", "args": {"url": "https://www.bing.com/"}},
     {"tool": "browser_type", "args": {"text": "{p1}", "submit": True},
-     "target": {"role": "textbox", "name": "Search", "window": "www.bing.com"}},
-    {"tool": "browser_click", "args": {}, "target": {"role": "link", "name": "Opening hours", "window": "www.bing.com"}},
+     "target": {"role": "textbox", "name": "Search", "window": "bing.com"}},
+    {"tool": "browser_click", "args": {}, "target": {"role": "link", "name": "Opening hours", "window": "bing.com"}},
 ]}
 BROWSER = ("browser_snapshot", "browser_navigate", "browser_type", "browser_click")
 
@@ -158,7 +158,7 @@ def browser_engine(h, tmp_path):  # noqa: F811
     made = []
 
     def make(turns, ground=None, page=PAGE, connected=True):
-        engine, provider = h.make(turns)
+        engine, provider = h.make(turns, settings=h.settings)  # settings: whether the web is on is read from them
         engine.knowledge = KnowledgeStore(tmp_path / "k", fake_embed)
         skill, _ = engine.knowledge.upsert_skill(
             {"title": "Search Bing for something", "apps": ["browser"], "intent": "Search the web with Bing for a query",
@@ -188,6 +188,7 @@ def browser_engine(h, tmp_path):  # noqa: F811
 async def test_a_browser_macro_replays_by_finding_each_element_on_the_live_page(h, browser_engine):  # noqa: F811
     engine, provider, skill, calls = browser_engine(REFLECT_ONLY)
     conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
     task_id = await engine.start(conversation_id=conv.id, goal="search Bing for jazz piano lessons")
     await engine.wait_idle()
     task = h.tasks.get(task_id)
@@ -207,6 +208,7 @@ async def test_a_page_that_looks_different_is_grounded_by_system1_then_the_ref_i
     renamed = PAGE.replace('link "Opening hours" [ref=e21]', 'link "Library opening hours and contact" [ref=e33]')
     engine, _, _, calls = browser_engine(REFLECT_ONLY, ground=("e0", 0.9), page=renamed)
     conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
     task_id = await engine.start(conversation_id=conv.id, goal="search Bing for leeds library")
     await engine.wait_idle()
     assert h.tasks.get(task_id).state == "done"
@@ -221,6 +223,7 @@ async def test_drift_on_a_page_hands_over_to_the_llm(h, browser_engine):  # noqa
         [tool_call("record_learning", app_notes=[], skill=None)],
     ], ground=("none", 0.95), page=gone)
     conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
     task_id = await engine.start(conversation_id=conv.id, goal="search Bing for leeds library")
     await engine.wait_idle()
     assert h.tasks.get(task_id).state == "done"
@@ -235,6 +238,7 @@ async def test_a_browser_macro_without_a_browser_hands_over_instead_of_failing(h
         [tool_call("record_learning", app_notes=[], skill=None)],
     ], connected=False)
     conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
     task_id = await engine.start(conversation_id=conv.id, goal="search Bing for leeds library")
     await engine.wait_idle()
     handover = next(m.content for m in provider.calls[0] if m.role == "user" and "I started by replaying" in m.content)
@@ -249,9 +253,25 @@ async def test_the_snapshot_tool_is_never_logged_as_a_step_and_the_macro_still_w
     engine.registry.unregister("browser_click")
     engine.registry.register(ask)
     conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
     task_id = await engine.start(conversation_id=conv.id, goal="search Bing for leeds library")
     needed = await until(h.events, lambda e: e["type"] == "approval_needed")
     assert needed["tool"] == "browser_click" and not any(c[0] == "browser_click" for c in calls)
     await engine.approvals.resolve(needed["approval_id"], "allow_once")
     await engine.wait_idle()
     assert [s.tool for s in h.tasks.steps(task_id)] == ["browser_navigate", "browser_type", "browser_click"]
+
+
+async def test_a_page_on_another_site_with_the_same_words_is_drift_and_hands_over(h, browser_engine):  # noqa: F811
+    lookalike = PAGE.replace("Page: Bing — https://www.bing.com/", "Page: Bing — https://bing.evil.example/")
+    engine, provider, _, calls = browser_engine([
+        [tool_call("finish_task", summary="That page isn't the one I expected.")],
+        [tool_call("record_learning", app_notes=[], skill=None)],
+    ], ground=("none", 0.95), page=lookalike)
+    conv = h.convs.create()
+    h.convs.set_web(conv.id, True)  # the browser is web access
+    task_id = await engine.start(conversation_id=conv.id, goal="search Bing for leeds library")
+    await engine.wait_idle()
+    handover = next(m.content for m in provider.calls[0] if m.role == "user" and "I started by replaying" in m.content)
+    assert "couldn't find “Search”" in handover or "isn't on the screen" in handover
+    assert not any(c[0] in ("browser_type", "browser_click") for c in calls)      # nothing was typed or clicked there

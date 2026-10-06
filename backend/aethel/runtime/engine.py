@@ -37,7 +37,8 @@ from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import Assessment, ToolContext, ToolResult
 from ..tools.browser import parse_page
 from ..tools.desktop import parse_snapshot
-from ..tools.groups import ALWAYS_ON_REQUEST, CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
+from ..tools.groups import (ALWAYS_ON_REQUEST, CORE, GROUP_LABELS, NEEDS_WEB, catalogue_line, inactive_groups,
+                            use_tools_spec)
 from ..tools.registry import ToolRegistry
 from ..tools.web import SourceList, unlisted_read
 from .checks import Check, CheckResult, run_checks_with
@@ -380,7 +381,7 @@ class TaskEngine:
             convo = [
                 ChatMessage("system", executor_system(record.goal, record.plan, [c.describe() for c in checks],
                                                       datetime.now().astimezone(), web=self._web_on(task_id),
-                                                      browser=self._has_browser())),
+                                                      browser=self._has_browser(task_id))),
                 ChatMessage("user", record.goal),
             ]
             if learned:
@@ -485,7 +486,8 @@ class TaskEngine:
                 if elements is None:
                     return self._handover_note(skill, done, describe(step, values),
                                                "the browser isn't connected" if in_browser else "desktop control isn't connected")
-                element, how = await ground(step["target"], elements, self.system1, threshold, _similar)
+                element, how = await ground(step["target"], elements, self.system1, threshold, _similar,
+                                            strict_window=in_browser)
                 if element is None:
                     return self._handover_note(skill, done, describe(step, values), how)
                 if in_browser:  # this snapshot's ref for the element: never stored, found again every time
@@ -587,11 +589,13 @@ class TaskEngine:
         return bool(self.settings is not None and conv is not None and effective_web(self.settings.get(), conv))
 
     def _available(self, task_id: str) -> set[str]:
-        """The tool groups this task may use at all: everything registered, but the web only where it's on."""
-        return self.registry.groups() - (set() if self._web_on(task_id) else {"web"})
+        """The tool groups this task may use at all: everything registered, but web access (web search, the
+        background browser) only where the web is on."""
+        return self.registry.groups() - (set() if self._web_on(task_id) else NEEDS_WEB)
 
-    def _has_browser(self) -> bool:
-        return "browser" in self.registry.groups()
+    def _has_browser(self, task_id: str) -> bool:
+        """Whether the task has a background browser to use (it needs the web to be on)."""
+        return "browser" in self._available(task_id)
 
     def browser_in_use(self) -> bool:
         """Whether a task that is still running has already used the background browser (so it can't be stopped,
@@ -669,7 +673,7 @@ class TaskEngine:
         else:
             listed, catalogue = self.registry.specs(available, compact=self._compact()), ""
         tools = "\n".join(f"- {s.name}: {s.description}" for s in listed) + (f"\n\n{catalogue}" if catalogue else "")
-        messages = [ChatMessage("system", planner_system(browser=self._has_browser())),
+        messages = [ChatMessage("system", planner_system(browser=self._has_browser(task_id))),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
         for _ in range(2):
@@ -738,6 +742,7 @@ class TaskEngine:
                     convo.append(ChatMessage("tool", "[STOPPED] step limit reached", tool_call_id=call.id))
                     continue
                 ctx.last_ok = False
+                ctx.last_observes = None
                 result = await self._handle(task_id, call, ctx, grants, seen, run, budget,
                                             cut_off=finish_reason == "length")
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
@@ -745,7 +750,7 @@ class TaskEngine:
                 # Only what a tool really returned counts: a denial, a loop warning or an error isn't a newer
                 # screen, and must never make the last real one look stale.
                 if tool is not None and ctx.last_ok:
-                    obs.append(Observation(len(convo) - 1, call.name, tool.observes, _summary(call),
+                    obs.append(Observation(len(convo) - 1, call.name, ctx.last_observes, _summary(call),
                                            _signature(call), full=not result.startswith(UNCHANGED_PREFIX)))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
@@ -804,7 +809,7 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
-        if tool.toolgroup == "web" and not self._web_on(task_id):
+        if tool.toolgroup in NEEDS_WEB and not self._web_on(task_id):
             budget.consecutive_loops = 0
             return ("Error: web access is off for this conversation. Don't try it again; use what you have, or finish "
                     "and tell the user they can switch the web on in the prompt box.")
@@ -889,6 +894,9 @@ class TaskEngine:
         if result.untrusted:
             ctx.tainted = True
         ctx.last_ok = result.ok
+        if result.stateless:
+            observes = None  # it usually shows the state of something, but this result doesn't
+        ctx.last_observes = observes if (observes and result.ok) else None
         if observes and result.ok:
             # the same screen as last time: say so in a line instead of sending it all again (lossless)
             note = self._states.setdefault(task_id, StateTracker()).seen(observes, result.content)

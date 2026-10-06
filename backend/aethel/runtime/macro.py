@@ -166,10 +166,15 @@ def describe(step: dict, values: dict[str, str]) -> str:
     return f"{verb.get(step['tool'], step['tool'])} {what}".strip()
 
 
-async def ground(target: dict, elements: list, system1, threshold: float, similarity) -> tuple[object | None, str]:
+async def ground(target: dict, elements: list, system1, threshold: float, similarity,
+                 strict_window: bool = False) -> tuple[object | None, str]:
     """The live element a macro step means, and how it was found (or why not).
     Exact role+name first; otherwise System 1 picks among the most similar
-    elements, with "none of these" as a real answer (that's drift)."""
+    elements, with "none of these" as a real answer (that's drift).
+    strict_window: only elements in the recorded window count. For a page that is its host: the same words on
+    another site are another site's button, not this step's, so a different host is drift."""
+    if strict_window and target.get("window"):
+        elements = [e for e in elements if e.window == target["window"]]
     name, role = str(target.get("name", "")).lower(), str(target.get("role", "")).lower()
     exact = [e for e in elements if e.role.lower() == role and e.name.lower() == name]
     if exact:

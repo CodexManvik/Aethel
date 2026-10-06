@@ -83,7 +83,8 @@ def test_sign_in_opens_edge_on_the_profile_with_nothing_else_holding_it(env):
         res = c.post("/api/browser/sign-in")
         assert res.status_code == 202
         assert env.restarts == ["browser"]                       # Aethel's own Edge is stopped first: it holds the profile
-        assert env.launches == [["C:\\Edge\\msedge.exe", f"--user-data-dir={env.profile}", "--no-first-run", "about:blank"]]
+        assert env.launches == [["C:\\Edge\\msedge.exe", f"--user-data-dir={env.profile}", "--no-first-run",
+                                 "--no-default-browser-check", "--disable-sync", "--disable-background-mode", "about:blank"]]
         assert c.get("/api/browser").json()["signing_in"] is True
         assert c.post("/api/browser/sign-in").status_code == 409  # one window at a time
         env.process.alive = False                                  # the user closed it
@@ -160,3 +161,82 @@ def test_the_rule_for_web_work_is_in_both_prompts_only_when_there_is_a_browser()
     with_rule = executor_system("g", ["s"], [], now, browser=True)
     assert BROWSER_RULE not in without and BROWSER_RULE in with_rule
     assert with_rule.replace(f"\n- {BROWSER_RULE}", "") == without              # nothing else about the prompt moved
+
+
+# ---- review fixes -------------------------------------------------------------------------------------------------
+def test_stopping_the_browser_makes_it_forget_the_page_it_was_on(env):
+    with env.client as c:
+        for call in (lambda: c.post("/api/browser/restart"), lambda: c.post("/api/browser/sign-in"),
+                     lambda: c.delete("/api/browser/profile")):
+            env.svc.browser._url, env.svc.browser._elements = "https://old.example/", {"e1": object()}
+            env.process.alive = False
+            call()
+            assert env.svc.browser._url is None and env.svc.browser._elements == {}
+
+
+def test_clear_data_tries_again_while_edge_lets_go_of_its_files_and_says_so_if_it_cannot(env, monkeypatch):
+    from aethel.api.routes import browser as routes
+    monkeypatch.setattr(routes, "RETRY_PAUSE_S", 0)
+    env.profile.mkdir(parents=True)
+    (env.profile / "Cookies").write_text("x", encoding="utf-8")
+    real = routes.shutil.rmtree
+    attempts = []
+
+    def flaky(path, *a, **k):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError("still held by msedge.exe")
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(routes.shutil, "rmtree", flaky)
+    with env.client as c:
+        assert c.delete("/api/browser/profile").status_code == 204 and not env.profile.exists() and len(attempts) == 3
+        env.profile.mkdir(parents=True)
+        monkeypatch.setattr(routes.shutil, "rmtree", lambda *a, **k: (_ for _ in ()).throw(PermissionError("held")))
+        stuck = c.delete("/api/browser/profile")
+        assert stuck.status_code == 409 and "still in use" in stuck.json()["detail"] and env.profile.exists()
+
+
+def test_clear_data_also_forgets_the_replay_pictures_of_browser_steps_only(env):
+    from aethel.paths import aethel_home
+    svc = env.svc
+    media = aethel_home() / "media" / "tasks" / "t1"
+    media.mkdir(parents=True, exist_ok=True)
+    conv = svc.conversations.create()
+    task = svc.tasks.create(conv.id, "look it up")
+    shots = {}
+    for tool in ("browser_click", "win_click", "browser_type"):
+        step = svc.tasks.add_step(task.id, tool, {}, tool, "allow", "agent")
+        rel = f"tasks/t1/{step.id}.jpg"
+        (aethel_home() / "media" / rel).write_bytes(b"\xff\xd8\xff")
+        svc.tasks.finish_step(step.id, True, "ok", 1, False, None, rel)
+        shots[tool] = rel
+    with env.client as c:
+        assert c.delete("/api/browser/profile").status_code == 204
+    assert not (aethel_home() / "media" / shots["browser_click"]).exists()
+    assert not (aethel_home() / "media" / shots["browser_type"]).exists()
+    assert (aethel_home() / "media" / shots["win_click"]).exists()                   # a desktop picture isn't the browser's
+    assert {s.tool: s.thumbnail for s in svc.tasks.steps(task.id)} == {"browser_click": None, "win_click": shots["win_click"],
+                                                                      "browser_type": None}
+
+
+def test_a_restart_relaunches_with_a_command_built_from_the_settings_of_now():
+    import asyncio
+    from aethel.tools.mcp_hub import McpHub, ServerSpec, _Conn
+    from aethel.tools.registry import ToolRegistry
+    hub, launched, state = McpHub(ToolRegistry()), [], {"show": False}
+    hub._launch = launched.append
+
+    def build():
+        spec = ServerSpec("browser", ["npx", "pkg", *([] if state["show"] else ["--headless"])], lambda h, t: [])
+        spec.rebuild = build
+        return spec
+
+    hub._conns["browser"] = _Conn(build())
+    state["show"] = True                                      # Settings -> Browser -> Show browser, then Restart now
+    asyncio.run(hub.restart("browser"))
+    assert launched[-1].command == ["npx", "pkg"]
+    hub._conns["browser"].stop.clear()
+    hub._conns["browser"].spec.rebuild = lambda: None          # nothing to rebuild with (npx is gone): the old one stays
+    asyncio.run(hub.restart("browser"))
+    assert launched[-1] is hub._conns["browser"].spec

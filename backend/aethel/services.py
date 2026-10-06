@@ -152,12 +152,21 @@ def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: Ro
     """Desktop, Office, Desktop Commander and the background browser. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
-    s = settings.get()
     browser = browser or Browser(thumbnails=lambda: settings.get().replay_thumbnails)
+
+    def browser_now() -> ServerSpec | None:
+        """The browser's command line from the settings as they are now (a restart calls this, so that a changed
+        "Show browser" applies)."""
+        current = settings.get()
+        spec = browser_spec(browser, int(os.environ.get("AETHEL_PORT", "8765")), local_ports(local, current), current.browser.show)
+        if spec is not None:
+            spec.rebuild = browser_now
+        return spec
+
     specs = [desktop_spec(Desktop(vision=router, thumbnails=lambda: settings.get().replay_thumbnails,
                                  on_pointer=_cursor(hub))), office_spec(Office(permissions, changes)),
              file_commander_spec(FileCommander(permissions, changes)),
-             browser_spec(browser, int(os.environ.get("AETHEL_PORT", "8765")), local_ports(local, s), s.browser.show)]
+             browser_now()]
     return [spec for spec in specs if spec is not None]
 
 

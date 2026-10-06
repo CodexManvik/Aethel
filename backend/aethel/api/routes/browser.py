@@ -1,13 +1,16 @@
 """Settings -> Browser: Aethel's own background browser (Phase 3 spec §7.4)."""
+import asyncio
 import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+from ...paths import aethel_home
 from ...services import Services
 from ..deps import get_services, require_auth
 
 router = APIRouter(prefix="/api/browser", dependencies=[Depends(require_auth)])
+CLEAR_ATTEMPTS, RETRY_PAUSE_S = 6, 0.4  # Edge may take a moment to let go of its files after it is stopped
 
 
 class BrowserStatus(BaseModel):
@@ -49,6 +52,7 @@ async def sign_in(svc: Services = Depends(get_services)) -> dict:
     if svc.browser.find_edge() is None:
         raise HTTPException(status_code=503, detail="I can't find Microsoft Edge on this computer.")
     await svc.mcp.restart("browser")
+    svc.browser.forget()
     svc.browser.open_sign_in()
     return {"opened": True}
 
@@ -59,6 +63,7 @@ async def restart(svc: Services = Depends(get_services)) -> dict:
     _present(svc)
     _in_use(svc)
     await svc.mcp.restart("browser")
+    svc.browser.forget()
     return {"restarted": True}
 
 
@@ -70,8 +75,24 @@ async def clear_data(svc: Services = Depends(get_services)) -> Response:
         raise HTTPException(status_code=409, detail="The sign-in window is still open. Close that window first.")
     if "browser" in svc.mcp.status():
         await svc.mcp.restart("browser")  # stops Edge, which holds the profile; it only starts again when it's next used
-    shutil.rmtree(svc.browser.profile_dir, ignore_errors=True)
+    svc.browser.forget()
+    for attempt in range(CLEAR_ATTEMPTS):
+        try:
+            shutil.rmtree(svc.browser.profile_dir)
+            break
+        except FileNotFoundError:
+            break
+        except OSError:
+            await asyncio.sleep(RETRY_PAUSE_S)
+    if svc.browser.profile_dir.exists():  # never say "cleared" when it isn't
+        raise HTTPException(status_code=409, detail="Some of the browser's files are still in use (Edge may still be "
+                                                    "closing). Wait a moment and try again.")
     if svc.browser.out_dir.is_dir():
         for leftover in svc.browser.out_dir.iterdir():
             shutil.rmtree(leftover, ignore_errors=True) if leftover.is_dir() else leftover.unlink(missing_ok=True)
+    media = aethel_home() / "media"  # the replay pictures of pages it visited, which may have been signed in
+    for rel in svc.tasks.clear_pictures("browser_"):
+        path = (media / rel).resolve()
+        if path.is_relative_to(media.resolve()):
+            path.unlink(missing_ok=True)
     return Response(status_code=204)

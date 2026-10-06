@@ -11,6 +11,18 @@ from aethel.tools.base import ToolContext
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch):
+    """No real DNS: any name resolves to a public address (literals are judged as they are)."""
+    import socket
+    def resolve(host, port, *a, **k):
+        local = host.rstrip(".").lower() == "localhost" or host.lower().endswith(".localhost")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1" if local else "93.184.216.34", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+
+
 SNAPSHOT = '''- generic [active] [ref=e1]:
   - heading "Sign in to Probe" [level=1] [ref=e2]
   - generic [ref=e3]:
@@ -35,13 +47,13 @@ SNAPSHOT = '''- generic [active] [ref=e1]:
   - button "Pay \\"now\\"" [ref=f4e20]
 '''
 PAGE = """### Page
-- Page URL: http://127.0.0.1:8799/page.html
+- Page URL: https://shop.example/page.html
 - Page Title: Probe form
 - Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
 """ + SNAPSHOT + "```"
-CODE = "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:8799/page.html');\n```\n"
+CODE = "### Ran Playwright code\n```js\nawait page.goto('https://shop.example/page.html');\n```\n"
 ALL_REMOTE = [
     "browser_close", "browser_resize", "browser_console_messages", "browser_handle_dialog", "browser_emulate_media",
     "browser_evaluate", "browser_file_upload", "browser_drop", "browser_find", "browser_fill_form", "browser_press_key",
@@ -70,7 +82,7 @@ class FakeHub:
     async def call_raw(self, server, tool, args):
         self.calls.append((tool, dict(args)))
         if tool == "browser_evaluate":
-            answer = self.credential.get(args["target"], "false")
+            answer = self.credential.get(args.get("target") or "focused", "false")
             if answer is None:
                 return mt.CallToolResult(content=[mt.TextContent(type="text", text="### Error\nRef not found")], isError=True)
             return mt.CallToolResult(content=[mt.TextContent(type="text", text=f"### Result\n{answer}\n### Ran Playwright code")])
@@ -133,11 +145,11 @@ def test_a_missing_remote_tool_is_simply_absent():
 # ---- reading a page -------------------------------------------------------------------------------------------
 def test_parse_page_reads_the_url_and_the_named_elements_with_their_refs():
     url, elements = br.parse_page(PAGE)
-    assert url == "http://127.0.0.1:8799/page.html"
+    assert url == "https://shop.example/page.html"
     by_ref = {e.ref: (e.role, e.name, e.window) for e in elements}
-    assert by_ref["e5"] == ("textbox", "Search", "127.0.0.1") and by_ref["e11"] == ("button", "Search", "127.0.0.1")
-    assert by_ref["e13"] == ("link", "Go to other page", "127.0.0.1") and by_ref["e2"][0] == "heading"
-    assert by_ref["f4e20"] == ("button", 'Pay "now"', "127.0.0.1")       # frame refs, and an escaped quote
+    assert by_ref["e5"] == ("textbox", "Search", "shop.example") and by_ref["e11"] == ("button", "Search", "shop.example")
+    assert by_ref["e13"] == ("link", "Go to other page", "shop.example") and by_ref["e2"][0] == "heading"
+    assert by_ref["f4e20"] == ("button", 'Pay "now"', "shop.example")       # frame refs, and an escaped quote
     assert "e1" not in by_ref and "e3" not in by_ref                      # nameless containers
     assert "e15" not in by_ref                                             # a paragraph's text isn't a name
     assert all(e.role != "option" for e in elements)                       # no ref: nothing to act on
@@ -149,14 +161,14 @@ async def test_an_action_result_is_the_page_not_playwrights_chatter(b):
     browser, tools, hub, tmp = b
     yml = tmp / "out" / "page-1.yml"
     yml.write_text(SNAPSHOT, encoding="utf-8")
-    hub.replies["browser_navigate"] = (CODE + "### Page\n- Page URL: http://127.0.0.1:8799/page.html\n- Page Title: Probe form\n"
+    hub.replies["browser_navigate"] = (CODE + "### Page\n- Page URL: https://shop.example/page.html\n- Page Title: Probe form\n"
                                        f"### Snapshot\n- [Snapshot]({yml})\n### Events\n- New console entries: {tmp}\\console.log#L1")
-    result = await run(tools["browser_navigate"], url="http://127.0.0.1:8799/page.html")
+    result = await run(tools["browser_navigate"], url="https://shop.example/page.html")
     assert result.ok and result.untrusted
-    assert result.content.startswith("Page: Probe form — http://127.0.0.1:8799/page.html\n")
+    assert result.content.startswith("Page: Probe form — https://shop.example/page.html\n")
     assert 'button "Delete account" [ref=e12]' in result.content                 # the snapshot, read from its file
     assert "Ran Playwright code" not in result.content and "console" not in result.content   # chatter and local paths
-    assert browser._elements["e12"].name == "Delete account" and browser._url == "http://127.0.0.1:8799/page.html"
+    assert browser._elements["e12"].name == "Delete account" and browser._url == "https://shop.example/page.html"
 
 
 async def test_a_snapshot_file_outside_the_output_folder_is_never_read(b):
@@ -182,8 +194,8 @@ async def test_results_without_a_snapshot_are_short_and_errors_are_plain(b):
     hub.replies["browser_type"] = CODE
     done = await run(tools["browser_type"], target="e5", element="Search box", text="hi")
     assert done.ok and done.content == "Done."
-    hub.replies["browser_tabs"] = "### Result\n- 0: (current) [Probe form](http://127.0.0.1:8799/page.html)"
-    assert (await run(tools["browser_tabs"], action="list")).content == "- 0: (current) [Probe form](http://127.0.0.1:8799/page.html)"
+    hub.replies["browser_tabs"] = "### Result\n- 0: (current) [Probe form](https://shop.example/page.html)"
+    assert (await run(tools["browser_tabs"], action="list")).content == "- 0: (current) [Probe form](https://shop.example/page.html)"
     hub.replies["browser_click"] = "### Error\nError: Ref e99 not found in the current page snapshot. Try capturing new snapshot."
     failed = await run(tools["browser_click"], target="e99")
     assert not failed.ok and failed.content == "Ref e99 not found in the current page snapshot. Try capturing new snapshot."
@@ -208,7 +220,7 @@ async def test_a_click_on_something_that_sends_buys_or_deletes_is_irreversible(b
     assert "sends, buys or deletes" in delete.reason and "Delete account" in delete.target
     assert (await ask(click, target="f4e20")).tier == "irreversible"       # a frame ref, and the button "Pay now"
     search = await ask(click, target="e11")
-    assert (search.verdict, search.tier) == ("allow", None) and "“Search”" in search.target and "127.0.0.1" in search.target
+    assert (search.verdict, search.tier) == ("allow", None) and "“Search”" in search.target and "shop.example" in search.target
     # a ref we've never seen: the model's own description is judged instead
     assert (await ask(click, target="e77", element="Confirm purchase")).tier == "irreversible"
     assert (await ask(click, target="e77", element="Open the menu")).tier is None
@@ -244,9 +256,10 @@ async def test_it_never_types_passwords_or_codes(b):
               {"target": "e14", "name": "Your secret", "type": "textbox", "value": "b"}]
     assert (await ask(form, fields=fields)).verdict == "deny"
     assert (await ask(form, fields=fields[:1])).verdict == "allow"
-    hub.credential["e5"] = None                                    # the page check can't run: judged by name alone
-    assert (await ask(type_, target="e5", text="x")).verdict == "allow"
-    assert (await ask(type_, target="e7", text="x")).verdict == "deny"
+    hub.credential["e5"] = None                                    # the page check can't run: it asks, it doesn't guess
+    unsure = await ask(type_, target="e5", text="x")
+    assert unsure.verdict == "ask" and "couldn't check whether this is a password" in unsure.reason
+    assert (await ask(type_, target="e7", text="x")).verdict == "deny"     # a name that says it is one needs no check
 
 
 async def test_what_a_step_touched_is_recorded_from_the_page_before_the_call(b):
@@ -255,7 +268,7 @@ async def test_what_a_step_touched_is_recorded_from_the_page_before_the_call(b):
     other = "### Page\n- Page URL: https://other.example/x\n- Page Title: O\n### Snapshot\n```yaml\n- button \"Elsewhere\" [ref=e11]\n```"
     hub.replies["browser_click"] = other
     result = await run(tools["browser_click"], target="e11", element="Search button")
-    assert result.meta == {"app": "browser", "element": {"role": "button", "name": "Search", "window": "127.0.0.1"}}
+    assert result.meta == {"app": "browser", "element": {"role": "button", "name": "Search", "window": "shop.example"}}
     again = await run(tools["browser_click"], target="e11")                       # the page is now the new one
     assert again.meta["element"] == {"role": "button", "name": "Elsewhere", "window": "other.example"}
     nav = await run(tools["browser_navigate"], url="https://z.example/")
@@ -295,7 +308,8 @@ def test_the_server_command_pins_the_package_and_closes_every_door_it_can(monkey
     (stale / "page-old.yml").write_text("old page text", encoding="utf-8")
     spec = br.browser_spec(br.Browser(), backend_port=8765, llama_ports=[8080, 8181], show=False)
     cmd = spec.command
-    assert spec.name == "browser" and cmd[:3] == ["C:\\node\\npx.cmd", "-y", br.PACKAGE] and br.PACKAGE == "@playwright/mcp@0.0.83"
+    assert spec.name == "browser" and cmd[:4] == ["C:\\node\\npx.cmd", "--prefer-offline", "-y", br.PACKAGE]
+    assert br.PACKAGE == "@playwright/mcp@0.0.83"
 
     def arg(flag):
         return cmd[cmd.index(flag) + 1]
@@ -306,8 +320,9 @@ def test_the_server_command_pins_the_package_and_closes_every_door_it_can(monkey
     assert arg("--idle-timeout") == "600000" and "--no-webmcp" in cmd and "--caps" not in cmd
     assert "--allow-unrestricted-file-access" not in cmd
     blocked = arg("--blocked-origins").split(";")
-    assert {"http://127.0.0.1:8765", "http://localhost:8765", "http://127.0.0.1:8080", "http://localhost:8080",
-            "http://127.0.0.1:8181", "http://localhost:8181"} <= set(blocked)
+    assert {"http://127.0.0.1:*", "http://localhost:*", "https://127.0.0.1:*", "https://localhost:*",
+            "http://[::1]:*"} <= set(blocked)                                   # all ports, so redirects and links too
+    assert {"http://127.0.0.1:8765", "http://localhost:8080", "http://127.0.0.1:8181"} <= set(blocked)
     assert not list(stale.iterdir()) and (tmp_path / "browser" / "profile").is_dir()   # old page text isn't kept around
 
 
@@ -353,8 +368,22 @@ async def test_what_the_snapshot_tool_returns_parses_back_into_the_same_elements
     """Macro replay finds elements by parsing the snapshot tool's own result, so the two formats must agree."""
     _, tools, _, _ = b
     shown = (await run(tools["browser_snapshot"])).content
-    assert shown.startswith("Page: Probe form — http://127.0.0.1:8799/page.html\n")
+    assert shown.startswith("Page: Probe form — https://shop.example/page.html\n")
     url, again = br.parse_page(shown)
-    assert url == "http://127.0.0.1:8799/page.html"
+    assert url == "https://shop.example/page.html"
     assert [(e.ref, e.role, e.name, e.window) for e in again] == [(e.ref, e.role, e.name, e.window) for e in br.parse_page(PAGE)[1]]
     assert br.parse_page("Page: http://x.example/a")[0] == "http://x.example/a"          # a page with no title
+
+
+def test_the_browser_spec_can_be_rebuilt_from_the_setting_as_it_is_now(monkeypatch):
+    from aethel.services import build_services
+    from tests.fakes import FakeLocal, factory_from
+    monkeypatch.setenv("AETHEL_MCP", "1")
+    svc = build_services(provider_factory=factory_from({}), local_llm=FakeLocal(up=False))
+    spec = next(s for s in svc.mcp_servers if s.name == "browser")
+    assert "--headless" in spec.command and spec.rebuild is not None
+    svc.settings.update({"browser": {"show": True}})
+    assert "--headless" in spec.command                        # the running one is what it was
+    again = spec.rebuild()
+    assert "--headless" not in again.command and again.rebuild is not None and again.name == "browser"
+    svc.close()

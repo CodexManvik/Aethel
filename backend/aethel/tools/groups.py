@@ -18,6 +18,8 @@ CORE = frozenset({"core"})
 # Groups that start deferred even when "send only the tools a task needs" is off: the browser's ~13 tools would
 # otherwise ride along with every task, and most tasks never touch it.
 ALWAYS_ON_REQUEST = frozenset({"browser"})
+# Groups that are web access: off wherever the web is off for a conversation (and in private mode).
+NEEDS_WEB = frozenset({"web", "browser"})
 CATALOGUE_START = "More tools on request"  # what catalogue_line() opens with, so it can be found and replaced
 
 

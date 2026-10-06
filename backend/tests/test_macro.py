@@ -197,3 +197,17 @@ def test_a_browser_macro_reads_as_a_plan():
     assert macro.describe({"tool": "browser_hover", "args": {}, "target": {"role": "link", "name": "Menu", "window": "x"}}, {}) \
         == "Hover over “Menu”"
     assert macro.describe({"tool": "browser_handle_dialog", "args": {"accept": True}}, {}) == "Accept the dialog"
+
+
+def test_in_a_browser_the_same_words_on_another_site_are_drift_not_a_match():
+    import asyncio
+    from types import SimpleNamespace
+    el = lambda host, name="Search", ref="e1": SimpleNamespace(role="textbox", name=name, window=host, ref=ref)  # noqa: E731
+    target = {"role": "textbox", "name": "Search", "window": "www.bing.com"}
+    same = [el("www.bing.com", ref="e5"), el("evil.example", ref="e9")]
+    assert asyncio.run(macro.ground(target, same, None, 0.6, lambda a, b: 0.0, strict_window=True))[0].ref == "e5"
+    elsewhere = [el("evil.example", ref="e9")]
+    found, why = asyncio.run(macro.ground(target, elsewhere, None, 0.6, lambda a, b: 0.0, strict_window=True))
+    assert found is None and "isn't on the screen" in why
+    # a desktop window title legitimately changes, so the default is unchanged: an exact match elsewhere still counts
+    assert asyncio.run(macro.ground(target, elsewhere, None, 0.6, lambda a, b: 0.0))[0].ref == "e9"
