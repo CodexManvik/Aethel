@@ -1,13 +1,22 @@
 import Markdown, { type Components } from "react-markdown";
 import type { UiMessage } from "../../stores/session";
 import { useUi } from "../../stores/ui";
+import { ActivityLine } from "./ActivityLine";
+import { SourceList, citeText } from "./Citations";
 import { InkText } from "./InkText";
 import { RecallFooter } from "./RecallFooter";
 
 // Each renderer drops react-markdown's `node` prop so it never reaches the DOM.
 const components: Components = {
   p: ({ node: _n, ...props }) => <p className="mb-3 last:mb-0" {...props} />,
-  a: ({ node: _n, ...props }) => <a className="text-accent underline decoration-accent/40 underline-offset-2" target="_blank" rel="noreferrer" {...props} />,
+  a: ({ node: _n, ...props }) =>
+    props.title === "cite" ? ( // a footnote: citeText marks the [n] it turned into links
+      <sup className="mx-px font-sans text-[0.7em]">
+        <a className="text-accent no-underline hover:underline" target="_blank" rel="noreferrer" href={props.href}>{props.children}</a>
+      </sup>
+    ) : (
+      <a className="text-accent underline decoration-accent/40 underline-offset-2" target="_blank" rel="noreferrer" {...props} />
+    ),
   ul: ({ node: _n, ...props }) => <ul className="mb-3 list-disc pl-5 last:mb-0" {...props} />,
   ol: ({ node: _n, ...props }) => <ol className="mb-3 list-decimal pl-5 last:mb-0" {...props} />,
   code: ({ node: _n, ...props }) => <code className="rounded bg-well px-1 py-0.5 font-mono text-[0.85em]" {...props} />,
@@ -29,8 +38,12 @@ export function PersonaMessage({ message }: { message: UiMessage }) {
           </span>
         )
       ) : (
-        message.content && <Markdown components={components}>{message.content}</Markdown>
+        message.content && (
+          <Markdown components={components}>{message.sources ? citeText(message.content, message.sources) : message.content}</Markdown>
+        )
       )}
+      {message.status === "streaming" && message.activity && <ActivityLine text={message.activity} />}
+      {message.status !== "streaming" && message.sources && <SourceList sources={message.sources} />}
       {message.status === "stopped" && <p className="mt-1 font-sans text-[12px] text-faint">stopped</p>}
       {message.recalled && message.status !== "streaming" && <RecallFooter recalled={message.recalled} />}
       {message.status === "error" && (

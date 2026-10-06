@@ -6,6 +6,7 @@ const base = (): SessionData => ({
   streamingId: null,
   notices: [],
   socketStatus: "open",
+  pendingSources: {},
 });
 
 test("message_start confirms the pending user message and opens an assistant bubble", () => {
@@ -134,6 +135,46 @@ test("facts_changed notes the user message and context_used records what a reply
   expect(s.messages[0].noted?.[0].text).toBe("Lives in Leeds");
   expect(s.messages[1].recalled).toEqual({ facts: [{ id: "f1", text: "Has a dog called Pip" }], episodes: [] });
   expect(applyEvent(s, { type: "context_used", message_id: "nope", facts: [], episodes: [] })).toBe(s);
+});
+
+const started = () => applyEvent(base(), {
+  type: "message_start", conversation_id: "c1", message_id: "a1", user_message_id: "u1", client_id: "k1", role: "assistant",
+});
+const rain = [{ n: 1, title: "Rain in Paris", url: "https://a.example/rain" }];
+
+test("web activity shows while a tool runs and clears when text arrives or the message ends", () => {
+  let s = applyEvent(started(), { type: "tool_activity", message_id: "a1", task_id: null, kind: "search", label: 'Searching "rain"' });
+  expect(s.messages[1].activity).toBe('Searching "rain"');
+  s = applyEvent(s, { type: "tool_activity", message_id: "a1", task_id: null, kind: "read", label: "Reading a.example" });
+  expect(s.messages[1].activity).toBe("Reading a.example");     // the latest one
+  s = applyEvent(s, { type: "token", message_id: "a1", text: "It" });
+  expect(s.messages[1]).toMatchObject({ content: "It", activity: undefined });
+  s = applyEvent(s, { type: "tool_activity", message_id: "a1", task_id: null, kind: "search", label: "Searching again" });
+  s = applyEvent(s, { type: "message_end", message_id: "a1", status: "stopped" });
+  expect(s.messages[1].activity).toBeUndefined();
+  // activity of a message that isn't here, or of a task (no message), changes nothing
+  expect(applyEvent(s, { type: "tool_activity", message_id: "nope", task_id: null, kind: "read", label: "x" })).toBe(s);
+  expect(applyEvent(s, { type: "tool_activity", message_id: null, task_id: "t1", kind: "read", label: "x" })).toBe(s);
+});
+
+test("sources attach to the reply; a task's wait for the message its answer arrives in", () => {
+  let s = applyEvent(started(), { type: "sources", message_id: "a1", task_id: null, sources: rain });
+  expect(s.messages[1].sources).toEqual(rain);
+  // a task: Sources comes before the task_state that creates its final message
+  s = applyEvent(base(), { type: "sources", message_id: "m9", task_id: "t1", sources: rain });
+  expect(s.messages).toHaveLength(1);
+  expect(s.pendingSources).toEqual({ m9: rain });
+  s = applyEvent(s, { type: "task_state", task_id: "t1", conversation_id: "c1", state: "done", summary: "Done.", error: null,
+    message_id: "m9", message_text: "It rains [1]." });
+  expect(s.messages[1]).toMatchObject({ id: "m9", content: "It rains [1].", sources: rain });
+  expect(s.pendingSources).toEqual({});
+});
+
+test("toUiMessages restores a reply's sources", () => {
+  const [a] = toUiMessages([{ id: "a1", conversation_id: "c1", role: "assistant", content: "x [1]", status: "complete",
+    created_at: "", meta: { sources: rain } }]);
+  expect(a.sources).toEqual(rain);
+  expect(toUiMessages([{ id: "b", conversation_id: "c", role: "assistant", content: "", status: "complete", created_at: "", meta: {} }])[0].sources).toBeUndefined();
 });
 
 test("toUiMessages maps remembered and recalled meta", () => {

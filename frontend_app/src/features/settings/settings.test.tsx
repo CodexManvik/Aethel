@@ -214,6 +214,25 @@ test("the tool-groups switch is off by default and patches only itself", async (
   await waitFor(() => expect(patches).toContainEqual({ token_saving: { tool_groups: true } }));
 });
 
+test("the web switch patches settings, and can't be changed in private mode", async () => {
+  renderSettings();
+  const sw = await screen.findByRole("switch", { name: "Allow web access" });
+  expect(sw).not.toBeChecked();
+  await userEvent.click(sw);
+  await waitFor(() => expect(patches).toContainEqual({ internet: true }));
+});
+
+test("web access is greyed out in private mode", async () => {
+  apiMock.mockImplementation(async (path: string) => {
+    if (path === "/api/settings") return { ...settings, private_mode: true, internet: true };
+    if (path === "/api/providers") return providers;
+    return {};
+  });
+  renderSettings();
+  expect(await screen.findByRole("switch", { name: "Allow web access" })).toBeDisabled();
+  expect(screen.getByText(/Private mode keeps everything on this computer/)).toBeInTheDocument();
+});
+
 test("the Background role is listed with the other models", async () => {
   renderSettings();
   expect(await screen.findByText("Background")).toBeInTheDocument();

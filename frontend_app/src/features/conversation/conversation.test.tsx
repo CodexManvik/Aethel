@@ -89,7 +89,8 @@ test("the header shows a private badge only in private mode", async () => {
   first.unmount();
   privateMode = false;
   wrap(<ConversationView />);
-  await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+  // the second mount fetched settings again (its own query client), and they said "not private"
+  await waitFor(() => expect(apiMock.mock.calls.filter(([p]) => p === "/api/settings")).toHaveLength(2));
   expect(screen.queryByText("private")).not.toBeInTheDocument();
   apiMock.mockReset();
 });
