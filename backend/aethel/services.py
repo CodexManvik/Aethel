@@ -58,6 +58,7 @@ class Services:
     chat: ChatService
     http_client: httpx.AsyncClient  # shared by every provider the default factory builds
     web_http: httpx.AsyncClient     # the web tools' own: no env proxies, no cookies shared with provider traffic
+    browser: Browser                # Aethel's own background browser (Settings -> Browser drives it)
     permissions: Permissions
     changes: ChangeLog
     registry: ToolRegistry
@@ -96,6 +97,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     keys = KeyStore()
     local = LocalLlama(lambda: settings.get().local_llm) if local_llm is AUTO else local_llm
     http_client = DefaultAsyncHttpxClient()
+    browser = Browser(thumbnails=lambda: settings.get().replay_thumbnails)
     # Not the providers' client: an environment proxy would resolve names itself, behind the SSRF check's back, and
     # pages' cookies must never ride along with a call to a model provider. Redirects are followed by hand.
     web_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
@@ -128,10 +130,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
-        http_client=http_client, web_http=web_http, permissions=permissions, changes=changes, registry=registry,
+        http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
-        mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local) if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 
 
@@ -146,12 +148,12 @@ def local_ports(local, settings: AppSettings) -> list[int]:
 
 
 def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter,
-                        settings: SettingsService, hub: EventHub, local=None) -> list[ServerSpec]:
+                        settings: SettingsService, hub: EventHub, local=None, browser: Browser | None = None) -> list[ServerSpec]:
     """Desktop, Office, Desktop Commander and the background browser. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
     s = settings.get()
-    browser = Browser(thumbnails=lambda: settings.get().replay_thumbnails)
+    browser = browser or Browser(thumbnails=lambda: settings.get().replay_thumbnails)
     specs = [desktop_spec(Desktop(vision=router, thumbnails=lambda: settings.get().replay_thumbnails,
                                  on_pointer=_cursor(hub))), office_spec(Office(permissions, changes)),
              file_commander_spec(FileCommander(permissions, changes)),

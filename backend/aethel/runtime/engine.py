@@ -43,7 +43,7 @@ from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
 from .reflect import learn
-from .prompts import (COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt,
+from .prompts import (COMPLETE_STEP, FINISH_TASK, SUBMIT_PLAN, executor_system, planner_system, repair_prompt,
                       resume_note, submit_plan_spec)
 from .store import TERMINAL_STATES, TaskRepo
 
@@ -378,7 +378,8 @@ class TaskEngine:
             await self._set_state(task_id, "running")
             convo = [
                 ChatMessage("system", executor_system(record.goal, record.plan, [c.describe() for c in checks],
-                                                      datetime.now().astimezone(), web=self._web_on(task_id))),
+                                                      datetime.now().astimezone(), web=self._web_on(task_id),
+                                                      browser=self._has_browser())),
                 ChatMessage("user", record.goal),
             ]
             if learned:
@@ -579,6 +580,14 @@ class TaskEngine:
         """The tool groups this task may use at all: everything registered, but the web only where it's on."""
         return self.registry.groups() - (set() if self._web_on(task_id) else {"web"})
 
+    def _has_browser(self) -> bool:
+        return "browser" in self.registry.groups()
+
+    def browser_in_use(self) -> bool:
+        """Whether a task that is still running has already used the background browser (so it can't be stopped,
+        signed in on or cleared underneath it)."""
+        return any(s.tool.startswith("browser_") for task_id in self._runners for s in self.tasks.steps(task_id))
+
     def _base_groups(self, task_id: str) -> set[str]:
         """The groups a task starts with: only the core ones when tool groups are on, else everything it may use
         except the groups that are always on request."""
@@ -650,7 +659,7 @@ class TaskEngine:
         else:
             listed, catalogue = self.registry.specs(available, compact=self._compact()), ""
         tools = "\n".join(f"- {s.name}: {s.description}" for s in listed) + (f"\n\n{catalogue}" if catalogue else "")
-        messages = [ChatMessage("system", PLANNER_SYSTEM),
+        messages = [ChatMessage("system", planner_system(browser=self._has_browser())),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
         for _ in range(2):

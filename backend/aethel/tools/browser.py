@@ -31,7 +31,9 @@ import io
 import logging
 import re
 import shutil
+import os
 import socket
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +84,15 @@ _FENCE = re.compile(r"```(?:yaml)?\n(.*?)\n?```", re.DOTALL)
 _UNESCAPE = re.compile(r"\\(.)")
 
 
+def find_edge() -> str | None:
+    """Microsoft Edge's executable, in the usual places."""
+    for var in ("ProgramFiles(x86)", "ProgramFiles"):
+        base = os.environ.get(var)
+        if base and (exe := Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe").is_file():
+            return str(exe)
+    return None
+
+
 @dataclass
 class PageElement:
     ref: str
@@ -119,12 +130,30 @@ def _shrink(image_b64: str) -> bytes:
 
 
 class Browser:
-    def __init__(self, thumbnails=lambda: False, out_dir: Path | None = None):
+    def __init__(self, thumbnails=lambda: False, out_dir: Path | None = None, profile_dir: Path | None = None,
+                 popen=subprocess.Popen, find_edge=find_edge):
         self.thumbnails = thumbnails  # whether to keep a replay picture after each step that changes a page
         self.out_dir = out_dir if out_dir is not None else aethel_home() / "browser" / "out"
+        self.profile_dir = profile_dir if profile_dir is not None else aethel_home() / "browser" / "profile"
+        self.popen, self.find_edge = popen, find_edge
+        self._sign_in = None  # the Edge window the user was given to sign in with, while it's open
         self.hub = None
         self._url: str | None = None                  # the page the model last saw
         self._elements: dict[str, PageElement] = {}   # ...and its elements by ref
+
+    # ---- signing in: the user's own window on the same profile --------------------------------------
+    def signing_in(self) -> bool:
+        return self._sign_in is not None and self._sign_in.poll() is None
+
+    def open_sign_in(self) -> bool:
+        """Open Edge, visible, on Aethel's profile so the user logs in themselves. False if Edge can't be found."""
+        exe = self.find_edge()
+        if exe is None:
+            return False
+        flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
+        self._sign_in = self.popen([exe, f"--user-data-dir={self.profile_dir}", "--no-first-run", "about:blank"],
+                                   close_fds=True, creationflags=flags)
+        return True
 
     # ---- what the page looked like ----------------------------------------------------------------
     def _snapshot_file(self, link: str) -> str | None:
@@ -223,6 +252,9 @@ class Browser:
 
     def _assess(self, remote: str):
         async def assess(args: dict) -> Assessment:
+            if self.signing_in():  # the user's window holds the profile: starting Edge on it would fail or fight them
+                return Assessment("deny", "You have a browser window open for signing in. Close it, then ask me "
+                                          "again.", "The browser is open for you to sign in")
             if remote == "browser_navigate":
                 return await self._assess_navigation(str(args.get("url") or "").strip(), "Go to")
             if remote == "browser_tabs":
@@ -307,6 +339,7 @@ def browser_spec(browser: Browser, backend_port: int, llama_ports: list[int], sh
     profile, out = home / "profile", home / "out"
     profile.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
+    browser.profile_dir = profile
     for stale in out.iterdir():  # snapshots and screenshots of earlier pages aren't kept around between runs
         shutil.rmtree(stale, ignore_errors=True) if stale.is_dir() else stale.unlink(missing_ok=True)
     browser.out_dir = out

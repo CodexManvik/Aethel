@@ -25,6 +25,7 @@ const settings: AppSettings = {
   history_window: 24,
   system1: { enabled: true, auto_tasks: true, intent_threshold: 0.5, stop_threshold: 0.9, skill_threshold: 0.6, judge_threshold: 0.5 },
   memory: { facts_enabled: true, fact_threshold: 0.5, episodic_enabled: true, episodic_min_score: 0.65, facts_k: 6, episodes_k: 3 },
+  browser: { show: false },
   context_caps: { chat: 16000, agent: 24000 },
   auto_approve_skills: true,
   replay_thumbnails: true,

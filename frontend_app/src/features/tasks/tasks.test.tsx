@@ -58,6 +58,8 @@ test("web approvals read in plain words", async () => {
   const { approvalVerb } = await import("./ApprovalCard");
   expect(approvalVerb("web_read")).toBe("read a web page");
   expect(approvalVerb("web_search")).toBe("search the web");
+  expect(approvalVerb("browser_click")).toBe("click on a web page");
+  expect(approvalVerb("browser_select_option")).toBe("use its own browser");
 });
 
 test("irreversible approvals can't be granted for the whole task", () => {
