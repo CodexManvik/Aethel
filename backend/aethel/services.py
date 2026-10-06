@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from openai import DefaultAsyncHttpxClient
@@ -18,7 +19,7 @@ from .runtime.store import TaskRepo
 from .safety.approvals import ApprovalBroker
 from .safety.changes import ChangeLog
 from .safety.permissions import Permissions
-from .settings import SettingsService
+from .settings import AppSettings, SettingsService
 from .memory import embed as embed_module
 from .memory.episodic import EpisodicIndex
 from .memory.extract import FactExtractor
@@ -27,6 +28,7 @@ from .memory.rsm import KnowledgeStore
 from .store.db import Database
 from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
+from .tools.browser import Browser, browser_spec
 from .tools.desktop import Desktop, desktop_spec
 from .tools.file_commander import FileCommander, file_commander_spec
 from .tools.launcher import open_url_tool
@@ -129,18 +131,31 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         http_client=http_client, web_http=web_http, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
-        mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub) if mcp_servers is None else mcp_servers,
+        mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local) if mcp_servers is None else mcp_servers,
     )
 
 
+def local_ports(local, settings: AppSettings) -> list[int]:
+    """The ports of the model servers on this computer (the one Aethel runs, and a custom one that's local): the
+    background browser is kept away from them, as it is from the backend itself."""
+    ports = {local._port() if local is not None and hasattr(local, "_port") else 8080}
+    url = urlsplit(settings.custom_base_url) if settings.custom_base_url else None
+    if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
+        ports.add(url.port)
+    return sorted(ports)
+
+
 def default_mcp_servers(permissions: Permissions, changes: ChangeLog, router: RoleRouter,
-                        settings: SettingsService, hub: EventHub) -> list[ServerSpec]:
-    """Desktop, Office and Desktop Commander. AETHEL_MCP=0 turns them all off."""
+                        settings: SettingsService, hub: EventHub, local=None) -> list[ServerSpec]:
+    """Desktop, Office, Desktop Commander and the background browser. AETHEL_MCP=0 turns them all off."""
     if os.environ.get("AETHEL_MCP") == "0":
         return []
+    s = settings.get()
+    browser = Browser(thumbnails=lambda: settings.get().replay_thumbnails)
     specs = [desktop_spec(Desktop(vision=router, thumbnails=lambda: settings.get().replay_thumbnails,
                                  on_pointer=_cursor(hub))), office_spec(Office(permissions, changes)),
-             file_commander_spec(FileCommander(permissions, changes))]
+             file_commander_spec(FileCommander(permissions, changes)),
+             browser_spec(browser, int(os.environ.get("AETHEL_PORT", "8765")), local_ports(local, s), s.browser.show)]
     return [spec for spec in specs if spec is not None]
 
 
