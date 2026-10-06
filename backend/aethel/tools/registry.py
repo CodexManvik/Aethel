@@ -26,14 +26,20 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
-    def names(self) -> list[str]:
-        return list(self._tools)
+    def names(self, group: str | None = None) -> list[str]:
+        return [t.name for t in self._tools.values() if group is None or t.toolgroup == group]
 
-    def specs(self, compact: bool = False) -> list[ToolSpec]:
-        """What the model is offered. compact: shorter schemas that say the same (tools/compact.py)."""
+    def groups(self) -> set[str]:
+        """The tool groups with at least one tool registered right now."""
+        return {t.toolgroup for t in self._tools.values()}
+
+    def specs(self, groups: set[str] | frozenset[str] | None = None, compact: bool = False) -> list[ToolSpec]:
+        """What the model is offered, in registration order (a stable order keeps the provider's cached prefix).
+        groups: only these tool groups (None: all). compact: shorter schemas that say the same (tools/compact.py)."""
+        tools = [t for t in self._tools.values() if groups is None or t.toolgroup in groups]
         if not compact:
-            return [ToolSpec(t.name, t.description, t.parameters) for t in self._tools.values()]
-        return [self._compact_spec(t) for t in self._tools.values()]
+            return [ToolSpec(t.name, t.description, t.parameters) for t in tools]
+        return [self._compact_spec(t) for t in tools]
 
     def _compact_spec(self, tool: Tool) -> ToolSpec:
         cached = self._compacted.get(tool.name)

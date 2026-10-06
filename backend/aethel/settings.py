@@ -94,6 +94,10 @@ class TokenSavingSettings(BaseModel):
     # Send tool schemas without JSON-schema annotation and with short curated descriptions (tools/compact.py).
     # On: every parameter, type, enum and required flag is kept, so a tool is called the same way.
     compact_schemas: bool = True
+    # A task carries the core tools plus a catalogue of the rest; `use_tools` adds a group on request
+    # (tools/groups.py). Off: every call carries every tool. Not measured yet; it's turned on by default only
+    # if `scripts/eval_tokens.py --axis groups` shows no drop in task success.
+    tool_groups: bool = False
 
 
 def _check_base_url(value: str) -> str:
