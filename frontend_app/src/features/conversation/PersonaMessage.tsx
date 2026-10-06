@@ -1,3 +1,4 @@
+import { Children } from "react";
 import Markdown, { type Components } from "react-markdown";
 import type { UiMessage } from "../../stores/session";
 import { useUi } from "../../stores/ui";
@@ -12,7 +13,8 @@ const components: Components = {
   a: ({ node: _n, ...props }) =>
     props.title === "cite" ? ( // a footnote: citeText marks the [n] it turned into links
       <sup className="mx-px font-sans text-[0.7em]">
-        <a className="text-accent no-underline hover:underline" target="_blank" rel="noreferrer" href={props.href}>{props.children}</a>
+        <a className="text-accent no-underline hover:underline" target="_blank" rel="noreferrer" href={props.href}
+          aria-label={`Source ${Children.toArray(props.children).join("")}`}>{props.children}</a>
       </sup>
     ) : (
       <a className="text-accent underline decoration-accent/40 underline-offset-2" target="_blank" rel="noreferrer" {...props} />

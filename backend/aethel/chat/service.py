@@ -119,6 +119,8 @@ class ChatService:
         status = "complete"
         web_tools = self._web_tools_for(conv)
         sources = SourceList() if web_tools else None
+        if sources is not None:
+            sources.seed(event.text)  # an address the user wrote is theirs to ask for
         try:
             await publish(MessageStart(conversation_id=conv.id, message_id=assistant.id,
                                        user_message_id=user_msg.id, client_id=event.client_id))
@@ -166,9 +168,10 @@ class ChatService:
             self.messages.update(assistant.id, content="".join(parts), status=status)
             if sources is not None and sources.all():  # before the end of the message, so [n] can become footnotes
                 listed = [Source(n=s.n, title=s.title, url=s.url) for s in sources.all()]
-                meta = {**self.messages.get(assistant.id).meta, "sources": [s.model_dump() for s in listed]}
-                self.messages.update(assistant.id, meta=meta)
-                await publish(Sources(message_id=assistant.id, task_id=None, sources=listed))
+                saved = self.messages.get(assistant.id)  # None if the conversation was deleted mid-reply
+                if saved is not None:
+                    self.messages.update(assistant.id, meta={**saved.meta, "sources": [s.model_dump() for s in listed]})
+                    await publish(Sources(message_id=assistant.id, task_id=None, sources=listed))
             self._active.pop(assistant.id, None)
             self._partials.pop(assistant.id, None)
             self._stop_requested.discard(assistant.id)

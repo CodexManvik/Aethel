@@ -154,6 +154,7 @@ interface SessionState extends SessionData {
   apply(ev: ServerEvent): void;
   setSocketStatus(status: SocketStatus): void;
   dismissNotice(id: string): void;
+  addNotice(text: string): void;
   replaceMessages(conversationId: string, fetched: UiMessage[]): void;
   setNoted(messageId: string, noted: FactChange[]): void;
 }
@@ -179,6 +180,7 @@ export const useSession = create<SessionState>()((set) => ({
   apply: (ev) => set((s) => applyEvent(s, ev)),
   setSocketStatus: (socketStatus) => set({ socketStatus }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
+  addNotice: (text) => set((s) => ({ notices: [...s.notices, notice(text)] })),
   setNoted: (messageId, noted) => set((s) => setOn(s, messageId, { noted })),
   replaceMessages: (conversationId, fetched) =>
     set((s) => {

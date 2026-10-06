@@ -6,7 +6,6 @@ results are wrapped as untrusted data. Only text the model writes is yielded."""
 import json
 from contextlib import aclosing
 from typing import AsyncIterator, Awaitable, Callable
-from urllib.parse import urlsplit
 
 from ..context.observations import Observation, fit_to_budget
 from ..protocol import ToolActivity
@@ -16,6 +15,7 @@ from ..safety.untrusted import wrap_untrusted
 from ..settings import AppSettings
 from ..store.repos import Conversation
 from ..tools.base import Tool, ToolContext, ToolResult
+from ..tools.web import host_of, unlisted_read
 from ..usage import estimate_breakdown
 
 MAX_TOOL_ROUNDS = 3
@@ -41,8 +41,7 @@ def _args(raw: str) -> dict | None:
 
 def activity_label(name: str, args: dict) -> str:
     if name == "web_read":
-        host = (urlsplit(str(args.get("url") or "")).hostname or "a page").removeprefix("www.")
-        return f"Reading {host}"
+        return f"Reading {host_of(str(args.get('url') or '')) or 'a page'}"
     if name == "web_search":
         query = " ".join(str(args.get("query") or "").split())
         return f'Searching "{query[:60]}"'
@@ -104,6 +103,9 @@ async def run_web_turn(*, router: RoleRouter, prompt: list[ChatMessage], tools: 
             elif tool is None:
                 result = ToolResult(False, f"Error: there's no tool called {call.name!r}. "
                                            f"Tools: {', '.join(by_name)}.")
+            elif unlisted_read(call.name, args, ctx):
+                result = ToolResult(False, "Error: I can only open pages that came up in a search, or that you gave me, "
+                                           "once I've read outside content. Search again, or ask the user for the address.")
             else:
                 if call.name in KINDS:
                     await publish(ToolActivity(message_id=message_id, task_id=None, kind=KINDS[call.name],
@@ -113,6 +115,8 @@ async def run_web_turn(*, router: RoleRouter, prompt: list[ChatMessage], tools: 
                 except Exception as exc:  # a tool that crashes is an error the model can read, not a dead reply
                     result = ToolResult(False, f"Error: {exc}")
             ctx.last_ok = result.ok  # only what a tool really returned counts as an observation
+            if result.untrusted:
+                ctx.tainted = True  # outside content has been read: see unlisted_read
             convo.append(ChatMessage("tool", wrap_untrusted(call.name, result.content) if result.untrusted
                                      else result.content, tool_call_id=call.id))
             if tool is not None and args is not None and ctx.last_ok:

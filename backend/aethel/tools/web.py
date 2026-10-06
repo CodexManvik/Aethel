@@ -28,13 +28,21 @@ SEARCH_TIMEOUT_S = 10.0
 FETCH_TIMEOUT_S = 15.0
 DEFAULT_RESULTS, MAX_RESULTS = 5, 8
 SNIPPET_CHARS = 300
+TITLE_CHARS = 200
+MAX_MARKUP_CHARS = 1_000_000  # what is handed to the parser, however much was downloaded
+HEAD_CHARS = 65_536           # a <title> further into the page than this isn't looked for
+PARSE_TIMEOUT_S = 20.0
+# identity: a gzip bomb would otherwise be inflated by the client before the size cap sees a byte of it
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/126.0 Safari/537.36 Aethel", "Accept": "text/html,text/plain;q=0.9,*/*;q=0.1"}
+                         "Chrome/126.0 Safari/537.36 Aethel", "Accept": "text/html,text/plain;q=0.9,*/*;q=0.1",
+           "Accept-Encoding": "identity"}
 BLOCKED = "I can't open that address: it isn't the public web (it's this computer or a private network)."
 TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
 # What may be read or listed as a source. Source URLs end up in a markdown link and an href, so anything that
 # could break out of either (whitespace, control characters, quotes, angle brackets) is refused outright.
-_WEB_ADDRESS = re.compile(r"^https?://[^\s<>\"\x00-\x1f]+$", re.IGNORECASE)
+_WEB_ADDRESS = re.compile(r"^https?://[^\s<>\"\\\x00-\x1f\x7f-\x9f]+$", re.IGNORECASE)
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"\\\x00-\x1f\x7f-\x9f]+", re.IGNORECASE)
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
 
 
 class BlockedAddress(Exception):
@@ -43,23 +51,48 @@ class BlockedAddress(Exception):
 
 def _public(addr: str) -> bool:
     ip = ipaddress.ip_address(addr.split("%", 1)[0])
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped  # ::ffff:127.0.0.1 is 127.0.0.1
+    if isinstance(ip, ipaddress.IPv6Address):
+        # an IPv4 address carried inside an IPv6 one is what it will reach: judge that one
+        embedded = ip.ipv4_mapped or ip.sixtofour  # ::ffff:127.0.0.1, 2002:7f00:1::
+        if embedded is None and any(ip in net for net in _NAT64):
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)  # 64:ff9b::7f00:1
+        if embedded is not None:
+            return _public(str(embedded))
+        if ip.teredo is not None:
+            return False  # a tunnel: where it ends up is not what the address says
     return ip.is_global and not (ip.is_multicast or ip.is_loopback or ip.is_link_local or ip.is_reserved
                                  or ip.is_unspecified or ip.is_private)
+
+
+def _split(url: str):
+    """urlsplit, or None when the address doesn't parse (a model can write anything: "http://[abc/x")."""
+    try:
+        return urlsplit(url.strip())
+    except ValueError:
+        return None
+
+
+def host_of(url: str) -> str | None:
+    """The site an address is on, without "www.", or None when it doesn't parse."""
+    parts = _split(url)
+    host = parts.hostname if parts is not None else None
+    return host.removeprefix("www.") if host else None
 
 
 def check_url(url: str) -> None:
     """Raises BlockedAddress unless `url` is http(s) and its host resolves only to public addresses.
     A name that doesn't resolve at all raises socket.gaierror (not an SSRF: the caller says "not found")."""
-    parts = urlsplit(url.strip())
-    host = parts.hostname
-    if parts.scheme not in ("http", "https") or not host:
+    parts = _split(url)
+    try:
+        host, port = (parts.hostname, parts.port) if parts is not None else (None, None)  # .port can raise too
+    except ValueError:
+        raise BlockedAddress(url) from None
+    if parts is None or parts.scheme not in ("http", "https") or not host:
         raise BlockedAddress(url)
     try:
         addresses = [str(ipaddress.ip_address(host))]
     except ValueError:  # a name: every address it resolves to must be public
-        port = parts.port or (443 if parts.scheme == "https" else 80)
+        port = port or (443 if parts.scheme == "https" else 80)
         addresses = [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
     if not addresses or not all(_public(a) for a in addresses):
         raise BlockedAddress(url)
@@ -77,6 +110,7 @@ class SourceList:
 
     def __init__(self) -> None:
         self._by_url: dict[str, Source] = {}
+        self._user_urls: set[str] = set()
 
     def add(self, url: str, title: str) -> int:
         """The same URL keeps its number; a title is kept once there is one."""
@@ -89,6 +123,14 @@ class SourceList:
 
     def all(self) -> list[Source]:
         return list(self._by_url.values())
+
+    def seed(self, user_text: str) -> None:
+        """Remember the web addresses the user themselves wrote: those are theirs to ask for."""
+        self._user_urls |= {u.rstrip(".,;:!?)]}'") for u in _URL_IN_TEXT.findall(user_text)}
+
+    def trusted(self, url: str) -> bool:
+        """An address the user wrote, or one that came up in a search or was read this turn or task, exactly."""
+        return url in self._user_urls or url in self._by_url
 
 
 def _flat(text: str, limit: int | None = None) -> str:
@@ -103,21 +145,61 @@ def _search(query: str, n: int) -> list[dict]:
 
 def _title_from(url: str) -> str:
     """No <title> to use: the file name, else the host."""
-    parts = urlsplit(url)
-    last = unquote(parts.path.rstrip("/").rsplit("/", 1)[-1])
-    return last or parts.hostname or url
+    parts = _split(url)
+    last = unquote(parts.path.rstrip("/").rsplit("/", 1)[-1]) if parts is not None else ""
+    return _flat(last or host_of(url) or url, TITLE_CHARS)
+
+
+def _title_of(markup: str) -> str | None:
+    """The page's <title>, found by plain searches in its first 64 KB (a regex over a hostile page can take
+    minutes: unclosed tags make it backtrack). Capped, since it goes into the prompt and the UI."""
+    head = markup[:HEAD_CHARS]
+    low = head.lower()
+    start = low.find("<title")
+    opened = low.find(">", start) if start >= 0 else -1
+    end = low.find("</title", opened) if opened >= 0 else -1
+    return (_flat(htmllib.unescape(head[opened + 1:end]), TITLE_CHARS) or None) if end >= 0 else None
+
+
+_CLOSERS = {"script": re.compile("</script", re.IGNORECASE), "style": re.compile("</style", re.IGNORECASE)}
+
+
+def _strip_tags(markup: str) -> str:
+    """The text of a page with its tags removed, in one pass: every search moves forward and never back, so a
+    page of unclosed tags costs no more than a normal one. Script and style go, and so does an unclosed tag."""
+    out, i = [], 0
+    while True:
+        j = markup.find("<", i)
+        if j < 0:
+            out.append(markup[i:])
+            break
+        out.append(markup[i:j])
+        k = markup.find(">", j)
+        if k < 0:
+            break  # an unclosed tag: the rest of the page isn't text
+        name = next((n for n in _CLOSERS if markup[j + 1:j + 1 + len(n)].lower() == n), None)
+        if name:
+            closer = _CLOSERS[name].search(markup, k)
+            end = markup.find(">", closer.end()) if closer else -1
+            if end < 0:
+                break  # an unclosed script or style
+            i = end + 1
+        else:
+            out.append(" ")
+            i = k + 1
+    text = htmllib.unescape("".join(out))
+    return re.sub(r"[ \t]+", " ", text).strip()
 
 
 def _page_text(markup: str) -> tuple[str, str | None]:
-    """(readable text, <title>) of an HTML page."""
+    """(readable text, <title>) of an HTML page, from at most MAX_MARKUP_CHARS of it."""
     import trafilatura
-    found = re.search(r"<title[^>]*>(.*?)</title>", markup, re.IGNORECASE | re.DOTALL)
-    title = _flat(htmllib.unescape(found.group(1))) if found else None
-    text = trafilatura.extract(markup, include_links=False, favor_recall=True)
-    if not text:  # nothing article-like: whatever text the page has
-        stripped = re.sub(r"<(script|style)\b.*?</\1>", " ", markup, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r"[ \t]+", " ", htmllib.unescape(re.sub(r"<[^>]+>", " ", stripped))).strip()
-    return text, title or None
+    markup = markup[:MAX_MARKUP_CHARS]
+    try:
+        text = trafilatura.extract(markup, include_links=False, favor_recall=True)
+    except Exception:  # a parser that chokes on a page isn't a reason to lose the page
+        text = None
+    return text or _strip_tags(markup), _title_of(markup)
 
 
 class _ReadError(Exception):
@@ -129,7 +211,7 @@ async def _fetch(http: httpx.AsyncClient, url: str) -> tuple[str, bytes, str]:
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         try:
-            await anyio.to_thread.run_sync(check_url, current)
+            await anyio.to_thread.run_sync(check_url, current, abandon_on_cancel=True)
         except BlockedAddress:
             raise _ReadError(BLOCKED) from None
         except socket.gaierror:
@@ -155,6 +237,16 @@ async def _fetch(http: httpx.AsyncClient, url: str) -> tuple[str, bytes, str]:
     raise _ReadError("That page redirected too many times.")
 
 
+def unlisted_read(tool_name: str, args: dict, ctx: ToolContext) -> bool:
+    """True when this is a web_read of an address nobody gave, asked for after outside content was read. A page
+    can tell the model to open https://evil.example/?d=<what it knows>: opening it would carry that out. An address
+    the user wrote, or one that came up in a search or was read this turn or task, is always fine."""
+    if tool_name != "web_read" or not ctx.tainted:
+        return False
+    sources = ctx.sources
+    return not (isinstance(sources, SourceList) and sources.trusted(str(args.get("url") or "").strip()))
+
+
 def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.AsyncClient) -> list[Tool]:
     """web_search and web_read. `sources_for(ctx)` is the numbered source list of the turn or task asking."""
 
@@ -178,7 +270,7 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
             url = str(row.get("href") or row.get("url") or "").strip()
             if not _WEB_ADDRESS.match(url):
                 continue  # not a plain web address: never listed, never numbered, never linked
-            title = _flat(row.get("title")) or _title_from(url)
+            title = _flat(row.get("title"), TITLE_CHARS) or _title_from(url)
             lines.append(f"[{sources.add(url, title)}] {title} — {url}")
             if snippet := _flat(row.get("body"), SNIPPET_CHARS):
                 lines.append(f"    {snippet}")
@@ -201,11 +293,18 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
             return ToolResult(False, "The page took too long to load.")
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
             return ToolResult(False, f"I couldn't load the page: {_flat(str(exc), 200) or type(exc).__name__}")
-        markup = body.decode(charset, errors="replace") if charset else body.decode("utf-8", errors="replace")
+        try:
+            markup = body.decode(charset, errors="replace")
+        except LookupError:  # a charset Python has never heard of
+            markup = body.decode("utf-8", errors="replace")
         if ctype == "text/plain":
             text, title = markup, None
         else:
-            text, title = await anyio.to_thread.run_sync(_page_text, markup)
+            try:
+                with anyio.fail_after(PARSE_TIMEOUT_S):
+                    text, title = await anyio.to_thread.run_sync(_page_text, markup, abandon_on_cancel=True)
+            except TimeoutError:
+                return ToolResult(False, "That page took too long to read.")
         title = title or _title_from(url)
         head = f"[{sources_for(ctx).add(url, title)}] {title} — {url}\n\n"
         if not text.strip():
@@ -222,7 +321,8 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
 
     def assess_read(args: dict) -> Assessment:
         url = str(args.get("url") or "").strip()
-        if urlsplit(url).scheme not in ("http", "https"):
+        parts = _split(url)
+        if parts is None or parts.scheme not in ("http", "https"):
             return Assessment("deny", "Only http:// or https:// pages can be read.", url or "(no url)")
         return Assessment("allow", "", f"Read {url}")  # where it points is checked when it is fetched
 
@@ -238,5 +338,6 @@ def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.Asyn
                  "url": {"type": "string", "description": "An http:// or https:// address"},
                  "start": {"type": "integer", "minimum": 0}},
               "required": ["url"]},
-             "read", read, assess_read, group="web", toolgroup="web"),
+             "read", read, assess_read, group="web", toolgroup="web",
+             grant_scope=lambda args: host_of(str(args.get("url") or "")) or "web"),  # "Allow" covers one site
     ]

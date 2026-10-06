@@ -31,6 +31,7 @@ test("[n] becomes a footnote link only for a real source; the rest stays plain t
   expect(cites.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
     ["1", "https://www.a.example/rain"], ["2", "https://b.example/w_(1)"]]);
   expect(cites.every((a) => a.getAttribute("target") === "_blank" && a.getAttribute("rel") === "noreferrer")).toBe(true);
+  expect(cites.map((a) => a.getAttribute("aria-label"))).toEqual(["Source 1", "Source 2"]);  // not just "1"
   expect(body.textContent).toContain("Not [9], nor [x].");
 });
 
@@ -60,8 +61,9 @@ test("citeText keeps parentheses in a URL working and leaves code alone", () => 
 });
 
 test("a source that isn't an http(s) address is never linked, whatever the server sent", () => {
-  const odd = [{ n: 1, title: "Script", url: "javascript:alert(1)" }, { n: 2, title: "Fine", url: "https://ok.example/p" }];
-  expect(citeText("a [1] b [2]", odd)).toBe('a [1] b [2](<https://ok.example/p> "cite")');
+  const odd = [{ n: 1, title: "Script", url: "javascript:alert(1)" }, { n: 2, title: "Fine", url: "https://ok.example/p" },
+    { n: 3, title: "Slash", url: "https://ok.example/p\\" }];  // a trailing backslash would break out of the link
+  expect(citeText("a [1] b [2] c [3]", odd)).toBe('a [1] b [2](<https://ok.example/p> "cite") c [3]');
   render(<PersonaMessage message={reply({ content: "a [1] b [2]", sources: odd })} />);
   expect(screen.queryByRole("link", { name: "Script" })).not.toBeInTheDocument();
   expect(screen.getByRole("list", { name: "Sources" }).textContent).toContain("1. Script");   // listed, as text
@@ -159,4 +161,39 @@ test("before a conversation exists the choice waits, then is applied when it's c
     "POST /api/conversations {}", 'PATCH /api/conversations/c9 {"web":true}']);   // created, then switched on, then sent
   expect(sent[0]).toMatchObject({ type: "user_message", conversation_id: "c9", text: "latest news?" });
   expect(useUi.getState().newChatWeb).toBeNull();
+});
+
+test("if switching the web on for a new conversation fails, the message is still sent and the user is told", async () => {
+  const sent: unknown[] = [];
+  setSocketForTests({ send: (e) => sent.push(e), subscribe: () => () => {}, onStatus: () => () => {} });
+  apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/api/settings") return settings();
+    if (path === "/api/conversations" && init?.method === "POST") return { ...conv(null), id: "c9" };
+    if (path === "/api/conversations/c9" && init?.method === "PATCH") throw new Error("backend hiccup");
+    return [];
+  });
+  useUi.setState({ newChatWeb: false });
+  const told: string[] = [];  // the view turns notices into toasts and clears them, so watch them arrive
+  const stop = useSession.subscribe((s, prev) => s.notices.filter((n) => !prev.notices.includes(n)).forEach((n) => told.push(n.text)));
+  wrap(<ConversationView />);
+  await userEvent.type(await screen.findByRole("textbox", { name: "Message" }), "hello{Enter}");
+  await waitFor(() => expect(sent).toHaveLength(1));                          // not lost
+  stop();
+  expect(sent[0]).toMatchObject({ type: "user_message", conversation_id: "c9", text: "hello" });
+  expect(useUi.getState().newChatWeb).toBeNull();                              // and not carried into another chat
+  expect(told).toEqual(["Couldn't set the web switch for this conversation, so it follows Settings."]);
+});
+
+test("a failed click on the pill says so instead of failing silently", async () => {
+  serve(null);
+  inConversation();
+  apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/api/settings") return settings();
+    if (path === "/api/conversations" && !init) return [conv(null)];
+    throw new Error("nope");
+  });
+  wrap(<WebPill />);
+  await userEvent.click(await screen.findByRole("button", { name: /^Web:/ }));
+  await waitFor(() => expect(useSession.getState().notices).toHaveLength(1));
+  expect(useSession.getState().notices[0].text).toMatch(/Couldn't change the web switch/);
 });

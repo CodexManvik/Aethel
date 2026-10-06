@@ -117,6 +117,107 @@ async def test_reading_an_address_with_whitespace_or_markup_is_refused_before_an
     assert seen == [] and sources.all() == []
 
 
+# ---- hostile input -------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("payload", ["<title>" * 50_000, "<script " * 50_000, "<" * 300_000, "<style>" * 50_000,
+                                     "<a " * 100_000 + ">"],
+                         ids=["unclosed-titles", "unclosed-scripts", "lone-brackets", "unclosed-styles", "open-tags"])
+async def test_a_hostile_page_cannot_stall_the_backend(payload):
+    """Regex backtracking on unclosed tags once froze the event loop for minutes (the parse holds the GIL)."""
+    import asyncio
+    import time
+    tools, _, _ = make_tools(lambda r: httpx.Response(200, headers={"content-type": "text/html"}, text=payload))
+    ticks, stop = [], False
+
+    async def ticker():  # the loop must keep turning while the page is parsed
+        while not stop:
+            ticks.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    t = asyncio.create_task(ticker())
+    start = time.monotonic()
+    result = await call(tools["web_read"], url="https://evil.example/")
+    took = time.monotonic() - start
+    stop = True
+    await t
+    assert took < 8, f"parsing took {took:.1f}s"
+    longest_stall = max((b - a for a, b in zip(ticks, ticks[1:])), default=0)
+    assert longest_stall < 2.0, f"the event loop stalled for {longest_stall:.1f}s"
+    assert result.ok or "too long" in result.content          # a page of junk is an answer or a plain "couldn't"
+
+
+async def test_a_parse_that_runs_long_is_given_up_on_and_stop_still_works(monkeypatch):
+    import time
+    monkeypatch.setattr(web, "PARSE_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(web, "_page_text", lambda markup: time.sleep(1.0) or ("x", "t"))
+    tools, _, _ = make_tools(lambda r: html("T", "body"))
+    start = time.monotonic()
+    result = await call(tools["web_read"], url="https://slow.example/")
+    assert not result.ok and "too long" in result.content and time.monotonic() - start < 0.8
+
+
+def test_stripping_tags_is_linear_and_right():
+    text, title = web._page_text("<html><head><title> A &amp; B </title><style>p{x}</style></head>"
+                                 "<body><script>var a='<b>';</script><p>Hello <b>wide</b> world</p><p>2 &lt; 3</p></body></html>")
+    assert title == "A & B" and "Hello" in text and "world" in text and "var a" not in text and "p{x}" not in text
+    assert web._strip_tags("a<b>c</b>d &amp; e") == "a c d & e"                          # tags become one space
+    assert web._strip_tags("before <script>never closed") == "before"                   # an unclosed script is dropped
+    assert web._strip_tags("text <unclosed") == "text"                                  # so is an unclosed tag
+    assert web._title_of("<TITLE>Up</TITLE>") == "Up" and web._title_of("<title>never closed") is None
+    assert web._title_of("x" * 100_000 + "<title>too far</title>") is None             # only the head of the page is searched
+
+
+async def test_a_model_supplied_address_that_wont_parse_is_an_error_not_a_crash():
+    tools, sources, seen = make_tools(lambda r: html("T", "body"))
+    for url in ("http://[abc/x", "http://example.com:99999/", "http://example.com:abc/", "http://[::1/"):
+        with pytest.raises(web.BlockedAddress):
+            web.check_url(url)
+        result = await call(tools["web_read"], url=url)
+        assert not result.ok and isinstance(result.content, str)
+        assert tools["web_read"].assess({"url": url}).verdict in ("allow", "deny")   # never raises
+    assert web.host_of("http://[abc/x") is None and web.host_of("https://www.bbc.co.uk/x") == "bbc.co.uk"
+    assert seen == []
+
+
+async def test_an_unknown_charset_falls_back_to_utf8():
+    tools, _, _ = make_tools(lambda r: httpx.Response(
+        200, headers={"content-type": "text/plain; charset=x-bogus"}, content="café au lait".encode()))
+    result = await call(tools["web_read"], url="https://c.example/cafe.txt")
+    assert result.ok and "café au lait" in result.content
+
+
+async def test_a_huge_title_is_capped_everywhere(monkeypatch):
+    big = "T" * 500_000
+    tools, sources, _ = make_tools(lambda r: html(big, "Some words on the page."))
+    page = await call(tools["web_read"], url="https://t.example/p")
+    assert len(page.content) < 600 and page.content.count("T") < 300
+    monkeypatch.setattr(web, "_search", lambda q, n: [{"title": big, "href": "https://t.example/q", "body": "b" * 9000}])
+    found = await call(tools["web_search"], query="x")
+    assert len(found.content) < 700
+    assert all(len(s.title) <= 200 for s in sources.all())
+
+
+@pytest.mark.parametrize("url", ["http://[2002:7f00:1::]/", "http://[2002:a9fe:a9fe::]/", "http://[64:ff9b::7f00:1]/",
+                                 "http://[64:ff9b::a9fe:a9fe]/", "http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/"])
+def test_addresses_that_embed_a_private_ipv4_are_blocked(url):
+    with pytest.raises(web.BlockedAddress):
+        web.check_url(url)
+
+
+@pytest.mark.parametrize("url", ["https://a.example/x\\", "https://a.example/a\\b", "https://a.example/x\u0085y"])
+async def test_backslashes_and_odd_whitespace_are_not_plain_addresses(url):
+    tools, _, seen = make_tools(lambda r: html("T", "body"))
+    assert not (await call(tools["web_read"], url=url)).ok and seen == []
+
+
+def test_the_user_s_own_addresses_and_found_sources_are_trusted_and_nothing_else():
+    s = web.SourceList()
+    s.seed("please read https://goal.example/page, and (https://other.example/x?y=1). Thanks!")
+    s.add("https://found.example/a", "A")
+    assert s.trusted("https://goal.example/page") and s.trusted("https://other.example/x?y=1")
+    assert s.trusted("https://found.example/a")
+    assert not s.trusted("https://found.example/a?extra=secret") and not s.trusted("https://evil.example/?d=1")
+
+
 async def test_search_limits_results_and_survives_a_failing_or_empty_search(monkeypatch):
     asked = []
     monkeypatch.setattr(web, "_search", lambda q, n: asked.append(n) or [])

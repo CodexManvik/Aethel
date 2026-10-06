@@ -58,6 +58,7 @@ def create_app(services: Services | None = None) -> FastAPI:
                 if owns_services:
                     try:
                         await svc.http_client.aclose()
+                        await svc.web_http.aclose()
                     finally:
                         svc.close()
 

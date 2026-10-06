@@ -63,8 +63,13 @@ async function ensureConversation(qc: QueryClient): Promise<string> {
   useSession.getState().setConversation(conv.id, []);
   const web = useUi.getState().newChatWeb;
   if (web !== null) {
-    useUi.getState().setNewChatWeb(null);
-    await api<Conversation>(`/api/conversations/${conv.id}`, { method: "PATCH", body: JSON.stringify({ web }) });
+    useUi.getState().setNewChatWeb(null); // it belongs to this conversation only, however the PATCH goes
+    try {
+      await api<Conversation>(`/api/conversations/${conv.id}`, { method: "PATCH", body: JSON.stringify({ web }) });
+    } catch {
+      // the message is still sent; the conversation just follows Settings, and the user is told
+      useSession.getState().addNotice("Couldn't set the web switch for this conversation, so it follows Settings.");
+    }
   }
   void qc.invalidateQueries({ queryKey: ["conversations"] });
   return conv.id;
@@ -78,8 +83,12 @@ export function useSetWeb() {
     async (web: boolean | null) => {
       const id = useSession.getState().conversationId;
       if (!id) return useUi.getState().setNewChatWeb(web);
-      const updated = await api<Conversation>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ web }) });
-      qc.setQueryData<Conversation[]>(["conversations"], (list) => list?.map((c) => (c.id === id ? updated : c)));
+      try {
+        const updated = await api<Conversation>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ web }) });
+        qc.setQueryData<Conversation[]>(["conversations"], (list) => list?.map((c) => (c.id === id ? updated : c)));
+      } catch {
+        useSession.getState().addNotice("Couldn't change the web switch for this conversation.");
+      }
     },
     [qc],
   );

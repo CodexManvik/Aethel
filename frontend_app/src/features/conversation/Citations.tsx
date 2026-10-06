@@ -1,7 +1,7 @@
 import type { Source } from "../../lib/events.gen";
 
 // Only a plain http(s) address is ever made a link: a source is data from the web, so it isn't trusted to be one.
-const isWebAddress = (url: string) => /^https?:\/\/[^\s<>"]+$/i.test(url);
+const isWebAddress = (url: string) => /^https?:\/\/[^\s<>"\\\x00-\x1f\x7f-\x9f]+$/i.test(url);
 
 export const siteOf = (url: string) => {
   try {

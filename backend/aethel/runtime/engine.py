@@ -34,11 +34,11 @@ from ..safety.policy import decide
 from ..safety.untrusted import wrap_untrusted
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
-from ..tools.base import ToolContext, ToolResult
+from ..tools.base import Assessment, ToolContext, ToolResult
 from ..tools.desktop import parse_snapshot
 from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
 from ..tools.registry import ToolRegistry
-from ..tools.web import SourceList
+from ..tools.web import SourceList, unlisted_read
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
@@ -217,7 +217,7 @@ class TaskEngine:
         # task_id -> the tool groups on offer. Absent: every tool is offered (token_saving.tool_groups is off).
         self._groups: dict[str, set[str]] = {}
         self._catalogue: dict[str, str] = {}  # task_id -> the catalogue line last appended to its system prompt
-        self._web: dict[str, bool] = {}       # task_id -> whether the web is on for its conversation
+        self._conv: dict[str, str] = {}       # task_id -> its conversation, whose web switch is read live
         self._sources: dict[str, SourceList] = {}  # task_id -> the web sources it has met, numbered
 
     # ---- public API --------------------------------------------------------
@@ -345,10 +345,9 @@ class TaskEngine:
             self._obs.pop(task_id, None)
             self._groups.pop(task_id, None)
             self._catalogue.pop(task_id, None)  # a fresh conversation starts without one
-            conv = self.conversations.get(record.conversation_id)
-            self._web[task_id] = bool(self.settings is not None and conv is not None
-                                      and effective_web(self.settings.get(), conv))
+            self._conv[task_id] = record.conversation_id
             self._sources[task_id] = SourceList()  # [n] numbers are per task, from the first web result
+            self._sources[task_id].seed(record.goal)  # an address in the goal is the user's own
             run = _RunClock(self.clock, active_base=record.active_seconds)
             active_time = _ActiveTimeWriter(self.tasks, task_id, run)
             learned: str | None = None
@@ -377,7 +376,7 @@ class TaskEngine:
             await self._set_state(task_id, "running")
             convo = [
                 ChatMessage("system", executor_system(record.goal, record.plan, [c.describe() for c in checks],
-                                                      datetime.now().astimezone(), web=self._web[task_id])),
+                                                      datetime.now().astimezone(), web=self._web_on(task_id))),
                 ChatMessage("user", record.goal),
             ]
             if learned:
@@ -565,9 +564,15 @@ class TaskEngine:
                     groups.add(tool.toolgroup)
         return groups - CORE
 
+    def _web_on(self, task_id: str) -> bool:
+        """Whether the web is on for this task's conversation right now: read live, so switching it off (or private
+        mode on) while a task runs takes effect on its next call."""
+        conv = self.conversations.get(self._conv[task_id]) if task_id in self._conv else None
+        return bool(self.settings is not None and conv is not None and effective_web(self.settings.get(), conv))
+
     def _available(self, task_id: str) -> set[str]:
         """The tool groups this task may use at all: everything registered, but the web only where it's on."""
-        return self.registry.groups() - (set() if self._web.get(task_id) else {"web"})
+        return self.registry.groups() - (set() if self._web_on(task_id) else {"web"})
 
     def _offered(self, task_id: str) -> list[ToolSpec]:
         """The tools for the next executor call: what's active, the plan tools, and use_tools while a group is left."""
@@ -770,7 +775,7 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
-        if tool.toolgroup == "web" and not self._web.get(task_id):
+        if tool.toolgroup == "web" and not self._web_on(task_id):
             budget.consecutive_loops = 0
             return ("Error: web access is off for this conversation. Don't try it again; use what you have, or finish "
                     "and tell the user they can switch the web on in the prompt box.")
@@ -791,6 +796,11 @@ class TaskEngine:
         assessment = tool.assess(args)
         if inspect.isawaitable(assessment):
             assessment = await assessment
+        if assessment.verdict == "allow" and unlisted_read(tool.name, args, ctx):
+            assessment = Assessment(
+                "ask", "I've read content from outside, and this address didn't come from you or a search result. "
+                       "Opening it tells that site what I'm doing, so I'm checking with you first.",
+                assessment.target, assessment.tier)
         verdict = decide(tool, assessment, tainted=ctx.tainted, grants=grants, scope=scope)
         step = self.tasks.add_step(task_id, tool.name, args, verdict.target, verdict.verdict, decider)
         await self.hub.publish(StepStarted(task_id=task_id, step_id=step.id, tool=tool.name,
@@ -910,7 +920,7 @@ class TaskEngine:
         self._obs.pop(task_id, None)
         self._groups.pop(task_id, None)
         self._catalogue.pop(task_id, None)
-        self._web.pop(task_id, None)
+        self._conv.pop(task_id, None)
         met = self._sources.pop(task_id, None)
         record = self.tasks.get(task_id)
         if record is None or record.state in TERMINAL_STATES:

