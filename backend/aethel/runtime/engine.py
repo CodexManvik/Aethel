@@ -511,8 +511,11 @@ class TaskEngine:
         self.tasks.set_context(task_id, {"facts": [{"id": f.id, "text": f.text} for f, _ in hits]})
         return combined
 
+    def _compact(self) -> bool:
+        return self.settings is not None and self.settings.get().token_saving.compact_schemas
+
     async def _plan(self, task_id: str, goal: str, learned: str | None = None) -> tuple[list[str], list[Check]]:
-        tools = "\n".join(f"- {s.name}: {s.description}" for s in self.registry.specs())
+        tools = "\n".join(f"- {s.name}: {s.description}" for s in self.registry.specs(compact=self._compact()))
         messages = [ChatMessage("system", PLANNER_SYSTEM),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
@@ -553,7 +556,7 @@ class TaskEngine:
 
     async def _execute(self, task_id: str, convo: list[ChatMessage], ctx: ToolContext, grants: set[tuple[str, str]],
                        run: "_RunClock", budget: "_Budget") -> Outcome:
-        specs = self.registry.specs() + [COMPLETE_STEP, FINISH_TASK]
+        specs = self.registry.specs(compact=self._compact()) + [COMPLETE_STEP, FINISH_TASK]
         seen: Counter = Counter()
         nudged = False
         obs = self._obs.setdefault(task_id, [])  # the tool results in convo, for trimming (token spec §5.1)

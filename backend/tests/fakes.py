@@ -93,11 +93,13 @@ class ScriptedProvider:
         self.label = label
         self.calls = []
         self.tools_seen = []
+        self.specs_seen = []  # the full ToolSpecs, for tests of what the schemas look like
         self.max_tokens_seen = []
 
     async def stream(self, messages, *, temperature, max_tokens, tools=None):
         self.calls.append([copy.copy(m) for m in messages])  # as sent: the engine may edit them later
         self.tools_seen.append([t.name for t in tools or []])
+        self.specs_seen.append(list(tools or []))
         self.max_tokens_seen.append(max_tokens)
         if not self.turns:
             raise AssertionError("ScriptedProvider ran out of scripted turns")

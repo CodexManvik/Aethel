@@ -91,6 +91,9 @@ class TokenSavingSettings(BaseModel):
     # On by default; scripts/eval_tokens.py confirms it doesn't cost task success (not yet measured).
     mask_superseded: bool = True
     mask_batch: int = Field(default=3, ge=1, le=20)  # rewrite earlier messages at most once per this many
+    # Send tool schemas without JSON-schema annotation and with short curated descriptions (tools/compact.py).
+    # On: every parameter, type, enum and required flag is kept, so a tool is called the same way.
+    compact_schemas: bool = True
 
 
 def _check_base_url(value: str) -> str:
