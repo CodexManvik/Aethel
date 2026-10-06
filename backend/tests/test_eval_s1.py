@@ -127,3 +127,32 @@ def test_token_eval_only_approves_the_task_own_windows():
     assert tok.decide("haiku", "win_type", "Type “x” in applicationframehost", "write") == "deny"
     assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
     assert tok.decide("display", "shell", "run something", "write") == "deny"
+
+
+def test_schema_report_ranks_tools_by_their_share_of_the_tokens():
+    rep = _load("tool_schema_report")
+    from aethel.providers.base import ToolSpec
+    specs = [ToolSpec("a", "x", {}), ToolSpec("b", "x", {}), ToolSpec("c", "x", {})]
+    rows = rep.report(specs, [100, 300, 600], {"a": "core", "b": "office", "c": "files"})
+    assert [r["tool"] for r in rows] == ["c", "b", "a"]
+    assert [r["tokens"] for r in rows] == [600, 300, 100]
+    assert [r["share"] for r in rows] == [0.6, 0.3, 0.1]
+    assert [r["group"] for r in rows] == ["files", "office", "core"]
+    assert rep.by_group(rows) == {"files": 600, "office": 300, "core": 100}
+
+
+def test_schema_report_estimates_when_there_is_no_tokenizer():
+    rep = _load("tool_schema_report")
+    assert rep.count_tokens(["x" * 40, "y" * 7], None) == [10, 1]
+    # nothing is listening there: it estimates instead of failing
+    assert rep.count_tokens(["x" * 40], "http://127.0.0.1:9/v1") == [10]
+    assert rep.exact_counts(["x" * 40], "http://127.0.0.1:9/v1") is None
+
+
+def test_schema_report_measures_what_the_provider_receives():
+    import json
+    from aethel.providers.base import ToolSpec
+    rep = _load("tool_schema_report")
+    spec = ToolSpec("win_wait", "Wait.", {"type": "object", "properties": {"duration": {"type": "number"}}})
+    wire = json.loads(rep.spec_json(spec))
+    assert wire["function"]["name"] == "win_wait" and wire["function"]["parameters"]["properties"]["duration"]
