@@ -40,9 +40,11 @@ def _read(path: Path) -> str:
 
 # The windows each task may act in. A desktop approval for any other window (say the user clicked into
 # WhatsApp mid-run and it took focus) is denied: the script must never type or press keys elsewhere.
-WINDOWS = {"haiku": ("notepad", "save as"), "calc": ("calculator", "notepad", "save as"),
+# Store apps (Calculator, Settings) report their host window, "applicationframehost", not their own name.
+WINDOWS = {"haiku": ("notepad", "save as"),
+           "calc": ("calculator", "applicationframehost", "notepad", "save as"),
            "folder": ("explorer", "eval-tokens"), "url": ("edge", "example"),
-           "edit": ("notepad", "notes"), "display": ("settings",)}
+           "edit": ("notepad", "notes"), "display": ("settings", "applicationframehost")}
 
 
 def decide(task: str, tool: str, summary: str, tier: str) -> str:

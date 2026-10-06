@@ -121,5 +121,9 @@ def test_token_eval_only_approves_the_task_own_windows():
     assert tok.decide("haiku", "win_shortcut", "Press ctrl+s", "write") == "deny"   # no window named: no
     assert tok.decide("haiku", "fs_write", work + r"\haiku.txt", "write") == "allow_once"
     assert tok.decide("haiku", "fs_write", r"C:\Users\x\Desktop\a.txt", "write") == "deny"
+    # Store apps (Calculator, Settings) report their host window rather than their own name.
+    assert tok.decide("calc", "win_type", "Type “1234” in applicationframehost", "write") == "allow_once"
+    assert tok.decide("display", "win_click", "Click “System” in applicationframehost", "write") == "allow_once"
+    assert tok.decide("haiku", "win_type", "Type “x” in applicationframehost", "write") == "deny"
     assert tok.decide("url", "win_click", "Click “Send” in edge", "irreversible") == "deny"
     assert tok.decide("display", "shell", "run something", "write") == "deny"
