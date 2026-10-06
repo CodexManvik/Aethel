@@ -1,9 +1,14 @@
-"""Does leaving stale screens out of a task's context cost anything? (token-efficiency spec §7)
+"""Do the token savings cost anything? (token-efficiency spec §7, 3b-2 plan Task 6)
 
 Runs 6 short desktop tasks through Aethel's real task engine and desktop control, with your model keys and
-settings, with superseded-state masking OFF and ON. The arms are interleaved (the order flips each round,
-so rate limits and warm-up don't favour one), and the ON arm masks as eagerly as possible (batch 1), so it's
-the strict version of the question. Learned skills are off for the run, so both arms do the full LLM loop.
+settings, once per arm of one axis (--axis):
+  groups (default): "send only the tools a task needs" OFF vs ON. Every call otherwise carries every tool.
+  masking:          leaving stale screens out of the context OFF vs ON (ON masks as eagerly as possible,
+                    batch 1, so it's the strict version of the question).
+Compact tool schemas are ON in every arm: they're lossless, so they're the baseline. Everything else the axis
+isn't about is pinned, so your own settings can't tilt the result. The arms are interleaved (the order flips
+each round, so rate limits and warm-up don't favour one). Learned skills are off for the run, so both arms do
+the full LLM loop. The summary says whether the ON arm's success dropped by more than one run.
 
 Success is the task finishing AND an independent check of its result where one exists (the file is there,
 it says 7006652, …), not just the model saying it's done.
@@ -12,8 +17,9 @@ Safety: close the Aethel app first (it checks), and don't use the PC while it ru
 "allow once" only for the windows that task is about (Notepad for the haiku, …) and files under the eval
 folder; anything else, and anything irreversible, is denied and printed. Your settings are restored at the end, and on
 the next start if a run was killed. It spends your tokens: about 24 tasks' worth.
-Writes ~/.aethel/eval/tokens.json. Usage: py -3.11 scripts/eval_tokens.py [--reps 2]
-On your own model: --base-url http://127.0.0.1:8080/v1 --model model.gguf --context 128000 --timeout 900"""
+Writes ~/.aethel/eval/tokens-<axis>.json. Usage: py -3.11 scripts/eval_tokens.py [--axis groups|masking] [--reps 2]
+On your own model: --base-url http://127.0.0.1:8080/v1 --model model.gguf --context 128000 --timeout 900
+(add --reasoning if it thinks before answering, e.g. Gemma 4)"""
 import argparse
 import asyncio
 import json
@@ -28,7 +34,17 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 WORK = Path.home() / "Documents" / "Aethel" / "eval-tokens"
 TASK_TIMEOUT_S = 300
-ARMS = {"masking off": {"mask_superseded": False}, "masking on": {"mask_superseded": True, "mask_batch": 1}}
+# What every arm shares; an axis changes only what it's about.
+BASE = {"compact_schemas": True, "mask_superseded": True, "mask_batch": 3, "tool_groups": False}
+AXES = {
+    "groups": {"groups off": {}, "groups on": {"tool_groups": True}},
+    "masking": {"masking off": {"mask_superseded": False}, "masking on": {"mask_batch": 1}},
+}
+
+
+def arms_for(axis: str) -> dict[str, dict]:
+    """arm name -> the full token_saving settings it runs with."""
+    return {arm: {**BASE, **over} for arm, over in AXES[axis].items()}
 
 
 def _read(path: Path) -> str:
@@ -87,15 +103,26 @@ def summarise(runs: list[dict]) -> dict:
     mean = lambda xs: round(statistics.mean(xs), 1) if xs else None  # noqa: E731
     return {"runs": len(runs), "success_rate": round(len(ok) / len(runs), 3) if runs else None,
             "mean_prompt_tokens": mean([r["usage"]["prompt"] for r in runs]),
+            # the schemas' share of each executor call (estimated), averaged over the task's calls then the runs
+            "mean_tool_tokens": mean([r["tool_tokens"] for r in runs if r.get("tool_tokens") is not None]),
             "mean_completion_tokens": mean([r["usage"]["completion"] for r in runs]),
             "mean_calls": mean([r["usage"]["calls"] for r in runs]),
             "mean_seconds": mean([r["seconds"] for r in runs]),
             "estimated": any(r["usage"]["estimated"] for r in runs)}
 
 
-def schedule(names: list[str], reps: int) -> list[tuple[str, str]]:
+def verdict(off: dict, on: dict) -> str:
+    """Did the ON arm succeed less often than the OFF arm? A drop of one run (out of 12) is noise.
+    'no_drop', 'drop', or 'not_measured' when either arm has no runs."""
+    a, b = off["summary"], on["summary"]
+    if not a["runs"] or not b["runs"] or a["success_rate"] is None or b["success_rate"] is None:
+        return "not_measured"
+    return "no_drop" if round(b["success_rate"] * b["runs"]) >= round(a["success_rate"] * a["runs"]) - 1 else "drop"
+
+
+def schedule(names: list[str], reps: int, axis: str = "groups") -> list[tuple[str, str]]:
     """(task, arm) pairs: every task in every round under both arms, the order flipping each round."""
-    order = list(ARMS)
+    order = list(AXES[axis])
     out = []
     for rep in range(reps):
         arms = order if rep % 2 == 0 else order[::-1]
@@ -132,10 +159,12 @@ async def run_one(svc, name: str, goal: str, check) -> dict:
     await svc.engine.wait_idle()
     task = svc.tasks.get(task_id)
     checked = check(WORK) if check is not None else None
+    tools = [b.get("tools", 0) for b in svc.usage.task_breakdown(task_id)]
     return {"task": name, "state": task.state, "checked": checked,
             "success": task.state == "done" and checked is not False,
             "error": task.error, "seconds": round(time.monotonic() - t0, 1),
-            "usage": svc.usage.task_totals(task_id)}
+            "usage": svc.usage.task_totals(task_id),
+            "tool_tokens": round(statistics.mean(tools), 1) if tools else None}
 
 
 async def main(args) -> None:
@@ -157,7 +186,8 @@ async def main(args) -> None:
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(saved), encoding="utf-8")
     if args.base_url:  # every role on one endpoint of your own, for this run only
-        entry = {"provider": "custom", "model": args.model, "context_size": args.context}
+        entry = {"provider": "custom", "model": args.model, "context_size": args.context,
+                 "reasoning": args.reasoning}
         svc.settings.update({"custom_base_url": args.base_url.rstrip("/"),
                              "roles": {role: [entry] for role in ("chat", "agent", "utility", "vision")}})
         print(f"All roles on {args.base_url} ({args.model}, {args.context} tokens of context) for this run.")
@@ -165,14 +195,15 @@ async def main(args) -> None:
     TASK_TIMEOUT_S = args.timeout
     reps = args.reps
     svc.mcp.start(svc.mcp_servers)
-    result = {"reps": reps, "arms": {arm: {"runs": []} for arm in ARMS}}
+    arms = arms_for(args.axis)
+    result = {"axis": args.axis, "reps": reps, "arms": {arm: {"runs": []} for arm in arms}}
     try:
         if not await svc.mcp.wait_ready("windows", 180):
             print("Desktop control didn't start (see ~/.aethel/logs/mcp-windows.log).")
             return
         goals = {name: (goal, check) for name, goal, check in tasks()}
-        for name, arm in schedule(list(goals), reps):
-            svc.settings.update({"use_learned_skills": False, "token_saving": ARMS[arm]})
+        for name, arm in schedule(list(goals), reps, args.axis):
+            svc.settings.update({"use_learned_skills": False, "token_saving": arms[arm]})
             print(f"[{arm}] {name}")
             r = await run_one(svc, name, *goals[name])
             print(f"      {'ok' if r['success'] else 'FAILED'} ({r['state']}, check {r['checked']}) in {r['seconds']} s, "
@@ -188,14 +219,20 @@ async def main(args) -> None:
     for arm, data in result["arms"].items():
         data["summary"] = summarise(data["runs"])
         print(arm, data["summary"])
-    out = aethel_home() / "eval" / "tokens.json"
+    off, on = result["arms"].values()  # the first arm of an axis is the baseline
+    result["verdict"] = verdict(off, on)
+    print(f"{args.axis}: {result['verdict']} (the ON arm's success compared with the OFF arm's, one run of slack)")
+    out = aethel_home() / "eval" / f"tokens-{args.axis}.json"
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"wrote {out}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--axis", choices=list(AXES), default="groups", help="which saving to compare, off vs on")
     parser.add_argument("--reps", type=int, default=2)
+    parser.add_argument("--reasoning", action="store_true",
+                        help="the --base-url model thinks before answering (leave it room to reply)")
     parser.add_argument("--timeout", type=int, default=300, help="seconds per task (raise for a slow local model)")
     parser.add_argument("--base-url", help="run every role on this OpenAI-compatible endpoint (e.g. llama-server)")
     parser.add_argument("--model", default="model.gguf")

@@ -101,7 +101,7 @@ def test_token_eval_summary():
 
 def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
     tok = _load("eval_tokens")
-    assert tok.schedule(["a", "b"], 2) == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
+    assert tok.schedule(["a", "b"], 2, "masking") == [("a", "masking off"), ("a", "masking on"), ("b", "masking off"),
                                            ("b", "masking on"), ("a", "masking on"), ("a", "masking off"),
                                            ("b", "masking on"), ("b", "masking off")]
     checks = {name: check for name, _, check in tok.tasks()}
@@ -110,6 +110,37 @@ def test_token_eval_interleaves_arms_and_checks_results(tmp_path, monkeypatch):
     (tmp_path / "notes.txt").write_text("shopping\n- eggs\nbuy milk\n", encoding="utf-8")
     assert checks["edit"](tmp_path) is True
     assert checks["folder"](tmp_path) is False and checks["url"] is None
+
+
+def test_token_eval_has_two_axes_and_pins_everything_else(tmp_path):
+    tok = _load("eval_tokens")
+    flip = [("a", "groups off"), ("a", "groups on"), ("b", "groups off"), ("b", "groups on"),
+            ("a", "groups on"), ("a", "groups off"), ("b", "groups on"), ("b", "groups off")]
+    assert tok.schedule(["a", "b"], 2, "groups") == flip
+    assert tok.schedule(["a"], 1, "masking") == [("a", "masking off"), ("a", "masking on")]
+    assert list(tok.arms_for("groups")) == ["groups off", "groups on"]
+    # compaction is lossless, so it's the baseline of every arm; the axis under test is the only difference
+    base = {"compact_schemas": True, "mask_superseded": True, "mask_batch": 3, "tool_groups": False}
+    assert tok.arms_for("groups")["groups off"] == base
+    assert tok.arms_for("groups")["groups on"] == {**base, "tool_groups": True}
+    assert tok.arms_for("masking")["masking off"] == {**base, "mask_superseded": False}
+    assert tok.arms_for("masking")["masking on"] == {**base, "mask_batch": 1}   # the strict version, as before
+
+
+def test_token_eval_summary_reports_the_schema_tokens_and_the_verdict_on_the_arms():
+    tok = _load("eval_tokens")
+    usage = {"prompt": 1000, "completion": 50, "calls": 4, "estimated": False}
+    runs = [{"success": True, "seconds": 10.0, "usage": usage, "tool_tokens": 9000.0},
+            {"success": False, "seconds": 20.0, "usage": usage, "tool_tokens": 3000.0},
+            {"success": True, "seconds": 12.0, "usage": usage, "tool_tokens": None}]  # no execute call recorded
+    s = tok.summarise(runs)
+    assert s["mean_tool_tokens"] == 6000.0 and s["success_rate"] == round(2 / 3, 3)
+    assert tok.summarise([])["mean_tool_tokens"] is None
+    off = {"summary": {"runs": 12, "success_rate": round(10 / 12, 3)}}
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": round(9 / 12, 3)}}) == "no_drop"   # one run fewer
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": round(8 / 12, 3)}}) == "drop"
+    assert tok.verdict(off, {"summary": {"runs": 12, "success_rate": 1.0}}) == "no_drop"
+    assert tok.verdict(off, {"summary": {"runs": 0, "success_rate": None}}) == "not_measured"
 
 
 def test_token_eval_only_approves_the_task_own_windows():
