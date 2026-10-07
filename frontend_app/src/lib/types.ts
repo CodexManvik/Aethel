@@ -46,6 +46,7 @@ export interface AppSettings {
   history_window: number;
   system1: System1Settings;
   memory: MemorySettings;
+  browser: { show: boolean };
   context_caps: Record<string, number>;
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;

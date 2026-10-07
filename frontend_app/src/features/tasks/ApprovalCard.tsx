@@ -11,6 +11,8 @@ const VERBS: Record<string, string> = {
   open_url: "open a web page",
   web_read: "read a web page",
   web_search: "search the web",
+  browser_click: "click on a web page",
+  browser_type: "type on a web page",
   win_click: "click",
   win_type: "type",
   win_shortcut: "press a shortcut",
@@ -20,6 +22,7 @@ const VERBS: Record<string, string> = {
 };
 const FAMILIES: [RegExp, string][] = [
   [/^win_/, "use an app on your screen"],
+  [/^browser_/, "use its own browser"],
   [/^(word|excel|ppt)_/, "work in Office"],
 ];
 

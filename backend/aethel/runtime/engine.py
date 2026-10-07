@@ -35,15 +35,17 @@ from ..safety.untrusted import wrap_untrusted
 from ..settings import SettingsService
 from ..store.repos import ConversationRepo, MessageRepo
 from ..tools.base import Assessment, ToolContext, ToolResult
+from ..tools.browser import parse_page
 from ..tools.desktop import parse_snapshot
-from ..tools.groups import CORE, GROUP_LABELS, catalogue_line, inactive_groups, use_tools_spec
+from ..tools.groups import (ALWAYS_ON_REQUEST, CORE, GROUP_LABELS, NEEDS_WEB, catalogue_line, inactive_groups,
+                            use_tools_spec)
 from ..tools.registry import ToolRegistry
 from ..tools.web import SourceList, unlisted_read
 from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
 from .reflect import learn
-from .prompts import (COMPLETE_STEP, FINISH_TASK, PLANNER_SYSTEM, SUBMIT_PLAN, executor_system, repair_prompt,
+from .prompts import (COMPLETE_STEP, FINISH_TASK, SUBMIT_PLAN, executor_system, planner_system, repair_prompt,
                       resume_note, submit_plan_spec)
 from .store import TERMINAL_STATES, TaskRepo
 
@@ -370,13 +372,16 @@ class TaskEngine:
                 self.tasks.set_plan(task_id, steps, [c.model_dump() for c in checks])
                 await self.hub.publish(TaskPlan(task_id=task_id, steps=steps, checks=[c.describe() for c in checks]))
                 record = self.tasks.get(task_id)
-            if self._groups_on():  # the core tools, what the plan and the learned skills point to, what was used
-                self._groups[task_id] = set(CORE) | planned | self._skill_groups(shown) | self._groups_for_steps(task_id)
+            base = self._base_groups(task_id)
+            if self._groups_on() or self._available(task_id) - base:  # something starts deferred (the browser always does)
+                # what starts active, what the plan and the learned skills point to, and what was already used
+                self._groups[task_id] = set(base) | planned | self._skill_groups(shown) | self._groups_for_steps(task_id)
             checks = [Check.model_validate(c) for c in record.checks]
             await self._set_state(task_id, "running")
             convo = [
                 ChatMessage("system", executor_system(record.goal, record.plan, [c.describe() for c in checks],
-                                                      datetime.now().astimezone(), web=self._web_on(task_id))),
+                                                      datetime.now().astimezone(), web=self._web_on(task_id),
+                                                      browser=self._has_browser(task_id))),
                 ChatMessage("user", record.goal),
             ]
             if learned:
@@ -454,12 +459,16 @@ class TaskEngine:
         values = bind(skill["macro_def"].get("template", ""), goal)
         return (skill, values) if values is not None else None
 
-    async def _snapshot(self, ctx: ToolContext) -> list | None:
-        tool = self.registry.get("win_snapshot")
+    async def _snapshot(self, ctx: ToolContext, browser: bool = False) -> list | None:
+        """The elements on the screen (or, for a browser step, on the page) right now, or None if it can't be looked at.
+        Calling the tool's handler directly also tells the browser adapter which refs are live."""
+        tool = self.registry.get("browser_snapshot" if browser else "win_snapshot")
         if tool is None:
             return None
         result = await tool.handler({}, ctx)
-        return parse_snapshot(result.content) if result.ok else None
+        if not result.ok:
+            return None
+        return parse_page(result.content)[1] if browser else parse_snapshot(result.content)
 
     async def _run_macro(self, task_id: str, skill: dict, values: dict, ctx: ToolContext, grants: set,
                          run: "_RunClock", budget: "_Budget") -> str | None:
@@ -472,13 +481,19 @@ class TaskEngine:
             await self._gate(task_id, run)
             args = fill(step.get("args") or {}, values)
             if step.get("target"):
-                elements = await self._snapshot(ctx)
+                in_browser = step["tool"].startswith("browser_")
+                elements = await self._snapshot(ctx, browser=in_browser)
                 if elements is None:
-                    return self._handover_note(skill, done, describe(step, values), "desktop control isn't connected")
-                element, how = await ground(step["target"], elements, self.system1, threshold, _similar)
+                    return self._handover_note(skill, done, describe(step, values),
+                                               "the browser isn't connected" if in_browser else "desktop control isn't connected")
+                element, how = await ground(step["target"], elements, self.system1, threshold, _similar,
+                                            strict_window=in_browser)
                 if element is None:
                     return self._handover_note(skill, done, describe(step, values), how)
-                args["loc"] = [element.x, element.y]
+                if in_browser:  # this snapshot's ref for the element: never stored, found again every time
+                    args["target"], args["element"] = element.ref, element.name
+                else:
+                    args["loc"] = [element.x, element.y]
             seen: Counter = Counter()
             call = ToolCall(id=f"macro-{i}", name=step["tool"], arguments=json.dumps(args))
             # A replayed step's output is read by no model (the next step comes from the macro,
@@ -556,8 +571,11 @@ class TaskEngine:
         groups: set[str] = set()
         for skill_id in skill_ids:
             skill = self.knowledge.get(skill_id) or {}
-            if any(k in str(app).lower() for app in skill.get("apps") or [] for k in ("word", "excel", "powerpoint")):
+            apps = [str(app).lower() for app in skill.get("apps") or []]
+            if any(k in app for app in apps for k in ("word", "excel", "powerpoint")):
                 groups.add("office")
+            if "browser" in apps:  # a skill recorded as working in Aethel's own (background) browser
+                groups.add("browser")
             for step in (skill.get("macro_def") or {}).get("steps") or []:
                 tool = self.registry.get(step.get("tool"))
                 if tool is not None:
@@ -571,8 +589,23 @@ class TaskEngine:
         return bool(self.settings is not None and conv is not None and effective_web(self.settings.get(), conv))
 
     def _available(self, task_id: str) -> set[str]:
-        """The tool groups this task may use at all: everything registered, but the web only where it's on."""
-        return self.registry.groups() - (set() if self._web_on(task_id) else {"web"})
+        """The tool groups this task may use at all: everything registered, but web access (web search, the
+        background browser) only where the web is on."""
+        return self.registry.groups() - (set() if self._web_on(task_id) else NEEDS_WEB)
+
+    def _has_browser(self, task_id: str) -> bool:
+        """Whether the task has a background browser to use (it needs the web to be on)."""
+        return "browser" in self._available(task_id)
+
+    def browser_in_use(self) -> bool:
+        """Whether a task that is still running has already used the background browser (so it can't be stopped,
+        signed in on or cleared underneath it)."""
+        return any(s.tool.startswith("browser_") for task_id in self._runners for s in self.tasks.steps(task_id))
+
+    def _base_groups(self, task_id: str) -> set[str]:
+        """The groups a task starts with: only the core ones when tool groups are on, else everything it may use
+        except the groups that are always on request."""
+        return set(CORE) if self._groups_on() else self._available(task_id) - ALWAYS_ON_REQUEST
 
     def _offered(self, task_id: str) -> list[ToolSpec]:
         """The tools for the next executor call: what's active, the plan tools, and use_tools while a group is left."""
@@ -631,16 +664,16 @@ class TaskEngine:
             -> tuple[list[str], list[Check], set[str]]:
         spec = SUBMIT_PLAN
         valid: list[str] = []
-        available = self._available(task_id)
-        if self._groups_on():  # the core tools in full, the rest as a catalogue the plan can pick from
-            valid = inactive_groups(available, CORE)
-            listed = self.registry.specs(CORE, compact=self._compact())
-            catalogue = catalogue_line(available, CORE)
+        available, base = self._available(task_id), self._base_groups(task_id)
+        valid = inactive_groups(available, base)
+        if self._groups_on() or valid:  # the starting tools in full, the rest as a catalogue the plan can pick from
+            listed = self.registry.specs(base & available, compact=self._compact())
+            catalogue = catalogue_line(available, base)
             spec = submit_plan_spec(valid)
         else:
             listed, catalogue = self.registry.specs(available, compact=self._compact()), ""
         tools = "\n".join(f"- {s.name}: {s.description}" for s in listed) + (f"\n\n{catalogue}" if catalogue else "")
-        messages = [ChatMessage("system", PLANNER_SYSTEM),
+        messages = [ChatMessage("system", planner_system(browser=self._has_browser(task_id))),
                     ChatMessage("user", f"Goal: {goal}\n\nTools I can use:\n{tools}" +
                                 (f"\n\n{learned}" if learned else ""))]
         for _ in range(2):
@@ -709,6 +742,7 @@ class TaskEngine:
                     convo.append(ChatMessage("tool", "[STOPPED] step limit reached", tool_call_id=call.id))
                     continue
                 ctx.last_ok = False
+                ctx.last_observes = None
                 result = await self._handle(task_id, call, ctx, grants, seen, run, budget,
                                             cut_off=finish_reason == "length")
                 convo.append(ChatMessage("tool", result, tool_call_id=call.id))
@@ -716,7 +750,7 @@ class TaskEngine:
                 # Only what a tool really returned counts: a denial, a loop warning or an error isn't a newer
                 # screen, and must never make the last real one look stale.
                 if tool is not None and ctx.last_ok:
-                    obs.append(Observation(len(convo) - 1, call.name, tool.observes, _summary(call),
+                    obs.append(Observation(len(convo) - 1, call.name, ctx.last_observes, _summary(call),
                                            _signature(call), full=not result.startswith(UNCHANGED_PREFIX)))
                 if call.name == "finish_task":
                     args = _parse_args(call.arguments) or {}
@@ -775,7 +809,7 @@ class TaskEngine:
         if tool is None:
             budget.consecutive_loops = 0
             return f"Error: there's no tool called {call.name!r}. Tools: {', '.join(self.registry.names())}."
-        if tool.toolgroup == "web" and not self._web_on(task_id):
+        if tool.toolgroup in NEEDS_WEB and not self._web_on(task_id):
             budget.consecutive_loops = 0
             return ("Error: web access is off for this conversation. Don't try it again; use what you have, or finish "
                     "and tell the user they can switch the web on in the prompt box.")
@@ -860,6 +894,9 @@ class TaskEngine:
         if result.untrusted:
             ctx.tainted = True
         ctx.last_ok = result.ok
+        if result.stateless:
+            observes = None  # it usually shows the state of something, but this result doesn't
+        ctx.last_observes = observes if (observes and result.ok) else None
         if observes and result.ok:
             # the same screen as last time: say so in a line instead of sending it all again (lossless)
             note = self._states.setdefault(task_id, StateTracker()).seen(observes, result.content)

@@ -4,22 +4,27 @@ not an LLM call.
 
 A macro step addresses elements by {role, name, window}, never by screen
 coordinates: those are found again on the live screen at replay time
-(grounding). Typed text that came from the goal becomes a parameter, bound
+(grounding). For a browser step the "window" is the page's host and the thing
+that is never stored is the snapshot ref (e12), which belongs to one snapshot. Typed text that came from the goal becomes a parameter, bound
 from the next goal through the goal's template. A run that typed generated
 content (a poem, an essay) isn't compiled: macros are for navigation."""
 import hashlib
 import re
 
 # Steps that only look: they're dropped from structures and macros (grounding snapshots itself).
-OBSERVE = {"win_snapshot", "win_wait_for", "win_displays", "win_locate"}
-# Steps that act on an element at a screen position, which must be found again at replay.
-POINTER = {"win_click", "win_move", "win_scroll", "win_multi_select"}
+OBSERVE = {"win_snapshot", "win_wait_for", "win_displays", "win_locate",
+           "browser_snapshot", "browser_take_screenshot", "browser_wait_for", "browser_tabs", "browser_close"}
+# Steps that act on an element, which must be found again at replay (on the screen, or on the page).
+POINTER = {"win_click", "win_move", "win_scroll", "win_multi_select", "browser_click", "browser_hover",
+           "browser_select_option"}
+TYPE_TOOLS = {"win_type", "browser_type"}   # text typed into a field: from the goal (a parameter) or constant
+RECORDED_TARGET_ARGS = ("loc", "locs", "label", "labels", "target", "element")  # where it was: found again, not kept
 MAX_CONSTANT_TEXT = 40  # longer (or multi-line) typed text is treated as generated content
 REPEATS_TO_COMPILE = 3
 
 
 def _replayable(step) -> bool:
-    return bool(step.ok) and step.tool.startswith("win_") and step.tool not in OBSERVE
+    return bool(step.ok) and step.tool.startswith(("win_", "browser_")) and step.tool not in OBSERVE
 
 
 def _target(step) -> dict | None:
@@ -61,17 +66,27 @@ def compile_macro(goal: str, steps, stable: str = "") -> dict | None:
     """{template, params, steps} from a successful run, or None if it can't be replayed.
     `stable` is the skill's own wording (title, intent, apps): words in it are never parameters."""
     replay = [s for s in steps if _replayable(s)]
-    typed = [str(s.args.get("text") or "") for s in replay if s.tool == "win_type"]
+    if any(s.tool == "browser_fill_form" for s in replay):
+        return None  # form values are data entry, not a navigation pattern (and may be someone's details)
+    typed = [str(s.args.get("text") or "") for s in replay if s.tool in TYPE_TOOLS]
+    typed += [str(s.args.get("url") or "") for s in replay if s.tool == "browser_navigate"]
     spans = _variable_spans(goal, stable, typed)
     names = {span.lower(): f"p{i}" for i, span in enumerate(spans, 1)}
     out = []
     for s in replay:
-        args = {k: v for k, v in s.args.items() if k not in ("loc", "locs", "label", "labels")}
+        args = {k: v for k, v in s.args.items() if k not in RECORDED_TARGET_ARGS}
         target = _target(s)
-        needs_target = s.tool in POINTER or (s.tool == "win_type" and s.args.get("loc") is not None)
+        needs_target = s.tool in POINTER or s.tool == "browser_type" or (s.tool == "win_type" and s.args.get("loc") is not None)
         if needs_target and target is None:
             return None  # a click we can't find again by name
-        if s.tool == "win_type":
+        if s.tool == "browser_navigate":
+            url = str(args.get("url") or "")
+            for span, name in names.items():  # an address's spaces are '+', and the query in it is a parameter
+                url = re.sub(re.escape(span.replace(" ", "+")), "{" + name + "+}", url, flags=re.IGNORECASE)
+            if "\n" in url:
+                return None
+            args["url"] = url  # a long constant address is normal: only typed text can be generated content
+        if s.tool in TYPE_TOOLS:
             text = str(args.get("text") or "")
             url_like = " " not in text and bool(re.search(r"[/?=]", text))  # spaces go in as '+'
             for span, name in names.items():
@@ -130,20 +145,36 @@ def describe(step: dict, values: dict[str, str]) -> str:
     what = f"“{target['name']}”" if target and target.get("name") else ""
     if step["tool"] == "win_app":
         return f"Open {args.get('name', 'the app')}"
-    if step["tool"] == "win_type":
+    if step["tool"] == "browser_navigate":
+        return f"Go to {args.get('url', 'a page')}"
+    if step["tool"] == "browser_navigate_back":
+        return "Go back"
+    if step["tool"] == "browser_press_key":
+        return f"Press {args.get('key', '')}"
+    if step["tool"] == "browser_handle_dialog":
+        return "Accept the dialog" if args.get("accept", True) else "Dismiss the dialog"
+    if step["tool"] == "browser_select_option":
+        return f"Choose {', '.join(str(v) for v in args.get('values') or [])}" + (f" in {what}" if what else "")
+    if step["tool"] in TYPE_TOOLS:
         return f"Type “{args.get('text', '')}”" + (f" into {what}" if what else "")
     if step["tool"] == "win_shortcut":
         return f"Press {args.get('shortcut', '')}"
     if step["tool"] == "win_wait":
         return f"Wait {args.get('duration', 1)} s"
-    verb = {"win_click": "Click", "win_move": "Move to", "win_scroll": "Scroll", "win_multi_select": "Select"}
+    verb = {"win_click": "Click", "win_move": "Move to", "win_scroll": "Scroll", "win_multi_select": "Select",
+            "browser_click": "Click", "browser_hover": "Hover over"}
     return f"{verb.get(step['tool'], step['tool'])} {what}".strip()
 
 
-async def ground(target: dict, elements: list, system1, threshold: float, similarity) -> tuple[object | None, str]:
+async def ground(target: dict, elements: list, system1, threshold: float, similarity,
+                 strict_window: bool = False) -> tuple[object | None, str]:
     """The live element a macro step means, and how it was found (or why not).
     Exact role+name first; otherwise System 1 picks among the most similar
-    elements, with "none of these" as a real answer (that's drift)."""
+    elements, with "none of these" as a real answer (that's drift).
+    strict_window: only elements in the recorded window count. For a page that is its host: the same words on
+    another site are another site's button, not this step's, so a different host is drift."""
+    if strict_window and target.get("window"):
+        elements = [e for e in elements if e.window == target["window"]]
     name, role = str(target.get("name", "")).lower(), str(target.get("role", "")).lower()
     exact = [e for e in elements if e.role.lower() == role and e.name.lower() == name]
     if exact:

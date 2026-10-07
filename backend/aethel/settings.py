@@ -76,6 +76,12 @@ class System1Settings(BaseModel):
     ground_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
+class BrowserSettings(BaseModel):
+    # Aethel's own background browser. True runs it with a window you can watch; it takes effect the next time
+    # the browser starts (Settings -> Browser has a Restart for that).
+    show: bool = False
+
+
 class MemorySettings(BaseModel):
     facts_enabled: bool = True
     # Measured by scripts/eval_s1_fact.py on eval/s1_fact.jsonl (120 hand-written messages, 2026-09-30,
@@ -125,6 +131,7 @@ class AppSettings(BaseModel):
     history_window: int = Field(default=24, ge=2, le=200)
     system1: System1Settings = Field(default_factory=System1Settings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    browser: BrowserSettings = Field(default_factory=BrowserSettings)
     token_saving: TokenSavingSettings = Field(default_factory=TokenSavingSettings)
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})

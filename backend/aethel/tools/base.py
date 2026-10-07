@@ -11,6 +11,7 @@ class ToolContext:
     tainted: bool = False  # becomes True once untrusted content entered the task
     last_ok: bool = False  # whether the last call really ran and succeeded (not denied, looped or failed)
     sources: object | None = None  # tools.web.SourceList: the web sources numbered so far this turn or task
+    last_observes: str | None = None  # what the last call really showed ("screen", "page"), or None: set by the engine
 
 
 @dataclass
@@ -20,6 +21,9 @@ class ToolResult:
     untrusted: bool = False  # came from outside: file contents, command output, apps, web
     meta: dict | None = None        # what the step touched, e.g. {"element": {role, name, window}, "app": ...}
     thumbnail: bytes | None = None  # a small JPEG of the screen after the step (replay, spec §4.5)
+    # The tool usually shows the state of something (observes) but this result doesn't (a bare "Done."): it must
+    # not count as a newer snapshot, which would let the real one be masked or called "unchanged".
+    stateless: bool = False
 
 
 @dataclass

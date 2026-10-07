@@ -5,6 +5,7 @@ import { RolesSection } from "./RolesSection";
 import { LocalModelSection } from "./LocalModelSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ToolsSection } from "./ToolsSection";
+import { BrowserSection } from "./BrowserSection";
 import { LearningSection } from "./LearningSection";
 import { MemorySection } from "./MemorySection";
 import { UsageSection } from "./UsageSection";
@@ -23,6 +24,7 @@ export function SettingsView() {
             <RolesSection settings={settings} />
             <LocalModelSection settings={settings} />
             <ToolsSection />
+            <BrowserSection settings={settings} />
             <LearningSection settings={settings} />
             <MemorySection settings={settings} />
             <UsageSection />

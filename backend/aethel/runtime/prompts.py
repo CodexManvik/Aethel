@@ -17,6 +17,16 @@ Given the user's goal and the tools available, call submit_plan exactly once wit
 Do not do the work yourself and do not ask questions: plan with sensible defaults
 (e.g. save new files in the user's Documents\\Aethel folder unless told otherwise)."""
 
+# Only said when there is a background browser: where web work belongs (Phase 3 spec §7.3).
+BROWSER_RULE = ("For web work (looking something up on a site, filling a form, checking a page) use the browser_* tools: "
+                "that's your own browser in the background. Use the visible desktop browser or open_url only when the "
+                "user names a browser, wants to watch or listen to something, or asks to see it.")
+
+
+def planner_system(browser: bool = False) -> str:
+    return PLANNER_SYSTEM + (f"\n\n{BROWSER_RULE}" if browser else "")
+
+
 SUBMIT_PLAN = ToolSpec(
     "submit_plan",
     "Submit the plan for this task.",
@@ -69,10 +79,12 @@ FINISH_TASK = ToolSpec(
 )
 
 
-def executor_system(goal: str, plan: list[str], checks: list[str], now: datetime, web: bool = False) -> str:
+def executor_system(goal: str, plan: list[str], checks: list[str], now: datetime, web: bool = False,
+                    browser: bool = False) -> str:
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(plan))
     checked = "\n".join(f"- {c}" for c in checks) or "- (nothing machine-checkable)"
     web_line = f"\n- {WEB_NOTE}" if web else ""  # only when the web is on, so the prompt is unchanged otherwise
+    web_line += f"\n- {BROWSER_RULE}" if browser else ""
     return f"""You are Aethel, carrying out a task on the user's computer.
 
 Goal: {goal}

@@ -134,6 +134,14 @@ class TaskRepo:
         )
         return _step(self.db.query_one("SELECT * FROM steps WHERE id = ?", (step_id,)))
 
+    def clear_pictures(self, tool_prefix: str) -> list[str]:
+        """Forget the replay pictures of the steps whose tool starts with `tool_prefix` (a browser's, say);
+        returns their paths under ~/.aethel/media so the files can be deleted."""
+        like = tool_prefix.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%") + "%"
+        rows = self.db.query("SELECT thumbnail FROM steps WHERE tool LIKE ? ESCAPE '\\' AND thumbnail IS NOT NULL", (like,))
+        self.db.execute("UPDATE steps SET thumbnail = NULL WHERE tool LIKE ? ESCAPE '\\' AND thumbnail IS NOT NULL", (like,))
+        return [r["thumbnail"] for r in rows]
+
     def finish_step(self, step_id: str, ok: bool, result: str, duration_ms: int, untrusted: bool = False,
                     meta: dict | None = None, thumbnail: str | None = None) -> None:
         self.db.execute("UPDATE steps SET ok = ?, result = ?, duration_ms = ?, untrusted = ?, meta = ?, thumbnail = ?"
