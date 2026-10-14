@@ -47,11 +47,27 @@ export interface AppSettings {
   system1: System1Settings;
   memory: MemorySettings;
   browser: { show: boolean };
+  voice: VoiceSettings;
   context_caps: Record<string, number>;
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;
   use_learned_skills: boolean;
   token_saving: { mask_superseded: boolean; mask_batch: number; compact_schemas: boolean; tool_groups: boolean };
+}
+
+export interface VoiceSettings {
+  stt: "azure" | "local";
+  stt_model: string;
+  language: string;
+  azure_region: string;
+  tts: "kokoro" | "azure";
+  azure_voice: string;
+  eot_threshold: number;
+  short_wait_ms: number;
+  max_wait_ms: number;
+  ack: boolean;
+  narration: boolean;
+  default_blend: Record<string, number>;
 }
 
 export interface MemorySettings {

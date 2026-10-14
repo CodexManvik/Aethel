@@ -1,7 +1,7 @@
 import { api } from "./api";
 import { inTauri } from "./backend";
 
-export type KeyProvider = "groq" | "gemini" | "openrouter" | "custom";
+export type KeyProvider = "groq" | "gemini" | "openrouter" | "custom" | "azure_speech";
 
 /** On startup: copy keys from Windows Credential Manager into backend memory. */
 export async function pushStoredKeys(): Promise<void> {
