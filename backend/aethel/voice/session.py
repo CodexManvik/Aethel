@@ -21,6 +21,7 @@ from ..protocol import UserMessage
 from ..runtime.store import TERMINAL_STATES
 from ..store.repos import new_id, now_iso
 from .chunker import SentenceChunker
+from .narrator import Narrator
 from .protocol import (MAX_UTTERANCE_BYTES, Caption, EndCall, Hello, Interrupt, Ready, SpeechEnd, SpeechStart,
                        Thinking, TtsMeta, TurnEnd, VoiceError, client_adapter)
 from .stt import SpeechToTextError
@@ -85,6 +86,7 @@ class VoiceSession:
         self._ack_next = 0
         self._ack_prep: asyncio.Task | None = None
         self._holds_call = False
+        self.narrator: Narrator | None = None
 
     # ---- messages in -------------------------------------------------------------------------------------
     async def on_text(self, raw: str) -> None:
@@ -154,6 +156,7 @@ class VoiceSession:
         self.turns = TurnManager(self.svc.voice.eot(), threshold=v.eot_threshold, short_wait_ms=v.short_wait_ms,
                                  max_wait_ms=v.max_wait_ms, clock=self.clock)
         self._loop = asyncio.ensure_future(self._turn_loop())
+        self.narrator = Narrator(router=self.svc.router, hub=self.svc.hub, speak=self._narrate, busy=self._busy)
         if v.ack:
             self._ack_prep = asyncio.ensure_future(self._prepare_acks())
         voice = v.azure_voice if getattr(self.tts, "prefer_azure", False) else self.blend.weights[0][0]
@@ -175,6 +178,8 @@ class VoiceSession:
                 turn.interrupted = True
                 if turn.assistant_id:
                     await self.svc.chat.stop(turn.assistant_id)
+            if self.narrator is not None:
+                await self.narrator.close()
             tasks = [t for t in [self._loop, self._ack_prep, *self._utterances] if t is not None]
             if turn is not None:
                 tasks += [t for t in (turn.worker, turn.ack) if t is not None]
@@ -251,7 +256,9 @@ class VoiceSession:
         meta = {"modality": "voice"}
         status = "complete"
         if kind == "task":
-            await svc.engine.start(conversation_id=cid, goal=decision.text, meta=meta)
+            task_id = await svc.engine.start(conversation_id=cid, goal=decision.text, meta=meta)
+            if task_id and self.narrator is not None and svc.settings.get().voice.narration:
+                self.narrator.follow(task_id, decision.text)
             await self._say(turn, ON_IT)
         elif kind == "stop_task":
             for t in running:
@@ -377,6 +384,23 @@ class VoiceSession:
         """A fixed line spoken outside the model ("On it.")."""
         await self._speak_sentence(turn, text)
         await self._push(Caption(role="assistant", text=text, final=True))
+
+    # ---- narration -----------------------------------------------------------------------------------------
+    def _busy(self) -> bool:
+        """Narration waits: a reply is being given, or the user is talking."""
+        return self._turn is not None or (self.turns is not None and self.turns.user_speaking)
+
+    async def _narrate(self, line: str) -> None:
+        """A narration line: spoken like an acknowledgement (id -1, not part of any reply), captioned, not saved."""
+        spoken = speakable(line)
+        if not spoken or self._busy():
+            return
+        speech = await self.tts.synthesize(spoken, self.blend, private=self.svc.settings.get().private_mode)
+        if speech is None or self._busy():
+            return
+        await self._send_audio(TtsMeta(sentence_id=-1, text=line, sample_rate=speech.sample_rate,
+                                       turn_id=new_id("vn")), speech.audio)
+        await self._push(Caption(role="assistant", text=line, final=True))
 
     # ---- the short acknowledgement -----------------------------------------------------------------------
     async def _prepare_acks(self) -> None:
