@@ -132,3 +132,10 @@ def test_routes_need_the_token(monkeypatch):
         for path in ("/api/voice/status", "/api/voice/voices"):
             assert c.get(path).status_code == 401
         assert c.post("/api/voice/azure-check").status_code == 401
+
+
+def test_system_one_end_of_turn_is_off_unless_switched_on():
+    _, svc = client()
+    assert svc.voice.eot().system1 is None
+    svc.settings.update({"voice": {"system1_end_of_turn": True}})
+    assert svc.voice.eot().system1 is svc.system1

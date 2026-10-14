@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 log = logging.getLogger("aethel.voice")
-EOT_Q = "Has the user finished saying what they wanted to say, so it's Aethel's turn to answer?"
+# The wording that did best on dev in scripts/eval_s1_eot.py (a choice beat a yes/no). Even so, Laya is close to
+# chance at this: see VoiceSettings.system1_end_of_turn.
+EOT_INSTRUCTIONS = "Look at the end of what the user said. Does it end where a complete sentence ends?"
+EOT_OPTIONS = {
+    "finished": "yes, it ends like a complete sentence",
+    "continuing": "no, it ends part-way, for example on a word like and, but, the, to, I, because, or on a pause "
+                  "sound like um",
+}
 EOT_TIMEOUT_S = 1.5   # System 1 runs locally on the CPU; a slow answer is no answer, the long silence applies
 REPLY_CHARS = 400
 
@@ -23,13 +30,17 @@ def eot_state(utterance: str, previous_reply: str | None) -> dict:
 
 class EndOfTurn:
     def __init__(self, system1):
-        self.system1 = system1
+        self.system1 = system1  # None: not asked, every turn waits the long silence
 
     async def finished(self, utterance: str, previous_reply: str | None) -> float | None:
         """P(the thought is finished), or None when System 1 can't say."""
+        if self.system1 is None:
+            return None
         try:
             async with asyncio.timeout(EOT_TIMEOUT_S):
-                return await self.system1.noul(eot_state(utterance, previous_reply), EOT_Q, "end_of_turn")
+                answer = await self.system1.choice(eot_state(utterance, previous_reply), EOT_INSTRUCTIONS,
+                                                   EOT_OPTIONS, "end_of_turn")
+            return None if answer is None else answer[1]["finished"]
         except TimeoutError:
             log.info("end-of-turn judgment took over %.1fs; waiting the long silence", EOT_TIMEOUT_S)
             return None

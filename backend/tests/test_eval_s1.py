@@ -190,3 +190,17 @@ def test_schema_report_measures_what_the_provider_receives():
     spec = ToolSpec("win_wait", "Wait.", {"type": "object", "properties": {"duration": {"type": "number"}}})
     wire = json.loads(rep.spec_json(spec))
     assert wire["function"]["name"] == "win_wait" and wire["function"]["parameters"]["properties"]["duration"]
+
+
+def test_eot_threshold_is_the_lowest_with_enough_precision_and_none_when_there_is_no_such_one():
+    eot = _load("eval_s1_eot")
+    probs = [0.95, 0.9, 0.85, 0.6, 0.55, 0.3, 0.2]
+    labels = [True, True, True, False, True, False, False]
+    assert eot.pick(probs, labels) == 0.65  # at 0.6 the false 0.6 is let through (3 of 4 = 0.75)
+    assert eot.pick([0.9, 0.8, 0.7], [False, False, False]) is None
+    assert eot.pick([0.2, 0.9], [True, False]) is None
+    assert eot.split(list(range(6))) == ([0, 2, 4], [1, 3, 5])
+    rows = [__import__("json").loads(line) for line in eot.DATA.read_text(encoding="utf-8").splitlines()]
+    dev, test = eot.split(rows)
+    assert len(rows) == 100 and sum(r["label"] == "finished" for r in rows) == 50
+    assert all(sum(r["label"] == "finished" for r in half) in range(20, 31) for half in (dev, test))  # both halves mixed

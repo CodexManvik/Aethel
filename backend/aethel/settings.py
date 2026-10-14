@@ -93,9 +93,15 @@ class VoiceSettings(BaseModel):
     # Azure voice instead (never in private mode). Azure is also the fallback when Kokoro fails.
     tts: Literal["kokoro", "azure"] = "kokoro"
     azure_voice: str = Field(default="en-GB-SoniaNeural", pattern=r"^[A-Za-z0-9-]{3,60}$")
-    # P(finished) at which Aethel takes its turn after a short pause. Provisional until scripts/eval_s1_eot.py
-    # has measured it (spec §8.3).
-    eot_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    # Whether System 1 judges if a pause is the end of a thought. OFF: scripts/eval_s1_eot.py (100 hand-written
+    # transcripts, 2026-10-14, laya@68f27df) found Laya close to chance at this: of five wordings none reached
+    # precision 0.9 except at a threshold where it fires on ~4% of finished thoughts (held out: 1 of 25), and a false
+    # "finished" talks over the user. So every turn waits max_wait_ms of silence (voice-activity detection alone);
+    # E3 compares the two. Fine-tuning Laya on this set, or a better judge, is the way to make it worth turning on.
+    system1_end_of_turn: bool = False
+    # P(finished) at which a pause is answered after short_wait_ms; the lowest with dev precision >= 0.9. Only
+    # used when system1_end_of_turn is on.
+    eot_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     short_wait_ms: int = Field(default=300, ge=0, le=5000)    # silence before answering a finished thought
     max_wait_ms: int = Field(default=1500, ge=200, le=10000)  # silence before answering an unfinished one
     ack: bool = True        # a short "Mm." when the first words of the reply are slow

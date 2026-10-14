@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from aethel.voice.turns import EOT_Q, EndOfTurn, TurnManager, eot_state
+from aethel.voice.turns import EOT_INSTRUCTIONS, EOT_OPTIONS, EndOfTurn, TurnManager, eot_state
 
 pytestmark = pytest.mark.anyio
 
@@ -145,23 +145,25 @@ def test_eot_state_truncates_the_previous_reply():
 
 async def test_end_of_turn_asks_system_one_and_gives_up_on_a_slow_answer(monkeypatch):
     class S1:
-        async def noul(self, state, instructions, purpose):
-            self.seen = (state, instructions, purpose)
-            return 0.8
+        async def choice(self, state, instructions, options, purpose):
+            self.seen = (state, instructions, options, purpose)
+            return "finished", {"finished": 0.8, "continuing": 0.2}, 0.8
 
     s1 = S1()
     assert await EndOfTurn(s1).finished("thanks", "Anytime.") == 0.8
-    assert s1.seen == ({"user_said": "thanks", "aethel_last_reply": "Anytime."}, EOT_Q, "end_of_turn")
+    assert s1.seen == ({"user_said": "thanks", "aethel_last_reply": "Anytime."}, EOT_INSTRUCTIONS, EOT_OPTIONS,
+                       "end_of_turn")
 
     class Slow:
-        async def noul(self, *args):
+        async def choice(self, *args):
             await asyncio.sleep(10)
 
     monkeypatch.setattr("aethel.voice.turns.EOT_TIMEOUT_S", 0.01)
     assert await EndOfTurn(Slow()).finished("thanks", None) is None
 
     class Off:
-        async def noul(self, *args):
+        async def choice(self, *args):
             return None
 
     assert await EndOfTurn(Off()).finished("thanks", None) is None
+    assert await EndOfTurn(None).finished("thanks", None) is None  # System 1 end-of-turn switched off

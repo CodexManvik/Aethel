@@ -22,7 +22,7 @@ class VoiceService:
         return make_tts(self.settings, self.keys, self.kokoro)
 
     def eot(self) -> EndOfTurn:
-        return EndOfTurn(self.system1)
+        return EndOfTurn(self.system1 if self.settings.get().voice.system1_end_of_turn else None)
 
     def last_turn_ms(self) -> int | None:
         """Milliseconds from the end of the user's speech to the first audio of the last reply that had one."""

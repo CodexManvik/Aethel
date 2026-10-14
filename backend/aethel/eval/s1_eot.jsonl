@@ -1,0 +1,100 @@
+{"text": "What time does the library open on Saturdays?", "label": "finished"}
+{"text": "So I was thinking that", "label": "not_finished"}
+{"text": "And then I", "label": "not_finished"}
+{"text": "Yeah.", "label": "finished", "previous_reply": "Would you like me to set a reminder for that?"}
+{"text": "No thanks, that's all.", "label": "finished", "previous_reply": "Anything else I can help with?"}
+{"text": "The thing is", "label": "not_finished"}
+{"text": "What if we", "label": "not_finished"}
+{"text": "Can you open Notepad and write a note about tomorrow's meeting?", "label": "finished"}
+{"text": "I think the second option sounds better.", "label": "finished", "previous_reply": "I can either book it for Tuesday or Thursday. Which do you prefer?"}
+{"text": "I need to buy eggs, milk, and", "label": "not_finished"}
+{"text": "Well, um", "label": "not_finished"}
+{"text": "Thank you, that was really helpful.", "label": "finished"}
+{"text": "Tuesday works for me.", "label": "finished", "previous_reply": "I can either book it for Tuesday or Thursday. Which do you prefer?"}
+{"text": "Can you open the", "label": "not_finished"}
+{"text": "I was going to say that the report, which is due on, um", "label": "not_finished"}
+{"text": "What's the weather going to be like this weekend?", "label": "finished"}
+{"text": "I'm going to head out for lunch now, so just leave it until I'm back.", "label": "finished"}
+{"text": "Because the last time I tried it", "label": "not_finished"}
+{"text": "My sister's birthday is on the", "label": "not_finished"}
+{"text": "Okay, sounds good.", "label": "finished", "previous_reply": "I'll start with the introduction and then move on to the methodology."}
+{"text": "Tell me a bit about how the voice call works.", "label": "finished"}
+{"text": "It's kind of like when you", "label": "not_finished"}
+{"text": "Yeah, so, but", "label": "not_finished", "previous_reply": "Would you like me to set a reminder for that?"}
+{"text": "My dissertation is due on the fifteenth of next month.", "label": "finished"}
+{"text": "Actually, never mind, I found it.", "label": "finished", "previous_reply": "Let me search for that document."}
+{"text": "Let me think, hmm", "label": "not_finished"}
+{"text": "I'd like to book a table for", "label": "not_finished"}
+{"text": "Please stop what you're doing.", "label": "finished"}
+{"text": "I'd like a coffee, please.", "label": "finished", "previous_reply": "What would you like to drink?"}
+{"text": "So the first thing is the introduction, then the", "label": "not_finished"}
+{"text": "Okay and also", "label": "not_finished", "previous_reply": "I've saved the file in your documents folder."}
+{"text": "That's not quite what I meant.", "label": "finished", "previous_reply": "I've opened the settings page for you."}
+{"text": "Good morning, how are you today?", "label": "finished"}
+{"text": "Could you maybe", "label": "not_finished"}
+{"text": "I went to the shop and then I went to the bank and", "label": "not_finished"}
+{"text": "Can you remind me what we decided about the survey questions?", "label": "finished"}
+{"text": "Sure, go ahead.", "label": "finished", "previous_reply": "Shall I read the summary out loud?"}
+{"text": "Actually, wait, let me", "label": "not_finished"}
+{"text": "If you look at the second paragraph, it says that the", "label": "not_finished"}
+{"text": "I don't think that's right, the meeting is at three, not two.", "label": "finished"}
+{"text": "Close the browser and open my downloads folder.", "label": "finished"}
+{"text": "The reason I ask is that", "label": "not_finished"}
+{"text": "I want it to be a kind of a", "label": "not_finished"}
+{"text": "It's about a ten minute walk from the station.", "label": "finished", "previous_reply": "How far is it from the station?"}
+{"text": "Why did the last task fail?", "label": "finished"}
+{"text": "Right so what I need is for you to", "label": "not_finished"}
+{"text": "Uh", "label": "not_finished"}
+{"text": "Right, I get it now.", "label": "finished", "previous_reply": "So the second parameter controls the sampling rate."}
+{"text": "Let's pick this up again tomorrow morning.", "label": "finished"}
+{"text": "Do you think that it would be better if we", "label": "not_finished"}
+{"text": "I've been trying to work out how to", "label": "not_finished"}
+{"text": "Do you remember what I told you about my sister's birthday?", "label": "finished"}
+{"text": "Nope, nothing else.", "label": "finished", "previous_reply": "Is there anything you'd like me to add to the list?"}
+{"text": "On Monday I have the dentist, on Tuesday I have, um", "label": "not_finished"}
+{"text": "Not that one, the", "label": "not_finished", "previous_reply": "Is it the file called notes or the one called notes final?"}
+{"text": "I want to change the voice to something a bit calmer.", "label": "finished"}
+{"text": "That was funny.", "label": "finished", "previous_reply": "I told you the printer was haunted."}
+{"text": "And what about the", "label": "not_finished"}
+{"text": "It's a long story but basically", "label": "not_finished"}
+{"text": "What's the capital of Australia?", "label": "finished"}
+{"text": "I finished the first chapter yesterday and I'm starting the second one today.", "label": "finished"}
+{"text": "I think maybe we should probably", "label": "not_finished"}
+{"text": "Tell me about the", "label": "not_finished"}
+{"text": "Could you summarise the article I just saved?", "label": "finished"}
+{"text": "Fine by me.", "label": "finished", "previous_reply": "I'll use the blue theme unless you object."}
+{"text": "For the first slide I want a title, a short subtitle, and", "label": "not_finished"}
+{"text": "When I was in Leeds I met a", "label": "not_finished"}
+{"text": "How many words have I written so far?", "label": "finished"}
+{"text": "Can you turn the volume down a little?", "label": "finished"}
+{"text": "It started, I guess, about", "label": "not_finished"}
+{"text": "Give me a second, I'm just", "label": "not_finished"}
+{"text": "No, the other one.", "label": "finished", "previous_reply": "Is it the file called notes or the one called notes final?"}
+{"text": "I'm fine, thanks for asking.", "label": "finished", "previous_reply": "How are you feeling today?"}
+{"text": "I can't remember if it was before or", "label": "not_finished"}
+{"text": "Is it okay if I", "label": "not_finished"}
+{"text": "Send it to the printer on the second floor.", "label": "finished"}
+{"text": "Yes please, and make it bold.", "label": "finished", "previous_reply": "Do you want the heading underlined?"}
+{"text": "My plan is to", "label": "not_finished"}
+{"text": "Well, it depends on whether", "label": "not_finished"}
+{"text": "I was in Leeds last week for a conference.", "label": "finished"}
+{"text": "That works.", "label": "finished", "previous_reply": "Would half past four be okay?"}
+{"text": "Can you remind me to call", "label": "not_finished"}
+{"text": "The email should say that we have received the", "label": "not_finished"}
+{"text": "Look up the opening hours of the central library.", "label": "finished"}
+{"text": "Great, thanks.", "label": "finished", "previous_reply": "Done. The file is saved in your documents folder."}
+{"text": "Sorry, I was just", "label": "not_finished"}
+{"text": "To be honest I'm not really sure that", "label": "not_finished"}
+{"text": "I'm not sure I understand how the memory feature works.", "label": "finished"}
+{"text": "Pause the music.", "label": "finished"}
+{"text": "It's somewhere in my downloads folder, I think it's called", "label": "not_finished"}
+{"text": "Let's see, there's the budget and the", "label": "not_finished"}
+{"text": "It was a bit slow, but it got there in the end.", "label": "finished", "previous_reply": "How did the upload go?"}
+{"text": "Goodbye for now.", "label": "finished"}
+{"text": "I really liked the part where", "label": "not_finished"}
+{"text": "So after that we can", "label": "not_finished"}
+{"text": "What did I ask you to do before lunch?", "label": "finished"}
+{"text": "Mm-hm, that's right.", "label": "finished", "previous_reply": "So you want the report in portrait orientation."}
+{"text": "Hang on, hmm, I", "label": "not_finished"}
+{"text": "Could you read me the part about the", "label": "not_finished"}
+{"text": "Let me know when the download finishes.", "label": "finished"}
