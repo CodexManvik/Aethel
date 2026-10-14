@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .api import voice_ws, ws
-from .api.routes import browser, conversations, health, keys, memory, providers, settings, tasks, tools, usage
+from .api.routes import browser, conversations, health, keys, memory, providers, settings, tasks, tools, usage, voice
 from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
@@ -88,6 +88,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(browser.router)
     app.include_router(memory.router)
     app.include_router(usage.router)
+    app.include_router(voice.router)
     app.include_router(ws.router)
     app.include_router(voice_ws.router)
     return app

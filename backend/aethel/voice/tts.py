@@ -107,8 +107,13 @@ class KokoroTTS:
                 self._kokoro = Kokoro(str(self.model_dir / "kokoro-v1.0.onnx"), str(self.model_dir / "voices-v1.0.bin"))
 
     def voices(self) -> list[str]:
-        self.warm()
-        return sorted(self._kokoro.get_voices())
+        """The voice names. Read from the voices file when the model isn't loaded, so listing them is instant."""
+        if self._kokoro is not None:
+            return sorted(self._kokoro.get_voices())
+        if not self.available:
+            return []
+        with np.load(self.model_dir / "voices-v1.0.bin") as table:
+            return sorted(table.files)
 
     def style(self, blend: VoiceBlend) -> np.ndarray:
         cached = self._styles.get(blend)
