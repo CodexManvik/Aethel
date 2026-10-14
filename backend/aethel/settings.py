@@ -176,9 +176,12 @@ class AppSettings(BaseModel):
     use_learned_skills: bool = True
 
 
+REPLACED_WHOLE = {"roles", "default_blend"}  # a patch to these is the new value, not merged into the old one
+
+
 def _deep_merge(base: dict, patch: dict) -> dict:
     for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict) and key != "roles":
+        if isinstance(value, dict) and isinstance(base.get(key), dict) and key not in REPLACED_WHOLE:
             _deep_merge(base[key], value)
         elif key == "roles" and isinstance(value, dict):
             base.setdefault("roles", {}).update(value)

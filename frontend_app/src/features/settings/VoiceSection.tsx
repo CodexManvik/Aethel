@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "../../lib/api";
+import { api, apiBlob } from "../../lib/api";
 import { saveKey } from "../../lib/keys";
 import type { AppSettings } from "../../lib/types";
 import { Button } from "../../ui/Button";
 import { Field, inputClass } from "../../ui/Field";
+import { Switch } from "../../ui/Switch";
 import { Section } from "./Section";
 import { useUpdateSettings } from "./useSettings";
 
@@ -47,6 +48,21 @@ export function VoiceSection({ settings }: { settings: AppSettings }) {
   });
   const saveText = (patch: Partial<AppSettings["voice"]>) =>
     update.mutate({ voice: patch }, { onSuccess: refresh, onError: (e) => toast.error(why(e)) });
+  const { data: voices } = useQuery({ queryKey: ["voices"], queryFn: () => api<Record<string, string[]>>("/api/voice/voices") });
+  const blend = settings.voice.default_blend ?? {};
+  const mainVoice = Object.entries(blend).filter(([k]) => k !== "speed").sort((a, b) => b[1] - a[1])[0]?.[0] ?? "af_heart";
+  const [wait, setWait] = useState(settings.voice.max_wait_ms);
+  const preview = useMutation({
+    mutationFn: async () => {
+      const blob = await apiBlob("/api/voice/preview", { method: "POST",
+        body: JSON.stringify({ blend, text: "Hello, this is how I sound." }) });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    },
+    onError: (e) => toast.error(why(e)),
+  });
   const check = useMutation({
     mutationFn: () => api<{ ok: boolean; message: string }>("/api/voice/azure-check", { method: "POST" }),
     onSuccess: (r) => (r.ok ? toast(r.message) : toast.error(r.message)),
@@ -95,6 +111,34 @@ export function VoiceSection({ settings }: { settings: AppSettings }) {
           <option value="kokoro">Aethel's voice (this PC)</option>
           <option value="azure">Azure neural voice</option>
         </select>
+      </Field>
+      <Field label="Aethel's voice" hint="Used when speaking on this PC. Personas get their own voices later." htmlFor="voice-pick">
+        <div className="flex items-center gap-2">
+          <select id="voice-pick" aria-label="Aethel's voice" className={`${selectClass} w-56`} value={mainVoice}
+            onChange={(e) => saveText({ default_blend: { [e.target.value]: 1, speed: blend.speed ?? 1 } })}>
+            {Object.entries(voices && typeof voices === "object" ? voices : {}).map(([lang, names]) => (
+              <optgroup key={lang} label={lang}>
+                {(Array.isArray(names) ? names : []).map((n) => <option key={n} value={n}>{n}</option>)}
+              </optgroup>
+            ))}
+            {!(voices && Object.values(voices).some((n) => Array.isArray(n) && n.includes(mainVoice))) && <option value={mainVoice}>{mainVoice}</option>}
+          </select>
+          <Button disabled={preview.isPending} onClick={() => preview.mutate()}>Preview</Button>
+        </div>
+      </Field>
+      <Field label="Wait before replying" hint="How long a pause has to be before Aethel answers. Shorter feels quicker; longer cuts you off less." htmlFor="voice-wait">
+        <div className="flex items-center gap-3">
+          <input id="voice-wait" aria-label="Wait before replying" type="range" min={800} max={2500} step={100} value={wait}
+            onChange={(e) => setWait(Number(e.target.value))} onMouseUp={() => saveText({ max_wait_ms: wait })}
+            onKeyUp={() => saveText({ max_wait_ms: wait })} onBlur={() => wait !== settings.voice.max_wait_ms && saveText({ max_wait_ms: wait })} />
+          <span className="w-12 text-right text-[12.5px] tabular-nums text-muted">{(wait / 1000).toFixed(1)} s</span>
+        </div>
+      </Field>
+      <Field label="Short acknowledgements" hint={'A quick "Mm." when the answer takes a moment to start. Not saved.'}>
+        <Switch label="Short acknowledgements" checked={settings.voice.ack} onCheckedChange={(v) => saveText({ ack: v })} />
+      </Field>
+      <Field label="Talk me through tasks" hint="During a call, say now and then how a task is going, and read out how it ended.">
+        <Switch label="Talk me through tasks" checked={settings.voice.narration} onCheckedChange={(v) => saveText({ narration: v })} />
       </Field>
     </Section>
   );

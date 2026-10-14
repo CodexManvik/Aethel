@@ -9,8 +9,9 @@ vi.mock("../../lib/keys", () => ({ saveKey: saveKeyMock }));
 import { VoiceSection, describeVoice } from "./VoiceSection";
 import type { AppSettings } from "../../lib/types";
 
-const voice = { stt: "azure", stt_model: "small", language: "en-GB", azure_region: "", tts: "kokoro", azure_voice: "en-GB-SoniaNeural" };
-const settings = (patch = {}) => ({ voice: { ...voice, ...patch } }) as AppSettings;
+const voice = { stt: "azure", stt_model: "small", language: "en-GB", azure_region: "", tts: "kokoro", azure_voice: "en-GB-SoniaNeural",
+  max_wait_ms: 1500, ack: true, narration: true, default_blend: { af_heart: 1, speed: 1 } };
+const settings = (patch = {}) => ({ voice: { ...voice, ...patch } }) as unknown as AppSettings;
 let calls: string[];
 let status: { stt: { name: string; azure: boolean; loaded: boolean }; tts: { kokoro: boolean; voices: number; azure: boolean }; last_turn_ms: number | null };
 let keys: Record<string, boolean>;
@@ -25,6 +26,7 @@ beforeEach(() => {
     calls.push(`${init?.method ?? "GET"} ${path}${init?.body ? " " + init.body : ""}`);
     if (path === "/api/voice/status") return status;
     if (path === "/api/keys/status") return keys;
+    if (path === "/api/voice/voices") return { "en-us": ["af_heart", "am_adam"], "en-gb": ["bf_emma"] };
     if (path === "/api/voice/azure-check") return { ok: true, message: "Azure Speech works in uksouth." };
     if (path === "/api/settings") return { ...settings(), ...JSON.parse(String(init?.body ?? "{}")) };
     return {};
@@ -77,5 +79,19 @@ test("the engines are chosen with plain words", async () => {
   await waitFor(() => {
     expect(calls.some((c) => c.includes('"stt":"local"'))).toBe(true);
     expect(calls.some((c) => c.includes('"tts":"azure"'))).toBe(true);
+  });
+});
+
+
+test("picking a voice replaces the blend, and the switches save under voice", async () => {
+  view();
+  await screen.findByRole("option", { name: "bf_emma" });
+  await userEvent.selectOptions(screen.getByLabelText("Aethel's voice"), "bf_emma");
+  await userEvent.click(screen.getByRole("switch", { name: "Short acknowledgements" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Talk me through tasks" }));
+  await waitFor(() => {
+    expect(calls.some((c) => c.includes('"default_blend":{"bf_emma":1,"speed":1}'))).toBe(true);
+    expect(calls.some((c) => c.includes('"ack":false'))).toBe(true);
+    expect(calls.some((c) => c.includes('"narration":false'))).toBe(true);
   });
 });

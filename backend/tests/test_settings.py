@@ -80,3 +80,13 @@ def test_custom_endpoint_url_is_validated_and_normalised():
     db.execute("UPDATE settings SET value = json_set(value, '$.custom_base_url', 'nonsense') WHERE key = 'app'")
     assert s.get().custom_base_url == ""
     db.close()
+
+
+def test_a_voice_blend_patch_replaces_the_old_blend(tmp_path):
+    from aethel.settings import SettingsService
+    from aethel.store.db import Database
+    svc = SettingsService(Database(tmp_path / "s.db"))
+    svc.update({"voice": {"default_blend": {"bf_emma": 1.0, "speed": 1.1}}})
+    assert svc.get().voice.default_blend == {"bf_emma": 1.0, "speed": 1.1}  # af_heart is gone, not blended in
+    svc.update({"voice": {"ack": False}})
+    assert svc.get().voice.default_blend == {"bf_emma": 1.0, "speed": 1.1}
