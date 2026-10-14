@@ -82,6 +82,27 @@ class BrowserSettings(BaseModel):
     show: bool = False
 
 
+class VoiceSettings(BaseModel):
+    # Speech to text. "azure" needs the Azure Speech key (Settings -> Voice) and a region; without them, or in
+    # private mode, or when Azure can't be reached, the local faster-whisper model is used.
+    stt: Literal["azure", "local"] = "azure"
+    stt_model: str = Field(default="small", pattern=r"^[A-Za-z0-9._-]+$")  # the local fallback's size
+    language: str = Field(default="en-GB", pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$")  # Azure takes a locale
+    azure_region: str = Field(default="", pattern=r"^([a-z][a-z0-9]{2,29})?$")  # e.g. uksouth
+    # Text to speech. Kokoro runs on this PC and takes the persona's voice blend; "azure" speaks with a neural
+    # Azure voice instead (never in private mode). Azure is also the fallback when Kokoro fails.
+    tts: Literal["kokoro", "azure"] = "kokoro"
+    azure_voice: str = Field(default="en-GB-SoniaNeural", pattern=r"^[A-Za-z0-9-]{3,60}$")
+    # P(finished) at which Aethel takes its turn after a short pause. Provisional until scripts/eval_s1_eot.py
+    # has measured it (spec §8.3).
+    eot_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    short_wait_ms: int = Field(default=300, ge=0, le=5000)    # silence before answering a finished thought
+    max_wait_ms: int = Field(default=1500, ge=200, le=10000)  # silence before answering an unfinished one
+    ack: bool = True        # a short "Mm." when the first words of the reply are slow
+    narration: bool = True  # speak a task's progress during a call
+    default_blend: dict[str, float] = Field(default_factory=lambda: {"af_heart": 1.0, "speed": 1.0})
+
+
 class MemorySettings(BaseModel):
     facts_enabled: bool = True
     # Measured by scripts/eval_s1_fact.py on eval/s1_fact.jsonl (120 hand-written messages, 2026-09-30,
@@ -132,6 +153,7 @@ class AppSettings(BaseModel):
     system1: System1Settings = Field(default_factory=System1Settings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    voice: VoiceSettings = Field(default_factory=VoiceSettings)
     token_saving: TokenSavingSettings = Field(default_factory=TokenSavingSettings)
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})

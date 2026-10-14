@@ -2,12 +2,13 @@
 credential store at startup; env vars are a fallback for headless dev."""
 import os
 
-KEY_PROVIDERS = ("groq", "gemini", "openrouter", "custom")
+KEY_PROVIDERS = ("groq", "gemini", "openrouter", "custom", "azure_speech")
 ENV_VARS = {
     "groq": "GROQ_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "custom": "CUSTOM_API_KEY",
+    "azure_speech": "AZURE_SPEECH_KEY",
 }
 
 

@@ -17,7 +17,8 @@ def test_keystore_memory_beats_env_and_empty_deletes(monkeypatch):
     store.set_many({"groq": None, "gemini": ""})
     assert store.get("groq") == "env-key"
     assert store.get("gemini") is None
-    assert store.status() == {"groq": True, "gemini": False, "openrouter": False, "custom": False}
+    assert store.status() == {"groq": True, "gemini": False, "openrouter": False, "custom": False,
+                              "azure_speech": False}
 
 
 def test_keystore_rejects_unknown_providers():
