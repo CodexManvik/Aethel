@@ -3,7 +3,7 @@ export interface SentenceMeta { sentenceId: number; turnId: string; sampleRate: 
 
 interface Scheduled { meta: SentenceMeta; source: AudioBufferSourceNode; startAt: number; ended: boolean }
 
-export function pcm16ToFloat(audio: ArrayBuffer): Float32Array {
+export function pcm16ToFloat(audio: ArrayBuffer): Float32Array<ArrayBuffer> {
   const ints = new Int16Array(audio, 0, Math.floor(audio.byteLength / 2));
   const out = new Float32Array(ints.length);
   for (let i = 0; i < ints.length; i++) out[i] = ints[i] / 32768;

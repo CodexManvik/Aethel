@@ -7,12 +7,17 @@ import { MessageList } from "./MessageList";
 import { Notices } from "./Notices";
 import { PromptBox } from "./PromptBox";
 import { WebPill } from "./WebPill";
-import { useSendMessage, useStartTask } from "./useConversations";
+import { useSendMessage, useStartCall, useStartTask } from "./useConversations";
+import { useUi } from "../../stores/ui";
+import { useVoice } from "../../stores/voice";
 
 export function ConversationView() {
   const { conversationId, messages, streamingId, socketStatus } = useSession();
   const send = useSendMessage();
   const startTask = useStartTask();
+  const startCall = useStartCall();
+  const callState = useVoice((s) => s.state);
+  const inCall = !["idle", "ended", "error"].includes(callState);
   const { data: settings } = useSettings();
   const stop = () => streamingId && getSocket().send({ type: "stop_generation", message_id: streamingId });
   const status =
@@ -24,6 +29,7 @@ export function ConversationView() {
       onStop={() => void stop()}
       streaming={!!streamingId}
       leading={<WebPill />}
+      onCall={inCall ? undefined : () => void startCall()}
     />
   );
 
@@ -37,6 +43,12 @@ export function ConversationView() {
             <span className={socketStatus === "open" ? "size-1.5 rounded-full bg-accent" : "breathe size-1.5 rounded-full bg-faint"} />
             {status}
           </span>
+          {inCall && (
+            <button type="button" onClick={() => useUi.getState().setCallOpen(true)}
+              className="rounded-full border border-accent px-2 py-px text-[11px] leading-4 text-accent">
+              In a call
+            </button>
+          )}
           {settings?.private_mode && (
             <span
               title="Private mode: everything stays on this computer"
