@@ -76,13 +76,29 @@ async def test_the_next_line_waits_the_gap():
     await n.close()
 
 
-async def test_dropped_while_the_user_speaks_or_a_reply_plays():
-    n, hub, router, clock, spoken = await setup(busy=lambda: True)
+async def test_steps_are_dropped_while_busy_but_the_end_waits_its_turn():
+    busy = [True]
+    n, hub, router, clock, spoken = await setup(busy=lambda: busy[0])
     await hub.publish(step("t1", "a"))
     await settle()
+    assert router.calls == []                      # old news by the next line: no model call
     await hub.publish(TaskState(task_id="t1", conversation_id="c", state="done", summary="Done."))
     await settle()
-    assert spoken == [] and router.calls == []
+    assert spoken == []                            # still busy: waiting, not dropped
+    busy[0] = False
+    await settle()
+    assert spoken == ["Done."]
+    await n.close()
+
+
+async def test_a_long_or_failed_ending_is_shortened_and_framed():
+    from aethel.voice.narrator import END_LINE_CHARS, _shorten
+    long = "First sentence of the summary is here. " * 20
+    assert len(_shorten(long)) <= END_LINE_CHARS and _shorten(long).endswith(".")
+    n, hub, router, clock, spoken = await setup()
+    await hub.publish(TaskState(task_id="t1", conversation_id="c", state="failed", error="Notepad didn't open."))
+    await settle()
+    assert spoken == ["The task stopped: Notepad didn't open."]
     await n.close()
 
 

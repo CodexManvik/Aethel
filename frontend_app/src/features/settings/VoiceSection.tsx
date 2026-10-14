@@ -56,10 +56,13 @@ export function VoiceSection({ settings }: { settings: AppSettings }) {
     mutationFn: async () => {
       const blob = await apiBlob("/api/voice/preview", { method: "POST",
         body: JSON.stringify({ blend, text: "Hello, this is how I sound." }) });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
+      // Through Web Audio, not <audio src="blob:…">: the app's CSP allows no blob: media.
+      const ctx = new AudioContext();
+      const source = ctx.createBufferSource();
+      source.buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
+      source.connect(ctx.destination);
+      source.onended = () => void ctx.close();
+      source.start();
     },
     onError: (e) => toast.error(why(e)),
   });

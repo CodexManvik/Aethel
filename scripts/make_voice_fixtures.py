@@ -17,10 +17,10 @@ from aethel.voice.tts import KokoroTTS, VoiceBlend  # noqa: E402
 COMPLETE = [
     "What time does the library open on Saturday?", "Can you remind me to call my sister tonight?",
     "Tell me a fun fact about octopuses.", "What's the weather like this weekend?", "How do I boil an egg properly?",
-    "Thanks, that was really helpful.", "Open Notepad and write a shopping list.", "What did we talk about yesterday?",
+    "Thanks, that was really helpful.", "What should I cook for dinner tonight?", "What did we talk about yesterday?",
     "I finished my first chapter today.", "Can you summarise the article I saved?", "Good morning, how are you?",
-    "Play something calm while I work.", "How far is Leeds from Manchester?", "That's not quite what I meant.",
-    "Explain what a neural network is.", "Set a timer for ten minutes.", "I'd like a coffee, please.",
+    "What is a good book to read next?", "How far is Leeds from Manchester?", "That's not quite what I meant.",
+    "Explain what a neural network is.", "Why is the sky blue?", "I'd like a coffee, please.",
     "What's the capital of Australia?", "Let's pick this up again tomorrow.", "Goodbye for now.",
 ]
 MID_THOUGHT = [

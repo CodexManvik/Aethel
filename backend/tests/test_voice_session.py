@@ -515,3 +515,13 @@ async def test_narration_off_says_nothing(monkeypatch):
         await call.svc.hub.publish(TaskState(task_id="task_1", conversation_id=call.conv.id, state="done", summary="Done."))
         await asyncio.sleep(0.2)
         assert [m["text"] for m in call.of("tts_meta")] == ["On it."]
+
+
+async def test_an_utterance_with_no_words_says_no_speech_and_thinking_names_its_turn():
+    async with Call() as call:
+        await call.say("   ")
+        await call.until(lambda: "no_speech" in call.types())
+        assert "thinking" not in call.types()
+        await call.say("hello there")
+        await call.until(lambda: "turn_end" in call.types())
+        assert call.of("thinking")[0]["turn_id"] == call.of("tts_meta")[0]["turn_id"] == call.of("turn_end")[0]["turn_id"]

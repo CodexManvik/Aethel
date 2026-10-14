@@ -17,6 +17,7 @@ export class Playback {
   onStarted?: (meta: SentenceMeta) => void; // a sentence began to play (for the captions)
   private items: Scheduled[] = [];
   private timers: ReturnType<typeof setTimeout>[] = [];
+  private heard: SentenceMeta | null = null; // kept after the queue runs dry: a pause between sentences isn't silence
   private nextStart = 0;
 
   constructor(ctx: AudioContext = new AudioContext()) {
@@ -39,6 +40,7 @@ export class Playback {
     const item: Scheduled = { meta, source, startAt, ended: false };
     source.onended = () => {
       item.ended = true;
+      this.heard = item.meta;
       if (this.items.length && this.items.every((i) => i.ended)) {
         this.items = [];
         this.onIdle?.();
@@ -57,18 +59,19 @@ export class Playback {
     this.nextStart = 0;
     this.timers.forEach(clearTimeout);
     this.timers = [];
+    this.heard = null;
     for (const item of items) {
       item.source.onended = null;
       try { item.source.stop(); } catch { /* not started */ }
     }
   }
 
-  /** The last sentence whose playback had begun (null: none yet), with its turn. */
+  /** The last sentence whose playback had begun (null: none since the last stop), with its turn. It stays known
+   * after the queue runs dry, while the next sentence is still on its way. */
   get lastStarted(): SentenceMeta | null {
     const now = this.ctx.currentTime;
-    let last: SentenceMeta | null = null;
-    for (const item of this.items) if (item.startAt <= now) last = item.meta;
-    return last;
+    for (const item of this.items) if (item.startAt <= now) this.heard = item.meta;
+    return this.heard;
   }
 
   get playing(): boolean {

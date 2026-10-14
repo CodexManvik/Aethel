@@ -128,6 +128,23 @@
       "title": "Interrupt",
       "type": "object"
     },
+    "NoSpeech": {
+      "additionalProperties": false,
+      "description": "An utterance had no words in it (a cough, noise) and nothing is waiting to be answered: back to listening.",
+      "properties": {
+        "type": {
+          "const": "no_speech",
+          "default": "no_speech",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "NoSpeech",
+      "type": "object"
+    },
     "Ready": {
       "additionalProperties": false,
       "properties": {
@@ -207,8 +224,12 @@
     },
     "Thinking": {
       "additionalProperties": false,
-      "description": "Aethel has decided it's its turn; the first audio follows.",
+      "description": "Aethel has decided it's its turn; the first audio follows. From here until its turn_end the turn is open: the\nclient interrupts it if the user speaks, even before any of its audio has arrived.",
       "properties": {
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
         "type": {
           "const": "thinking",
           "default": "thinking",
@@ -217,7 +238,8 @@
         }
       },
       "required": [
-        "type"
+        "type",
+        "turn_id"
       ],
       "title": "Thinking",
       "type": "object"
@@ -359,6 +381,7 @@
       "discriminator": {
         "mapping": {
           "caption": "#/$defs/Caption",
+          "no_speech": "#/$defs/NoSpeech",
           "ready": "#/$defs/Ready",
           "thinking": "#/$defs/Thinking",
           "tts_meta": "#/$defs/TtsMeta",
@@ -376,6 +399,9 @@
         },
         {
           "$ref": "#/$defs/Thinking"
+        },
+        {
+          "$ref": "#/$defs/NoSpeech"
         },
         {
           "$ref": "#/$defs/TtsMeta"

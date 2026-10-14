@@ -14,6 +14,9 @@ log = logging.getLogger("aethel.voice")
 TERMINAL = {"done", "failed", "cancelled"}
 DEBOUNCE_S = 1.0   # gather the first few steps into one line rather than narrating the very first one alone
 MAX_STEPS = 6
+END_LINE_CHARS = 240     # a task's own summary can be long: read out its start, the full text is in the chat
+END_WAIT_S = 120.0       # how long the end of a task waits for the user (or a reply) to finish before it's dropped
+RETRY_S = 0.5
 
 
 class Narrator:
@@ -32,6 +35,10 @@ class Narrator:
     def follow(self, task_id: str, goal: str) -> None:
         self._goals[task_id] = goal
         self._steps.setdefault(task_id, [])
+
+    def unfollow(self, task_id: str) -> None:
+        self._goals.pop(task_id, None)
+        self._steps.pop(task_id, None)
 
     async def close(self) -> None:
         self._unsubscribe()
@@ -55,14 +62,22 @@ class Narrator:
         elif ev.get("type") == "task_state" and ev.get("state") in TERMINAL:
             self._goals.pop(task_id, None)
             self._steps.pop(task_id, None)
-            line = ev.get("summary") or ev.get("error") or ev.get("message_text")
-            if line:  # the task's own words, no model call
-                self._spawn(self._say(line.strip()))
+            line = ev.get("summary") or ev.get("message_text") or (
+                f"The task stopped: {ev['error']}" if ev.get("error") else None)
+            if line:  # the task's own words, no model call; it waits its turn rather than being dropped
+                self._spawn(self._say_end(_shorten(line)))
 
     def _spawn(self, coro) -> None:
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _say_end(self, line: str) -> None:
+        waited = 0.0
+        while self.busy() and waited < END_WAIT_S:
+            await self.sleep(RETRY_S)
+            waited += RETRY_S
+        await self._say(line)
 
     async def _say(self, line: str) -> None:
         if self.busy():
@@ -102,3 +117,13 @@ class Narrator:
             log.info("no narration line: %r", exc)
             return ""
         return " ".join("".join(parts).split())
+
+
+def _shorten(text: str) -> str:
+    """At most END_LINE_CHARS, cut at a sentence end if there is one."""
+    text = " ".join(text.split())
+    if len(text) <= END_LINE_CHARS:
+        return text
+    head = text[:END_LINE_CHARS]
+    end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    return head[: end + 1] if end > 40 else head.rsplit(" ", 1)[0] + "…"

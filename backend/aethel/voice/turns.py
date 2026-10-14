@@ -93,6 +93,11 @@ class TurnManager:
             self._bump()
 
     @property
+    def has_words(self) -> bool:
+        """Words are waiting for Aethel's turn."""
+        return bool(self._text)
+
+    @property
     def user_speaking(self) -> bool:
         """The user is talking, or what they just said is still being recognised."""
         return self._speaking or self._transcribing > 0

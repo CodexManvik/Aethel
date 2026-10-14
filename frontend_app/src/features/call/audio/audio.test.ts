@@ -69,6 +69,7 @@ test("onIdle fires when the last sentence ends, and not after a stop", () => {
   expect(idle).not.toHaveBeenCalled();
   ctx.sources[1].onended?.();
   expect(idle).toHaveBeenCalledTimes(1);
+  expect(p.lastStarted?.sentenceId).toBe(1); // still known while the next sentence is on its way
   p.enqueue(meta(2), pcm(100));
   p.stop();
   expect(idle).toHaveBeenCalledTimes(1);

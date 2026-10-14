@@ -2,8 +2,9 @@
 /ws/voice in real time, as the call view would (speech_start, speech_end + audio at the segment boundaries, the real
 pause between a mid-thought fixture's two halves), and measures at the client:
 
-  latency:      end of the user's last segment -> the first audio frame of the reply (p50 / p95)
-  false cut-off: a mid-thought fixture whose reply began before its second half was spoken
+  latency:      end of the user's last segment (speech_end) -> the first audio frame of the reply to it (p50 / p95).
+                 A real caller also waits the VAD's 250 ms of quiet before speech_end, which this leaves out.
+  false cut-off: a mid-thought fixture where Aethel took its turn (thinking) before the user had finished both halves
 
 Two conditions: VAD only (voice.system1_end_of_turn off: every turn waits max_wait_ms) and VAD + System 1.
 
@@ -65,23 +66,27 @@ async def call_one(url: str, conversation_id: str, fixture: dict, folder: Path, 
         await ws.send(json.dumps({"type": "hello", "conversation_id": conversation_id}))
         while json.loads(await ws.recv()).get("type") != "ready":
             pass
-        audio_seen = asyncio.Event()
         done = asyncio.Event()
-        state = {"speaking_second": False}
+        state = {"second_sent": False, "all_sent": False, "after_last": set()}  # turns opened after the last speech_end
+        meta_turn: dict[int, str] = {}
 
         async def reader():
             async for msg in ws:
+                now = time.monotonic()
                 if isinstance(msg, bytes):
-                    if int.from_bytes(msg[:4], "little", signed=True) < 0:
-                        continue  # an acknowledgement, not the reply
-                    now = time.monotonic()
-                    if fixture["kind"] == "mid_thought" and not state["speaking_second"] and run["early_audio_at"] is None:
-                        run["early_audio_at"] = now
-                    if state["speaking_second"] or fixture["kind"] == "complete":
-                        if run["first_audio_at"] is None:
-                            run["first_audio_at"] = now
-                            audio_seen.set()
-                elif json.loads(msg).get("type") == "turn_end" and (state["speaking_second"] or fixture["kind"] == "complete"):
+                    sid = int.from_bytes(msg[:4], "little", signed=True)
+                    if sid >= 0 and meta_turn.get(sid) in state["after_last"] and run["first_audio_at"] is None:
+                        run["first_audio_at"] = now  # the reply to everything the user said
+                    continue
+                ev = json.loads(msg)
+                if ev.get("type") == "thinking":
+                    if fixture["kind"] == "mid_thought" and not state["all_sent"] and run["early_audio_at"] is None:
+                        run["early_audio_at"] = now  # Aethel took its turn before the user had finished: cut off
+                    if state["all_sent"]:
+                        state["after_last"].add(ev["turn_id"])
+                elif ev.get("type") == "tts_meta":
+                    meta_turn[ev["sentence_id"]] = ev["turn_id"]
+                elif ev.get("type") == "turn_end" and ev["turn_id"] in state["after_last"]:
                     done.set()
 
         reading = asyncio.ensure_future(reader())
@@ -89,13 +94,14 @@ async def call_one(url: str, conversation_id: str, fixture: dict, folder: Path, 
             for i, seg in enumerate(fixture["segments"]):
                 if i == 1:
                     await asyncio.sleep(fixture["gap_ms"] / 1000)
-                    state["speaking_second"] = True
+                    state["second_sent"] = True
                 pcm = read_pcm(folder / seg["file"])
                 await ws.send(json.dumps({"type": "speech_start"}))
                 await asyncio.sleep(seg["ms"] / 1000)  # the user speaking it, in real time
                 await ws.send(json.dumps({"type": "speech_end", "duration_ms": seg["ms"]}))
                 await ws.send(pcm)
                 run["last_speech_end"] = time.monotonic()
+            state["all_sent"] = True
             await asyncio.wait_for(done.wait(), timeout_s)
         except asyncio.TimeoutError:
             run["timed_out"] = True
@@ -168,9 +174,10 @@ async def run_inprocess(fixtures: list[dict], folder: Path, stt_mode: str) -> di
             runs = []
             for f in fixtures:
                 conv = svc.conversations.create()
-                runs.append(await call_one(f"ws://127.0.0.1:{port}/ws/voice", conv.id, f, folder))
+                runs.append({**await call_one(f"ws://127.0.0.1:{port}/ws/voice", conv.id, f, folder), "conversation_id": conv.id})
                 print(f"  {name} {f['id']}: {runs[-1]}", flush=True)
-            rows = svc.db.query("SELECT * FROM voice_turns ORDER BY created_at")[-len(runs):] if runs else []
+            convs = [r["conversation_id"] for r in runs]
+            rows = [r for r in svc.db.query("SELECT * FROM voice_turns ORDER BY created_at") if r["conversation_id"] in convs]
             stages = {k: percentile([r[k] for r in rows if r[k] is not None], 50)
                       for k in ("transcript_at", "decision_at", "first_token_at", "first_audio_at")}
             results[name] = {"summary": summarize(runs), "server_p50_s": stages, "runs": runs}

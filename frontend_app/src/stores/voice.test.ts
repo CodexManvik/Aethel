@@ -87,6 +87,7 @@ test("barge-in stops playback and sends interrupt, naming the sentence and turn,
 
 test("speaking while a reply is coming but nothing has played yet interrupts with no sentence heard", async () => {
   await inCall();
+  server({ type: "thinking", turn_id: "vt_2" });
   server({ type: "tts_meta", sentence_id: 0, text: "One.", codec: "pcm16", sample_rate: 24000, turn_id: "vt_2" });
   sent = [];
   mic.onSpeechStart();
@@ -136,4 +137,60 @@ test("a microphone that can't start ends the call with a plain message", async (
   setVoiceDeps({ capture: async () => { throw new Error("Permission denied"); } });
   await inCall();
   expect(useVoice.getState()).toMatchObject({ state: "error", error: "The microphone isn't available: Permission denied" });
+});
+
+test("speaking while Aethel is still thinking interrupts that turn, and its late audio is not played", async () => {
+  await inCall();
+  mic.onSpeechEnd(new ArrayBuffer(10), 1);
+  server({ type: "thinking", turn_id: "vt_5" });
+  sent = [];
+  mic.onSpeechStart();
+  expect(sent[0]).toEqual({ type: "interrupt", last_started_sentence_id: null, turn_id: "vt_5" });
+  server({ type: "tts_meta", sentence_id: 0, text: "Late.", codec: "pcm16", sample_rate: 24000, turn_id: "vt_5" });
+  handlers.onAudio(0, frame(0));
+  expect(player.queue).toEqual([]);
+  expect(useVoice.getState().state).toBe("hearing");
+});
+
+test("a pause between sentences still counts what was heard", async () => {
+  await inCall();
+  server({ type: "thinking", turn_id: "vt_6" });
+  server({ type: "tts_meta", sentence_id: 0, text: "One.", codec: "pcm16", sample_rate: 24000, turn_id: "vt_6" });
+  handlers.onAudio(0, frame(0));
+  player.started = player.queue[0];
+  player.playing = false; // sentence 0 is over, sentence 1 hasn't arrived
+  sent = [];
+  mic.onSpeechStart();
+  expect(sent[0]).toEqual({ type: "interrupt", last_started_sentence_id: 0, turn_id: "vt_6" });
+});
+
+test("barge-in over an acknowledgement interrupts the open turn with nothing heard", async () => {
+  await inCall();
+  server({ type: "thinking", turn_id: "vt_7" });
+  server({ type: "tts_meta", sentence_id: -1, text: "Mm.", codec: "pcm16", sample_rate: 24000, turn_id: "vt_7" });
+  handlers.onAudio(-1, frame(-1));
+  player.started = player.queue[0];
+  sent = [];
+  mic.onSpeechStart();
+  expect(sent[0]).toEqual({ type: "interrupt", last_started_sentence_id: null, turn_id: "vt_7" });
+});
+
+test("an utterance with no words, or a recognition error, goes back to listening", async () => {
+  await inCall();
+  mic.onSpeechEnd(new ArrayBuffer(10), 1);
+  expect(useVoice.getState().state).toBe("thinking");
+  server({ type: "no_speech" });
+  expect(useVoice.getState().state).toBe("listening");
+  mic.onSpeechEnd(new ArrayBuffer(10), 1);
+  server({ type: "voice_error", message: "Speech recognition failed.", fatal: false });
+  expect(useVoice.getState()).toMatchObject({ state: "listening", error: "Speech recognition failed." });
+});
+
+test("muting mid-sentence ends that speech as a misfire", async () => {
+  await inCall();
+  mic.onSpeechStart();
+  sent = [];
+  useVoice.getState().toggleMute();
+  expect(sent).toEqual([{ type: "speech_end", duration_ms: 0, misfire: true }]);
+  expect(useVoice.getState().state).toBe("listening");
 });

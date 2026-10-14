@@ -49,6 +49,7 @@ export async function startCapture(
   const { MicVAD } = await load();
   const vad = await MicVAD.new({
     ...VAD_OPTIONS,
+    startOnLoad: false, // started below, once it's ours to stop
     // No cross-origin isolation in the webview, so no threads for onnxruntime.
     ortConfig: (ort: { env: { wasm: { numThreads: number } } }) => { ort.env.wasm.numThreads = 1; },
     getStream: () => navigator.mediaDevices.getUserMedia({
@@ -60,7 +61,12 @@ export async function startCapture(
     },
     onFrameProcessed: (_p: unknown, frame: Float32Array) => cb.onLevel(rms(frame)),
   });
-  await vad.start();
+  try {
+    await vad.start();
+  } catch (e) {
+    await vad.destroy(); // e.g. the microphone was refused: release the model too
+    throw e;
+  }
   return {
     stop: async () => { await vad.destroy(); },
     setMuted: (m) => { muted = m; },

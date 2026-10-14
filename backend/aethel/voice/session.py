@@ -22,7 +22,7 @@ from ..runtime.store import TERMINAL_STATES
 from ..store.repos import new_id, now_iso
 from .chunker import SentenceChunker
 from .narrator import Narrator
-from .protocol import (MAX_UTTERANCE_BYTES, Caption, EndCall, Hello, Interrupt, Ready, SpeechEnd, SpeechStart,
+from .protocol import (MAX_UTTERANCE_BYTES, Caption, EndCall, Hello, Interrupt, NoSpeech, Ready, SpeechEnd, SpeechStart,
                        Thinking, TtsMeta, TurnEnd, VoiceError, client_adapter)
 from .stt import SpeechToTextError
 from .tts import VoiceBlend, speakable
@@ -173,13 +173,13 @@ class VoiceSession:
         """The call is over (end_call, or the socket dropped): stop everything it started."""
         self.ended = True
         try:
+            if self.narrator is not None:
+                await self.narrator.close()
             turn = self._turn
             if turn is not None:
                 turn.interrupted = True
                 if turn.assistant_id:
                     await self.svc.chat.stop(turn.assistant_id)
-            if self.narrator is not None:
-                await self.narrator.close()
             tasks = [t for t in [self._loop, self._ack_prep, *self._utterances] if t is not None]
             if turn is not None:
                 tasks += [t for t in (turn.worker, turn.ack) if t is not None]
@@ -213,6 +213,11 @@ class VoiceSession:
         finally:
             # Always: the turn manager is waiting for these words (or for the news that there are none).
             await self.turns.on_utterance(text, self.last_reply, silence_since=end_at)
+            if not text and not self.turns.has_words and not self.turns.user_speaking and self._turn is None:
+                try:
+                    await self._push(NoSpeech())  # the client stops showing "Thinking…"
+                except Exception:
+                    pass
 
     async def _turn_loop(self) -> None:
         while not self.ended:
@@ -250,7 +255,7 @@ class VoiceSession:
         svc, cid = self.svc, self.conversation_id
         turn = self._turn = _Turn(new_id("vt"), end_at, self.clock(), decision.eot_p, decision.waited_ms,
                                   transcript_at=transcript_at)
-        await self._push(Thinking())
+        await self._push(Thinking(turn_id=turn.id))
         running = [t for t in svc.tasks.list_for_conversation(cid) if t.state not in TERMINAL_STATES]
         kind = await route(svc.system1, svc.settings, decision.text, running[-1].goal if running else None)
         meta = {"modality": "voice"}
@@ -262,6 +267,8 @@ class VoiceSession:
             await self._say(turn, ON_IT)
         elif kind == "stop_task":
             for t in running:
+                if self.narrator is not None:
+                    self.narrator.unfollow(t.id)  # "Stopped." says it; the task's own end would say it twice
                 await svc.engine.cancel(t.id)
             turn.user_id = svc.messages.add(cid, "user", decision.text, meta=meta).id
             turn.assistant_id = svc.messages.add(cid, "assistant", STOPPED, meta=meta).id
