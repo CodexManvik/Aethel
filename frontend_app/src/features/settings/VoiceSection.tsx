@@ -82,11 +82,11 @@ export function VoiceSection({ settings }: { settings: AppSettings }) {
           <Button disabled={language === settings.voice.language} onClick={() => saveText({ language })}>Save</Button>
         </div>
       </Field>
-      <Field label="Hear me with" hint="Without a key, in private mode, or when Azure can't be reached, the speech model on this PC is used.">
+      <Field label="Hear me with" hint="Without a key, in private mode, or when Azure can't be reached, the speech model on this PC is used. On a laptop it takes several seconds per sentence.">
         <select aria-label="Hear me with" className={selectClass} value={settings.voice.stt}
           onChange={(e) => saveText({ stt: e.target.value as "azure" | "local" })}>
           <option value="azure">Azure Speech</option>
-          <option value="local">This PC</option>
+          <option value="local">This PC (slow)</option>
         </select>
       </Field>
       <Field label="Speak with" hint="Aethel's own voice supports the blends you design for a persona. Azure's voices sound smoother but are online.">

@@ -57,7 +57,9 @@ def _duration(pcm16: bytes, sample_rate: int) -> float:
 
 
 class LocalWhisper:
-    """faster-whisper on this PC. Beam size 1 and no internal VAD: the call view already cut the utterance, and in
+    """faster-whisper on this PC. Measured here (a 12-thread laptop CPU, "small", int8): about 8 s for 2.4 s of
+    speech, so it is a fallback, not something to hold a call on; Azure takes a fraction of a second.
+    Beam size 1 and no internal VAD: the call view already cut the utterance, and in
     conversation speed matters more than the last fraction of accuracy."""
 
     def __init__(self, size: str = "small", device: str = "cpu", compute_type: str = "int8",

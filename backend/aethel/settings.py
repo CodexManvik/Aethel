@@ -84,7 +84,8 @@ class BrowserSettings(BaseModel):
 
 class VoiceSettings(BaseModel):
     # Speech to text. "azure" needs the Azure Speech key (Settings -> Voice) and a region; without them, or in
-    # private mode, or when Azure can't be reached, the local faster-whisper model is used.
+    # private mode, or when Azure can't be reached, the local faster-whisper model is used (slow on a laptop CPU:
+    # about 8 s for a 2-second sentence with "small", measured 2026-10-14).
     stt: Literal["azure", "local"] = "azure"
     stt_model: str = Field(default="small", pattern=r"^[A-Za-z0-9._-]+$")  # the local fallback's size
     language: str = Field(default="en-GB", pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$")  # Azure takes a locale
