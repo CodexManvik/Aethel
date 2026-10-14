@@ -14,7 +14,9 @@ export class Playback {
   readonly ctx: AudioContext;
   readonly analyser: AnalyserNode;
   onIdle?: () => void;
+  onStarted?: (meta: SentenceMeta) => void; // a sentence began to play (for the captions)
   private items: Scheduled[] = [];
+  private timers: ReturnType<typeof setTimeout>[] = [];
   private nextStart = 0;
 
   constructor(ctx: AudioContext = new AudioContext()) {
@@ -45,6 +47,7 @@ export class Playback {
     this.items.push(item);
     void this.ctx.resume?.();
     source.start(startAt);
+    this.timers.push(setTimeout(() => this.onStarted?.(meta), Math.max(0, (startAt - this.ctx.currentTime) * 1000)));
   }
 
   /** Stop now and drop everything queued. */
@@ -52,6 +55,8 @@ export class Playback {
     const items = this.items;
     this.items = [];
     this.nextStart = 0;
+    this.timers.forEach(clearTimeout);
+    this.timers = [];
     for (const item of items) {
       item.source.onended = null;
       try { item.source.stop(); } catch { /* not started */ }
