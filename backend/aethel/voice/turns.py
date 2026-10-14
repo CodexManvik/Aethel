@@ -44,6 +44,9 @@ class EndOfTurn:
         except TimeoutError:
             log.info("end-of-turn judgment took over %.1fs; waiting the long silence", EOT_TIMEOUT_S)
             return None
+        except Exception:  # a judge that fails must never leave the user's turn undecided
+            log.exception("end-of-turn judgment failed; waiting the long silence")
+            return None
 
 
 @dataclass
@@ -65,6 +68,7 @@ class TurnManager:
         self._p: float | None = None
         self._since: float | None = None    # when the last speech ended
         self._speaking = False
+        self._transcribing = 0              # utterances that ended but whose words haven't come back yet
         self._version = 0
         self._changed = asyncio.Event()
 
@@ -73,24 +77,36 @@ class TurnManager:
         self._changed.set()
 
     async def on_utterance(self, text: str, previous_reply: str | None, silence_since: float | None = None) -> None:
-        """A transcribed utterance arrived. `silence_since` is when speech ended (the clock's time), so the time
-        spent transcribing counts as silence already waited. Empty text (nothing recognised) ends the speaking
-        without adding words."""
+        """The words of one utterance came back from speech recognition. `silence_since` is when that speech ended
+        (the clock's time), so the time spent transcribing counts as silence already waited. Empty text (nothing
+        recognised) adds no words. This never says the user stopped speaking: only `on_speech_end` does, because
+        a later utterance may already be under way while an earlier one is still being transcribed."""
         text = text.strip()
-        if text:
-            self._text = f"{self._text} {text}".strip()
-            self._p = await self.eot.finished(self._text, previous_reply)
-        self._speaking = False
-        self._since = silence_since if silence_since is not None else self.clock()
-        self._bump()
+        try:
+            if text:
+                self._text = f"{self._text} {text}".strip()
+                self._p = await self.eot.finished(self._text, previous_reply)
+        finally:
+            self._transcribing = max(0, self._transcribing - 1)
+            since = silence_since if silence_since is not None else self.clock()
+            self._since = since if self._since is None else max(self._since, since)
+            self._bump()
 
     def on_speech_start(self) -> None:
         """The user started speaking again: any pending decision is off, more is coming."""
         self._speaking = True
         self._bump()
 
+    def on_speech_end(self, has_audio: bool = True) -> None:
+        """The user stopped speaking. With audio, its words are on their way: no decision until they arrive (the
+        silence timer would otherwise run out while the recognition of this very speech is still going)."""
+        self._speaking = False
+        if has_audio:
+            self._transcribing += 1
+        self._bump()
+
     def clear(self) -> None:
-        self._text, self._p, self._since, self._speaking = "", None, None, False
+        self._text, self._p, self._since, self._speaking, self._transcribing = "", None, None, False, 0
         self._bump()
 
     async def _wait_change(self, version: int) -> None:
@@ -104,7 +120,7 @@ class TurnManager:
         """Wait until it's Aethel's turn, and say what the user said."""
         while True:
             version = self._version
-            if not self._text or self._speaking or self._since is None:
+            if not self._text or self._speaking or self._transcribing or self._since is None:
                 await self._wait_change(version)
                 continue
             finished = self._p is not None and self._p >= self.threshold

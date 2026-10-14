@@ -85,6 +85,7 @@ async def test_speaking_again_joins_the_turn_and_the_judgment_is_asked_again_on_
     turns.on_speech_start()
     await clock.advance(0.5)           # still speaking: nothing may be decided, however long
     assert not task.done()
+    turns.on_speech_end()
     await turns.on_utterance("that opens on Sundays", "Sure.", silence_since=clock.now)
     await clock.advance(0.3)
     decision = await asyncio.wait_for(task, 1)
@@ -167,3 +168,51 @@ async def test_end_of_turn_asks_system_one_and_gives_up_on_a_slow_answer(monkeyp
 
     assert await EndOfTurn(Off()).finished("thanks", None) is None
     assert await EndOfTurn(None).finished("thanks", None) is None  # System 1 end-of-turn switched off
+
+
+async def test_a_transcript_arriving_while_the_user_speaks_again_does_not_end_their_turn():
+    clock = ManualClock()
+    turns = manager(FakeEOT(None, None), clock)
+    turns.on_speech_start()
+    turns.on_speech_end(has_audio=True)         # utterance 1 ends and goes to speech recognition
+    turns.on_speech_start()                     # ...the user carries on while it is being recognised
+    await turns.on_utterance("I need a library", None, silence_since=0.0)   # words 1 come back
+    task = asyncio.ensure_future(turns.next_turn())
+    await clock.advance(5)                      # far past the silence: but they are still speaking
+    assert not task.done()
+    turns.on_speech_end(has_audio=True)
+    await clock.advance(5)
+    assert not task.done()                      # their second part hasn't been recognised yet
+    await turns.on_utterance("that opens on Sundays", None, silence_since=clock.now)
+    await clock.advance(1.6)
+    decision = await asyncio.wait_for(task, 1)
+    assert decision.text == "I need a library that opens on Sundays"
+
+
+async def test_a_misfire_leaves_nothing_to_wait_for_and_a_failing_judge_does_not_wedge_the_turn():
+    clock = ManualClock()
+
+    class Exploding:
+        async def finished(self, utterance, previous_reply):
+            raise RuntimeError("judge exploded")
+
+    turns = manager(Exploding(), clock)
+    turns.on_speech_start()
+    turns.on_speech_end(has_audio=False)
+    task = asyncio.ensure_future(turns.next_turn())
+    await clock.advance(5)
+    assert not task.done()                      # no words, so no turn
+    turns.on_speech_start()
+    turns.on_speech_end(has_audio=True)
+    with pytest.raises(RuntimeError):
+        await turns.on_utterance("hello", None, silence_since=clock.now)
+    await clock.advance(1.6)                    # the failure was reported, but the state is not stuck
+    assert (await asyncio.wait_for(task, 1)).text == "hello"
+
+
+async def test_end_of_turn_survives_a_system_one_that_raises():
+    class S1:
+        async def choice(self, *args):
+            raise RuntimeError("model fell over")
+
+    assert await EndOfTurn(S1()).finished("hello", None) is None

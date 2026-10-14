@@ -26,7 +26,7 @@ const settings: AppSettings = {
   system1: { enabled: true, auto_tasks: true, intent_threshold: 0.5, stop_threshold: 0.9, skill_threshold: 0.6, judge_threshold: 0.5 },
   memory: { facts_enabled: true, fact_threshold: 0.5, episodic_enabled: true, episodic_min_score: 0.65, facts_k: 6, episodes_k: 3 },
   browser: { show: false },
-  voice: { stt: "azure", stt_model: "small", language: "en-GB", azure_region: "", tts: "kokoro", azure_voice: "en-GB-SoniaNeural", eot_threshold: 0.6, short_wait_ms: 300, max_wait_ms: 1500, ack: true, narration: true, default_blend: { af_heart: 1 } },
+  voice: { stt: "azure", stt_model: "small", language: "en-GB", system1_end_of_turn: false, azure_region: "", tts: "kokoro", azure_voice: "en-GB-SoniaNeural", eot_threshold: 0.6, short_wait_ms: 300, max_wait_ms: 1500, ack: true, narration: true, default_blend: { af_heart: 1 } },
   context_caps: { chat: 16000, agent: 24000 },
   auto_approve_skills: true,
   replay_thumbnails: true,

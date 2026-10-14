@@ -33,6 +33,7 @@ class Transcript:
     language: str | None
     duration_s: float
     latency_ms: int
+    engine: str = ""  # what heard it ("azure:uksouth", "local:..."): a fallback's name differs from its primary's
 
 
 class SpeechToText(Protocol):
@@ -87,7 +88,7 @@ class LocalWhisper:
             log.warning("local speech recognition failed: %r", exc)
             raise SpeechToTextError(f"Speech recognition isn't available: {exc}") from exc
         return Transcript(text=text, language=getattr(info, "language", None), duration_s=_duration(pcm16, sample_rate),
-                          latency_ms=int((time.perf_counter() - t0) * 1000))
+                          latency_ms=int((time.perf_counter() - t0) * 1000), engine=self.name)
 
 
 class AzureSTT:
@@ -110,6 +111,9 @@ class AzureSTT:
                 headers={"Ocp-Apim-Subscription-Key": self.azure.key, "Accept": "application/json",
                          "Content-Type": f"audio/wav; codecs=audio/pcm; samplerate={sample_rate}"},
                 content=pcm16_to_wav(pcm16, sample_rate), timeout=AZURE_TIMEOUT_S)
+        except UnicodeError as exc:  # a key with a stray character in it can't go in a header
+            raise SpeechToTextError("Speech recognition isn't available: the Azure Speech key has a character that "
+                                    "can't be used. Paste it again.") from exc
         except httpx.HTTPError as exc:
             raise SpeechToTextError(f"Speech recognition isn't available: couldn't reach Azure Speech "
                                     f"({type(exc).__name__}).") from exc
@@ -132,7 +136,7 @@ class AzureSTT:
         else:
             raise SpeechToTextError(f"Speech recognition isn't available: Azure Speech reported {status or 'an error'}.")
         return Transcript(text=text, language=self.language, duration_s=duration,
-                          latency_ms=int((time.perf_counter() - t0) * 1000))
+                          latency_ms=int((time.perf_counter() - t0) * 1000), engine=self.name)
 
 
 class FallbackSTT:

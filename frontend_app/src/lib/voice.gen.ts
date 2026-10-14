@@ -8,6 +8,7 @@ export type DurationMs = number;
 export type Misfire = boolean;
 export type Type2 = "speech_end";
 export type LastStartedSentenceId = number | null;
+export type TurnId = string | null;
 export type Type3 = "interrupt";
 export type Type4 = "end_call";
 export type Server = Ready | Caption | Thinking | TtsMeta | TurnEnd | VoiceError;
@@ -25,10 +26,10 @@ export type Codec = "pcm16";
 export type SampleRate = number;
 export type SentenceId = number;
 export type Text1 = string;
-export type TurnId = string;
+export type TurnId1 = string;
 export type Type8 = "tts_meta";
 export type Status = "complete" | "interrupted" | "stopped" | "error";
-export type TurnId1 = string;
+export type TurnId2 = string;
 export type Type9 = "turn_end";
 export type Fatal = boolean;
 export type Message = string;
@@ -61,6 +62,7 @@ export interface SpeechEnd {
  */
 export interface Interrupt {
   last_started_sentence_id: LastStartedSentenceId;
+  turn_id: TurnId;
   type: Type3;
 }
 export interface EndCall {
@@ -90,12 +92,12 @@ export interface TtsMeta {
   sample_rate: SampleRate;
   sentence_id: SentenceId;
   text: Text1;
-  turn_id: TurnId;
+  turn_id: TurnId1;
   type: Type8;
 }
 export interface TurnEnd {
   status: Status;
-  turn_id: TurnId1;
+  turn_id: TurnId2;
   type: Type9;
 }
 export interface VoiceError {

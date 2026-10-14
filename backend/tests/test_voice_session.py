@@ -12,6 +12,7 @@ from tests.fakes import FakeLocal, FakeProvider, factory_from
 
 pytestmark = pytest.mark.anyio
 
+NL = chr(10)
 SENTENCES = [f"This is the number {n} sentence of the reply. " for n in range(5)]
 
 
@@ -72,7 +73,7 @@ class SlowProvider(FakeProvider):
 class Call:
     """A VoiceSession wired to lists instead of a socket."""
 
-    def __init__(self, provider=None, *, tts=None, eot=None, stt=None, ack_delay_s=0.2, settings=None, hello=True):
+    def __init__(self, provider=None, *, tts=None, eot=None, stt=None, ack_delay_s=30.0, settings=None, hello=True):
         self.provider = provider or FakeProvider(chunks=SENTENCES[:2])
         self.svc = build_services(provider_factory=factory_from({"groq:g": self.provider}),
                                   local_llm=FakeLocal(fail="none"))
@@ -110,8 +111,9 @@ class Call:
         await self.session.on_text('{"type": "speech_end", "duration_ms": 1000}')
         await self.session.on_audio(text.encode())
 
-    async def interrupt(self, last):
-        await self.session.on_text(json.dumps({"type": "interrupt", "last_started_sentence_id": last}))
+    async def interrupt(self, last, turn_id=None):
+        await self.session.on_text(json.dumps({"type": "interrupt", "last_started_sentence_id": last,
+                                               **({"turn_id": turn_id} if turn_id else {})}))
 
     def types(self):
         return [m["type"] for m in self.json]
@@ -363,3 +365,112 @@ async def test_end_call_stops_a_reply_in_flight():
         assistant = [m for m in call.svc.messages.list(call.conv.id) if m.role == "assistant"][0]
         assert assistant.status == "stopped"
         assert call.conv.id not in call.svc.voice.calls
+
+
+async def test_an_interrupt_that_arrives_after_the_server_finished_still_cuts_the_saved_reply():
+    # Speech synthesis is faster than playback: the turn is long over while the client is still playing sentence 0.
+    async with Call(FakeProvider(chunks=SENTENCES[:3])) as call:
+        await call.say("tell me three things")
+        await call.until(lambda: "turn_end" in call.types())
+        assistant = [m for m in call.svc.messages.list(call.conv.id) if m.role == "assistant"][0]
+        assert assistant.status == "complete" and assistant.content == "".join(SENTENCES[:3])
+        turn_id = call.of("turn_end")[0]["turn_id"]
+        await call.interrupt(0, turn_id)
+        cut = call.svc.messages.get(assistant.id)
+        assert (cut.content, cut.status, cut.meta["interrupted"]) == (SENTENCES[0].strip(), "stopped", True)
+        assert call.session.last_reply == SENTENCES[0].strip()
+        assert call.svc.db.query_one("SELECT interrupted FROM voice_turns")["interrupted"] == 1
+        # the client's caption is corrected to what was heard
+        assert call.of("caption")[-1] == {"type": "caption", "role": "assistant", "text": SENTENCES[0].strip(),
+                                          "final": True, "message_id": assistant.id}
+        await call.interrupt(0, turn_id)   # a repeat changes nothing
+        assert call.svc.messages.get(assistant.id).content == SENTENCES[0].strip()
+
+
+async def test_an_interrupt_naming_another_turn_does_not_cut_this_one():
+    async with Call(FakeProvider(chunks=SENTENCES[:3])) as call:
+        await call.say("tell me three things")
+        await call.until(lambda: "turn_end" in call.types())
+        await call.interrupt(0, "vt_some_other_turn")
+        assistant = [m for m in call.svc.messages.list(call.conv.id) if m.role == "assistant"][0]
+        assert assistant.status == "complete" and assistant.content == "".join(SENTENCES[:3])
+
+
+async def test_speaking_while_the_last_words_are_still_being_recognised_holds_the_answer_back():
+    class SlowSTT(FakeSTT):
+        def transcribe(self, pcm16, sample_rate=16000):
+            import time
+            time.sleep(0.6)
+            return super().transcribe(pcm16, sample_rate)
+
+    async with Call(stt=SlowSTT()) as call:
+        await call.session.on_text('{"type": "speech_start"}')
+        await call.session.on_text('{"type": "speech_end", "duration_ms": 900}')
+        await call.session.on_audio(b"I need a library")
+        await asyncio.sleep(0.1)
+        await call.session.on_text('{"type": "speech_start"}')   # the user carries on while STT 1 is running
+        await asyncio.sleep(1.2)                                  # STT 1 is back, and its wait has long run out
+        assert "thinking" not in call.types()                     # ...but they are still speaking
+        await call.session.on_text('{"type": "speech_end", "duration_ms": 900}')
+        await call.session.on_audio(b"that opens on Sundays")
+        await call.until(lambda: "turn_end" in call.types(), 8)
+        users = [m.content for m in call.svc.messages.list(call.conv.id) if m.role == "user"]
+        assert users == ["I need a library that opens on Sundays"]
+
+
+async def test_switching_private_mode_on_mid_call_moves_speech_recognition_off_azure():
+    first, local = FakeSTT(), FakeSTT()
+    first.name, local.name = "azure:uksouth", "local:faster-whisper-small"
+    async with Call(stt=first) as call:
+        engines = iter([local])
+        call.svc.voice.stt = lambda: next(engines)
+        call.svc.settings.update({"private_mode": True})
+        await call.say("hello there")
+        await call.until(lambda: "turn_end" in call.types())
+        assert call.session.stt is local
+        assert call.svc.db.query_one("SELECT stt FROM voice_turns")["stt"] == "local:faster-whisper-small"
+
+
+async def test_code_in_a_reply_is_shown_but_not_read_aloud():
+    reply = ["Here is how it works.", NL, "```python", NL, "x = compute_total(items)", NL, "print(x)", NL, "```", NL,
+             "That prints the total for you."]
+    tts = FakeTTS()
+    async with Call(FakeProvider(chunks=reply), tts=tts) as call:
+        await call.say("show me")
+        await call.until(lambda: "turn_end" in call.types())
+        assert [t for t, _ in tts.calls if t not in ("Mm.", "Okay—", "Right.")] == [
+            "Here is how it works.", "That prints the total for you."]
+        assistant = [m for m in call.svc.messages.list(call.conv.id) if m.role == "assistant"][0]
+        assert "compute_total" in assistant.content    # the saved reply keeps the code
+
+
+async def test_a_failed_turn_tells_the_client_and_stops_what_it_started():
+    async with Call() as call:
+        async def broken(*args, **kwargs):
+            raise RuntimeError("the chat service fell over")
+
+        call.svc.chat.run_turn = broken
+        await call.say("hello there")
+        await call.until(lambda: "turn_end" in call.types())
+        assert call.of("turn_end")[0]["status"] == "error"
+        assert any("went wrong" in e["message"] for e in call.of("voice_error"))
+        await asyncio.sleep(0.05)
+        assert call.session._turn is None
+        left = [t.get_coro().__qualname__ for t in asyncio.all_tasks() if not t.done()]
+        assert not [n for n in left if "_speak" in n or "_ack_later" in n]   # no worker left waiting forever
+
+
+async def test_the_conversation_is_freed_even_if_stopping_the_reply_fails():
+    provider = SlowProvider(chunks=SENTENCES, delay=0.3)
+    call = Call(provider, ack_delay_s=30)
+    await call.__aenter__()
+    await call.say("tell me a story")
+    await call.until(lambda: len(call.of("tts_meta")) >= 1)
+
+    async def boom(message_id):
+        raise RuntimeError("stop failed")
+
+    call.svc.chat.stop = boom
+    with pytest.raises(RuntimeError):
+        await call.session.close()
+    assert call.conv.id not in call.svc.voice.calls

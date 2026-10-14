@@ -101,6 +101,18 @@
           "default": null,
           "title": "Last Started Sentence Id"
         },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Id"
+        },
         "type": {
           "const": "interrupt",
           "default": "interrupt",
@@ -110,7 +122,8 @@
       },
       "required": [
         "type",
-        "last_started_sentence_id"
+        "last_started_sentence_id",
+        "turn_id"
       ],
       "title": "Interrupt",
       "type": "object"

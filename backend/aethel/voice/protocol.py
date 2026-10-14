@@ -42,6 +42,7 @@ class Interrupt(Msg):
     to play (None: none had), which is what the saved reply is cut to."""
     type: Literal["interrupt"] = "interrupt"
     last_started_sentence_id: int | None = None
+    turn_id: str | None = None  # the turn whose audio was playing (from its tts_meta): a late interrupt can't hit another
 
 
 class EndCall(Msg):

@@ -77,6 +77,7 @@ class Services:
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
+        self.voice.close()
         if self.local_llm is not None:
             self.local_llm.stop()
         self.db.close()

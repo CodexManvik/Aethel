@@ -92,6 +92,7 @@ class KokoroTTS:
         self.model_dir = model_dir or MODELS_DIR / "tts"
         self._kokoro = None
         self._lock = threading.Lock()
+        self._synth_lock = threading.Lock()  # one sentence at a time: acknowledgements and replies share the model
         self._styles: dict[VoiceBlend, np.ndarray] = {}
 
     @property
@@ -127,7 +128,8 @@ class KokoroTTS:
         try:
             self.warm()
             lang = KOKORO_LANG.get(blend.weights[0][0][0], "en-us")
-            samples, rate = self._kokoro.create(text, voice=self.style(blend), speed=blend.speed, lang=lang)
+            with self._synth_lock:
+                samples, rate = self._kokoro.create(text, voice=self.style(blend), speed=blend.speed, lang=lang)
         except TTSError:
             raise
         except Exception as exc:
@@ -158,6 +160,8 @@ class AzureTTS:
                 headers={"Ocp-Apim-Subscription-Key": self.azure.key, "Content-Type": "application/ssml+xml",
                          "X-Microsoft-OutputFormat": "raw-24khz-16bit-mono-pcm", "User-Agent": "Aethel"},
                 timeout=AZURE_TIMEOUT_S)
+        except UnicodeError as exc:
+            raise TTSError("the Azure Speech key has a character that can't be used; paste it again") from exc
         except httpx.HTTPError as exc:
             raise TTSError(f"couldn't reach Azure Speech ({type(exc).__name__})") from exc
         if resp.status_code in (401, 403):

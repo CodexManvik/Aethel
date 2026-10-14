@@ -59,6 +59,7 @@ export interface VoiceSettings {
   stt: "azure" | "local";
   stt_model: string;
   language: string;
+  system1_end_of_turn: boolean;
   azure_region: string;
   tts: "kokoro" | "azure";
   azure_voice: string;
