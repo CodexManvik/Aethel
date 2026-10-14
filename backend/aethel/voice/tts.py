@@ -178,8 +178,9 @@ class TTS:
             if engine is None or (private and isinstance(engine, AzureTTS)):
                 continue
             try:
-                args = (text, blend)
-                speech = await anyio.to_thread.run_sync(engine.synthesize, *args)
+                # A thread can't be stopped: if the call is cancelled (the user spoke over the reply), the
+                # sentence in progress is finished in the background and its audio dropped.
+                speech = await anyio.to_thread.run_sync(engine.synthesize, text, blend, abandon_on_cancel=True)
                 self.last_ms = int((time.perf_counter() - t0) * 1000)
                 return speech
             except Exception as exc:

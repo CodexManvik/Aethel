@@ -223,14 +223,15 @@ class TaskEngine:
         self._sources: dict[str, SourceList] = {}  # task_id -> the web sources it has met, numbered
 
     # ---- public API --------------------------------------------------------
-    async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None) -> str | None:
+    async def start(self, *, conversation_id: str, goal: str, client_id: str | None = None,
+                    meta: dict | None = None) -> str | None:
         conv = self.conversations.get(conversation_id)
         if conv is None:
             await self.hub.publish(ErrorEvent(message="Conversation not found.", code="bad_request",
                                                 conversation_id=conversation_id))
             return None
         task = self.tasks.create(conversation_id, goal)
-        user_msg = self.messages.add(conversation_id, "user", goal, meta={"task_id": task.id})
+        user_msg = self.messages.add(conversation_id, "user", goal, meta={**(meta or {}), "task_id": task.id})
         await self.hub.publish(TaskCreated(task_id=task.id, conversation_id=conversation_id, goal=goal,
                                            user_message_id=user_msg.id, client_id=client_id))
         if not conv.title:

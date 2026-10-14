@@ -134,10 +134,10 @@ class ChatService:
             return TurnResult(None, None, "error")
         user_msg = self.messages.add(conv.id, "user", event.text, meta=base_meta)
         assistant = self.messages.add(conv.id, "assistant", "", status="streaming", meta=base_meta)
-        if started is not None:
-            started(user_msg.id, assistant.id)
         self._active[assistant.id] = asyncio.current_task()
         parts = self._partials[assistant.id] = []
+        if started is not None:
+            started(user_msg.id, assistant.id)
         status = "complete"
         web_tools = self._web_tools_for(conv)
         sources = SourceList() if web_tools else None

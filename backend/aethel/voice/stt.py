@@ -152,11 +152,11 @@ class FallbackSTT:
             return self.fallback.transcribe(pcm16, sample_rate)
 
 
-def make_stt(settings, keys, http: httpx.Client | None = None) -> SpeechToText:
+def make_stt(settings, keys, http: httpx.Client | None = None, local: LocalWhisper | None = None) -> SpeechToText:
     """Private mode and "local" are always local. Otherwise Azure when credentials exist, with the local model behind
-    it; without credentials, local alone."""
+    it; without credentials, local alone. (`local` lets a caller share one loaded model between calls.)"""
     s = settings.get() if hasattr(settings, "get") else settings
-    local = LocalWhisper(size=s.voice.stt_model)
+    local = local or LocalWhisper(size=s.voice.stt_model)
     if s.private_mode or s.voice.stt == "local":
         return local
     azure = azure_from(s, keys)
