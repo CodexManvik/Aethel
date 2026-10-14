@@ -3,7 +3,8 @@ import asyncio
 import logging
 import re
 from contextlib import aclosing
-from typing import Callable
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Literal
 
 import anyio
 
@@ -23,6 +24,14 @@ from .web_loop import WEB_NOTE, effective_web, run_web_turn
 
 log = logging.getLogger("aethel.chat")
 TITLE_MAX = 48
+TextSink = Callable[[str], Awaitable[None]]
+
+
+@dataclass
+class TurnResult:
+    user_message_id: str | None
+    assistant_message_id: str | None
+    status: Literal["complete", "stopped", "error"]
 
 
 def make_title(text: str) -> str:
@@ -92,30 +101,43 @@ class ChatService:
         if self.extractor is not None:
             await self.extractor.shutdown(timeout)
 
-    async def _turn(self, event: UserMessage) -> None:
+    async def run_turn(self, event: UserMessage, *, sink: TextSink | None = None, meta: dict | None = None,
+                       started: Callable[[str, str], None] | None = None) -> TurnResult:
+        """A turn whose text also goes to `sink` as it streams (a call speaks it); see `_turn`."""
+        return await self._turn(event, sink=sink, meta=meta, started=started)
+
+    async def _turn(self, event: UserMessage, *, sink: TextSink | None = None, meta: dict | None = None,
+                       started: Callable[[str, str], None] | None = None) -> TurnResult:
         """One reply at a time per conversation. The lock is taken BEFORE the user message is persisted, so the DB
-        order stays user1, assistant1, user2, assistant2 and each turn's context includes the previous reply."""
+        order stays user1, assistant1, user2, assistant2 and each turn's context includes the previous reply.
+
+        `sink` also gets each streamed piece of text (a call speaks the reply as it comes); `meta` is stored on both
+        messages (e.g. {"modality": "voice"}); `started(user_id, assistant_id)` says which messages the turn made,
+        so a caller can stop the reply while it streams."""
         entry = self._locks.setdefault(event.conversation_id, [asyncio.Lock(), 0])
         entry[1] += 1
         try:
             async with entry[0]:
-                await self._run_turn(event)
+                return await self._run_turn(event, sink, dict(meta or {}), started)
         finally:
             entry[1] -= 1
             if entry[1] == 0:
                 self._locks.pop(event.conversation_id, None)
 
-    async def _run_turn(self, event: UserMessage) -> None:
+    async def _run_turn(self, event: UserMessage, sink: TextSink | None, base_meta: dict,
+                        started: Callable[[str, str], None] | None) -> TurnResult:
         publish = self.hub.publish
         conv = self.conversations.get(event.conversation_id)
         if conv is None:
             await publish(ErrorEvent(message="Conversation not found.", code="bad_request",
                                      conversation_id=event.conversation_id))
-            return
-        user_msg = self.messages.add(conv.id, "user", event.text)
-        assistant = self.messages.add(conv.id, "assistant", "", status="streaming")
+            return TurnResult(None, None, "error")
+        user_msg = self.messages.add(conv.id, "user", event.text, meta=base_meta)
+        assistant = self.messages.add(conv.id, "assistant", "", status="streaming", meta=base_meta)
         self._active[assistant.id] = asyncio.current_task()
         parts = self._partials[assistant.id] = []
+        if started is not None:
+            started(user_msg.id, assistant.id)
         status = "complete"
         web_tools = self._web_tools_for(conv)
         sources = SourceList() if web_tools else None
@@ -135,7 +157,7 @@ class ChatService:
 
             prompt, recalled = await self._context(conv, assistant.id, event.text, web=bool(web_tools))
             if recalled["facts"] or recalled["episodes"]:
-                self.messages.update(assistant.id, meta={"context": recalled})
+                self.messages.update(assistant.id, meta={**base_meta, "context": recalled})
                 await publish(ContextUsed(message_id=assistant.id, **recalled))
             if web_tools:
                 s = self.settings.get()
@@ -149,6 +171,11 @@ class ChatService:
                 async for text in deltas:
                     parts.append(text)
                     await publish(Token(message_id=assistant.id, text=text))
+                    if sink is not None:
+                        try:
+                            await sink(text)
+                        except Exception:  # the reply matters more than whatever is listening to it
+                            log.exception("the text sink failed")
         except asyncio.CancelledError:
             status = "stopped"
             if assistant.id not in self._stop_requested:
@@ -177,6 +204,7 @@ class ChatService:
             self._stop_requested.discard(assistant.id)
             await publish(MessageEnd(message_id=assistant.id, status=status))
         await self._after_turn(conv, user_msg, assistant.id, status)
+        return TurnResult(user_msg.id, assistant.id, status)
 
     async def _after_turn(self, conv, user_msg, assistant_id: str, status: str) -> None:
         """Memory upkeep once the reply is saved: index the exchange, then look for facts to remember."""

@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{Manager, RunEvent};
 
 const KEYRING_SERVICE: &str = "com.aethel.app";
-const KNOWN_PROVIDERS: [&str; 5] = ["groq", "gemini", "openrouter", "custom", "typesafe"];
+const KNOWN_PROVIDERS: [&str; 6] = ["groq", "gemini", "openrouter", "custom", "typesafe", "azure_speech"];
 
 #[derive(Clone, Serialize)]
 struct BackendInfo {
@@ -327,6 +327,7 @@ mod tests {
     fn only_known_providers_are_accepted() {
         assert!(validate_provider("groq").is_ok());
         assert!(validate_provider("typesafe").is_ok());
+        assert!(validate_provider("azure_speech").is_ok());
         assert!(validate_provider("../evil").is_err());
     }
 

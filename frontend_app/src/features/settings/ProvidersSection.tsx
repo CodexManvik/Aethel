@@ -12,6 +12,7 @@ const HINTS: Record<KeyProvider, string> = {
   groq: "Very fast chat models. console.groq.com/keys",
   gemini: "Planning and vision. aistudio.google.com/apikey",
   openrouter: "One key, many models. openrouter.ai/keys",
+  azure_speech: "Speech for calls. Saved in Settings → Voice.",
   custom: "Any OpenAI-compatible server. Local servers (llama.cpp, LM Studio, Ollama) usually need no key.",
 };
 

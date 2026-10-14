@@ -39,6 +39,7 @@ from .tools.registry import ToolRegistry
 from .tools.shell import shell_tool
 from .tools.web import SourceList, web_tools
 from .usage import UsageLog
+from .voice.service import VoiceService
 
 AUTO = object()
 
@@ -72,9 +73,11 @@ class Services:
     episodic: EpisodicIndex
     extractor: FactExtractor
     usage: UsageLog
+    voice: VoiceService            # call mode: shared speech models, who is in a call
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
+        self.voice.close()
         if self.local_llm is not None:
             self.local_llm.stop()
         self.db.close()
@@ -133,6 +136,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
+        voice=VoiceService(settings=settings, keys=keys, system1=system1, db=db),
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 

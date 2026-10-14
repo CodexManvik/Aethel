@@ -1,0 +1,399 @@
+{
+  "$defs": {
+    "Caption": {
+      "additionalProperties": false,
+      "properties": {
+        "final": {
+          "title": "Final",
+          "type": "boolean"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "caption",
+          "default": "caption",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "role",
+        "text",
+        "final",
+        "message_id"
+      ],
+      "title": "Caption",
+      "type": "object"
+    },
+    "EndCall": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "end_call",
+          "default": "end_call",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "EndCall",
+      "type": "object"
+    },
+    "Hello": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "hello",
+          "default": "hello",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "Interrupt": {
+      "additionalProperties": false,
+      "description": "The user spoke over the reply: playback has stopped. `last_started_sentence_id` is the last sentence that began\nto play (None: none had), which is what the saved reply is cut to.",
+      "properties": {
+        "last_started_sentence_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Started Sentence Id"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Id"
+        },
+        "type": {
+          "const": "interrupt",
+          "default": "interrupt",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "last_started_sentence_id",
+        "turn_id"
+      ],
+      "title": "Interrupt",
+      "type": "object"
+    },
+    "Ready": {
+      "additionalProperties": false,
+      "properties": {
+        "persona_name": {
+          "title": "Persona Name",
+          "type": "string"
+        },
+        "stt": {
+          "title": "Stt",
+          "type": "string"
+        },
+        "tts_voice": {
+          "title": "Tts Voice",
+          "type": "string"
+        },
+        "type": {
+          "const": "ready",
+          "default": "ready",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "stt",
+        "tts_voice",
+        "persona_name"
+      ],
+      "title": "Ready",
+      "type": "object"
+    },
+    "SpeechEnd": {
+      "additionalProperties": false,
+      "description": "The user stopped speaking. The utterance's audio follows as a binary frame, unless `misfire`: the voice\ndetector fired on a noise and there is nothing to transcribe.",
+      "properties": {
+        "duration_ms": {
+          "maximum": 60000,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "misfire": {
+          "default": false,
+          "title": "Misfire",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "speech_end",
+          "default": "speech_end",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "duration_ms",
+        "misfire"
+      ],
+      "title": "SpeechEnd",
+      "type": "object"
+    },
+    "SpeechStart": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "speech_start",
+          "default": "speech_start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SpeechStart",
+      "type": "object"
+    },
+    "Thinking": {
+      "additionalProperties": false,
+      "description": "Aethel has decided it's its turn; the first audio follows.",
+      "properties": {
+        "type": {
+          "const": "thinking",
+          "default": "thinking",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Thinking",
+      "type": "object"
+    },
+    "TtsMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "const": "pcm16",
+          "default": "pcm16",
+          "title": "Codec",
+          "type": "string"
+        },
+        "sample_rate": {
+          "title": "Sample Rate",
+          "type": "integer"
+        },
+        "sentence_id": {
+          "title": "Sentence Id",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tts_meta",
+          "default": "tts_meta",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sentence_id",
+        "text",
+        "codec",
+        "sample_rate",
+        "turn_id"
+      ],
+      "title": "TtsMeta",
+      "type": "object"
+    },
+    "TurnEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "interrupted",
+            "stopped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "turn_end",
+          "default": "turn_end",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "turn_id",
+        "status"
+      ],
+      "title": "TurnEnd",
+      "type": "object"
+    },
+    "VoiceError": {
+      "additionalProperties": false,
+      "properties": {
+        "fatal": {
+          "title": "Fatal",
+          "type": "boolean"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "type": {
+          "const": "voice_error",
+          "default": "voice_error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "fatal"
+      ],
+      "title": "VoiceError",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "client": {
+      "discriminator": {
+        "mapping": {
+          "end_call": "#/$defs/EndCall",
+          "hello": "#/$defs/Hello",
+          "interrupt": "#/$defs/Interrupt",
+          "speech_end": "#/$defs/SpeechEnd",
+          "speech_start": "#/$defs/SpeechStart"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Hello"
+        },
+        {
+          "$ref": "#/$defs/SpeechStart"
+        },
+        {
+          "$ref": "#/$defs/SpeechEnd"
+        },
+        {
+          "$ref": "#/$defs/Interrupt"
+        },
+        {
+          "$ref": "#/$defs/EndCall"
+        }
+      ],
+      "title": "Client"
+    },
+    "server": {
+      "discriminator": {
+        "mapping": {
+          "caption": "#/$defs/Caption",
+          "ready": "#/$defs/Ready",
+          "thinking": "#/$defs/Thinking",
+          "tts_meta": "#/$defs/TtsMeta",
+          "turn_end": "#/$defs/TurnEnd",
+          "voice_error": "#/$defs/VoiceError"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Ready"
+        },
+        {
+          "$ref": "#/$defs/Caption"
+        },
+        {
+          "$ref": "#/$defs/Thinking"
+        },
+        {
+          "$ref": "#/$defs/TtsMeta"
+        },
+        {
+          "$ref": "#/$defs/TurnEnd"
+        },
+        {
+          "$ref": "#/$defs/VoiceError"
+        }
+      ],
+      "title": "Server"
+    }
+  },
+  "required": [
+    "server",
+    "client"
+  ],
+  "title": "VoiceProtocol",
+  "type": "object"
+}
