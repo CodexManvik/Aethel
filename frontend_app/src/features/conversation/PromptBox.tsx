@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, ListChecks, Square } from "lucide-react";
+import { ArrowUp, ListChecks, Mic, Square } from "lucide-react";
 import { cn } from "../../ui/cn";
 
 interface Props {
@@ -8,9 +8,10 @@ interface Props {
   streaming: boolean;
   placeholder?: string;
   leading?: ReactNode; // controls after the Task pill (the web pill)
+  onCall?: () => void; // start a call (the mic button)
 }
 
-export function PromptBox({ onSend, onStop, streaming, placeholder = "Say something to Aethel…", leading }: Props) {
+export function PromptBox({ onSend, onStop, streaming, placeholder = "Say something to Aethel…", leading, onCall }: Props) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"chat" | "task">("chat");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -65,6 +66,12 @@ export function PromptBox({ onSend, onStop, streaming, placeholder = "Say someth
         }}
         className="max-h-[220px] flex-1 resize-none bg-transparent py-1 text-[14.5px] leading-6 text-ink outline-none placeholder:text-faint"
       />
+      {onCall && (
+        <button type="button" aria-label="Start a call" title="Start a call" onClick={onCall}
+          className="grid size-8 place-items-center rounded-full border border-hairline text-muted hover:border-muted hover:text-ink">
+          <Mic size={15} strokeWidth={1.75} />
+        </button>
+      )}
       {streaming ? (
         <button type="button" aria-label="Stop" onClick={onStop} className="grid size-8 place-items-center rounded-full border border-hairline text-ink hover:border-muted">
           <Square size={12} fill="currentColor" />

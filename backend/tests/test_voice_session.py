@@ -474,3 +474,54 @@ async def test_the_conversation_is_freed_even_if_stopping_the_reply_fails():
     with pytest.raises(RuntimeError):
         await call.session.close()
     assert call.conv.id not in call.svc.voice.calls
+
+
+async def test_a_task_started_by_voice_is_narrated_and_its_end_read_out(monkeypatch):
+    from aethel.protocol import TaskState
+
+    async def task_route(*args):
+        return "task"
+
+    monkeypatch.setattr("aethel.voice.session.route", task_route)
+    async with Call() as call:
+        async def start(**kw):
+            return "task_1"
+
+        call.svc.engine.start = start
+        await call.say("write a haiku in notepad")
+        await call.until(lambda: "turn_end" in call.types())
+        await call.svc.hub.publish(TaskState(task_id="task_1", conversation_id=call.conv.id, state="done",
+                                             summary="The haiku is saved in Notepad."))
+        await call.until(lambda: any(m["text"] == "The haiku is saved in Notepad." for m in call.of("tts_meta")))
+        line = [m for m in call.of("tts_meta") if m["text"] == "The haiku is saved in Notepad."][0]
+        assert line["sentence_id"] == -1                      # not part of any reply, never saved
+        assert [m.content for m in call.svc.messages.list(call.conv.id)] == []   # (the fake engine saved nothing)
+
+
+async def test_narration_off_says_nothing(monkeypatch):
+    from aethel.protocol import TaskState
+
+    async def task_route(*args):
+        return "task"
+
+    monkeypatch.setattr("aethel.voice.session.route", task_route)
+    async with Call(settings={"voice": {"narration": False, "short_wait_ms": 0, "max_wait_ms": 250}}) as call:
+        async def start(**kw):
+            return "task_1"
+
+        call.svc.engine.start = start
+        await call.say("write a haiku in notepad")
+        await call.until(lambda: "turn_end" in call.types())
+        await call.svc.hub.publish(TaskState(task_id="task_1", conversation_id=call.conv.id, state="done", summary="Done."))
+        await asyncio.sleep(0.2)
+        assert [m["text"] for m in call.of("tts_meta")] == ["On it."]
+
+
+async def test_an_utterance_with_no_words_says_no_speech_and_thinking_names_its_turn():
+    async with Call() as call:
+        await call.say("   ")
+        await call.until(lambda: "no_speech" in call.types())
+        assert "thinking" not in call.types()
+        await call.say("hello there")
+        await call.until(lambda: "turn_end" in call.types())
+        assert call.of("thinking")[0]["turn_id"] == call.of("tts_meta")[0]["turn_id"] == call.of("turn_end")[0]["turn_id"]

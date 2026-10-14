@@ -204,3 +204,17 @@ def test_eot_threshold_is_the_lowest_with_enough_precision_and_none_when_there_i
     dev, test = eot.split(rows)
     assert len(rows) == 100 and sum(r["label"] == "finished" for r in rows) == 50
     assert all(sum(r["label"] == "finished" for r in half) in range(20, 31) for half in (dev, test))  # both halves mixed
+
+
+def test_voice_latency_and_cutoff_metrics_on_synthetic_timelines():
+    ev = _load("eval_voice")
+    assert ev.percentile([1, 2, 3, 4], 50) == 2.5 and ev.percentile([5], 95) == 5 and ev.percentile([], 50) is None
+    runs = [
+        {"kind": "complete", "last_speech_end": 10.0, "first_audio_at": 11.0, "early_audio_at": None},
+        {"kind": "complete", "last_speech_end": 20.0, "first_audio_at": 22.0, "early_audio_at": None},
+        {"kind": "mid_thought", "last_speech_end": 30.0, "first_audio_at": 31.5, "early_audio_at": 28.0},  # cut off
+        {"kind": "mid_thought", "last_speech_end": 40.0, "first_audio_at": None, "early_audio_at": None},  # timed out
+    ]
+    s = ev.summarize(runs)
+    assert s == {"n": 4, "answered": 3, "latency_p50_ms": 1500, "latency_p95_ms": 1950, "false_cutoff_rate": 0.5,
+                 "mid_thought": 2}

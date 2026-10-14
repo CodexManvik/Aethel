@@ -35,8 +35,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 /** Binary responses (thumbnails, exports): <img> and <a> can't send the auth header themselves. */
-export async function apiBlob(path: string): Promise<Blob> {
-  return (await request(path)).blob();
+export async function apiBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+  return (await request(path, init)).blob();
 }
 
 /** Resolves once /api/health answers (the backend takes a few seconds to boot). */

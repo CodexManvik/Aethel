@@ -55,6 +55,8 @@ interface UiState {
   taskPanelId: string | null;
   focusMessageId: string | null; // a message to scroll to and highlight once the conversation shows it
   newChatWeb: boolean | null; // the web pill's choice for a conversation that doesn't exist yet (null: follow Settings)
+  callOpen: boolean; // the call screen is showing (the call itself lives in stores/voice)
+  setCallOpen(open: boolean): void;
   setNewChatWeb(web: boolean | null): void;
   setFocusMessage(id: string | null): void;
   setScreen(screen: Screen): void;
@@ -74,6 +76,8 @@ export const useUi = create<UiState>()((set, get) => ({
   taskPanelId: null,
   focusMessageId: null,
   newChatWeb: null,
+  callOpen: false,
+  setCallOpen: (callOpen) => set({ callOpen }),
   setNewChatWeb: (newChatWeb) => set({ newChatWeb }),
   setFocusMessage: (focusMessageId) => set({ focusMessageId }),
   setScreen: (screen) => set({ screen, threadsOpen: false }),

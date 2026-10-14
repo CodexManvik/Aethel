@@ -66,8 +66,15 @@ class Caption(Msg):
 
 
 class Thinking(Msg):
-    """Aethel has decided it's its turn; the first audio follows."""
+    """Aethel has decided it's its turn; the first audio follows. From here until its turn_end the turn is open: the
+    client interrupts it if the user speaks, even before any of its audio has arrived."""
     type: Literal["thinking"] = "thinking"
+    turn_id: str
+
+
+class NoSpeech(Msg):
+    """An utterance had no words in it (a cough, noise) and nothing is waiting to be answered: back to listening."""
+    type: Literal["no_speech"] = "no_speech"
 
 
 class TtsMeta(Msg):
@@ -92,7 +99,8 @@ class VoiceError(Msg):
 
 
 ClientMessage = Annotated[Union[Hello, SpeechStart, SpeechEnd, Interrupt, EndCall], Field(discriminator="type")]
-ServerMessage = Annotated[Union[Ready, Caption, Thinking, TtsMeta, TurnEnd, VoiceError], Field(discriminator="type")]
+ServerMessage = Annotated[Union[Ready, Caption, Thinking, NoSpeech, TtsMeta, TurnEnd, VoiceError],
+                          Field(discriminator="type")]
 
 client_adapter: TypeAdapter = TypeAdapter(ClientMessage)
 

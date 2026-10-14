@@ -1,3 +1,4 @@
+import { useVoice } from "../../stores/voice";
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
@@ -92,6 +93,16 @@ export function useSetWeb() {
     },
     [qc],
   );
+}
+
+/** Start a call in the current conversation (creating one if needed) and show the call screen. */
+export function useStartCall() {
+  const qc = useQueryClient();
+  return useCallback(async () => {
+    const conversationId = await ensureConversation(qc);
+    useUi.getState().setCallOpen(true);
+    await useVoice.getState().startCall(conversationId);
+  }, [qc]);
 }
 
 export function useSendMessage() {

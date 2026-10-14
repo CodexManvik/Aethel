@@ -9,9 +9,10 @@ import { ThreadsPanel } from "../conversation/ThreadsPanel";
 import { SettingsView } from "../settings/SettingsView";
 import { MemoryView } from "../memory/MemoryView";
 import { TasksView } from "../history/TasksView";
+import { CallView } from "../call/CallView";
 
 export function AppShell() {
-  const { screen, motion } = useUi();
+  const { screen, motion, callOpen } = useUi();
   useSessionEvents();
   useEffect(() => watchSystemAppearance(), []);
 
@@ -23,6 +24,7 @@ export function AppShell() {
           <ThreadsPanel />
           {screen === "conversation" ? <ConversationView /> : screen === "memory" ? <MemoryView />
             : screen === "tasks" ? <TasksView /> : <SettingsView />}
+          {callOpen && <CallView />}
         </main>
         <Toaster
           position="bottom-right"

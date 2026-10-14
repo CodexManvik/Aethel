@@ -21,7 +21,8 @@ from ..protocol import UserMessage
 from ..runtime.store import TERMINAL_STATES
 from ..store.repos import new_id, now_iso
 from .chunker import SentenceChunker
-from .protocol import (MAX_UTTERANCE_BYTES, Caption, EndCall, Hello, Interrupt, Ready, SpeechEnd, SpeechStart,
+from .narrator import Narrator
+from .protocol import (MAX_UTTERANCE_BYTES, Caption, EndCall, Hello, Interrupt, NoSpeech, Ready, SpeechEnd, SpeechStart,
                        Thinking, TtsMeta, TurnEnd, VoiceError, client_adapter)
 from .stt import SpeechToTextError
 from .tts import VoiceBlend, speakable
@@ -85,6 +86,7 @@ class VoiceSession:
         self._ack_next = 0
         self._ack_prep: asyncio.Task | None = None
         self._holds_call = False
+        self.narrator: Narrator | None = None
 
     # ---- messages in -------------------------------------------------------------------------------------
     async def on_text(self, raw: str) -> None:
@@ -154,6 +156,7 @@ class VoiceSession:
         self.turns = TurnManager(self.svc.voice.eot(), threshold=v.eot_threshold, short_wait_ms=v.short_wait_ms,
                                  max_wait_ms=v.max_wait_ms, clock=self.clock)
         self._loop = asyncio.ensure_future(self._turn_loop())
+        self.narrator = Narrator(router=self.svc.router, hub=self.svc.hub, speak=self._narrate, busy=self._busy)
         if v.ack:
             self._ack_prep = asyncio.ensure_future(self._prepare_acks())
         voice = v.azure_voice if getattr(self.tts, "prefer_azure", False) else self.blend.weights[0][0]
@@ -170,6 +173,8 @@ class VoiceSession:
         """The call is over (end_call, or the socket dropped): stop everything it started."""
         self.ended = True
         try:
+            if self.narrator is not None:
+                await self.narrator.close()
             turn = self._turn
             if turn is not None:
                 turn.interrupted = True
@@ -208,6 +213,11 @@ class VoiceSession:
         finally:
             # Always: the turn manager is waiting for these words (or for the news that there are none).
             await self.turns.on_utterance(text, self.last_reply, silence_since=end_at)
+            if not text and not self.turns.has_words and not self.turns.user_speaking and self._turn is None:
+                try:
+                    await self._push(NoSpeech())  # the client stops showing "Thinking…"
+                except Exception:
+                    pass
 
     async def _turn_loop(self) -> None:
         while not self.ended:
@@ -245,16 +255,20 @@ class VoiceSession:
         svc, cid = self.svc, self.conversation_id
         turn = self._turn = _Turn(new_id("vt"), end_at, self.clock(), decision.eot_p, decision.waited_ms,
                                   transcript_at=transcript_at)
-        await self._push(Thinking())
+        await self._push(Thinking(turn_id=turn.id))
         running = [t for t in svc.tasks.list_for_conversation(cid) if t.state not in TERMINAL_STATES]
         kind = await route(svc.system1, svc.settings, decision.text, running[-1].goal if running else None)
         meta = {"modality": "voice"}
         status = "complete"
         if kind == "task":
-            await svc.engine.start(conversation_id=cid, goal=decision.text, meta=meta)
+            task_id = await svc.engine.start(conversation_id=cid, goal=decision.text, meta=meta)
+            if task_id and self.narrator is not None and svc.settings.get().voice.narration:
+                self.narrator.follow(task_id, decision.text)
             await self._say(turn, ON_IT)
         elif kind == "stop_task":
             for t in running:
+                if self.narrator is not None:
+                    self.narrator.unfollow(t.id)  # "Stopped." says it; the task's own end would say it twice
                 await svc.engine.cancel(t.id)
             turn.user_id = svc.messages.add(cid, "user", decision.text, meta=meta).id
             turn.assistant_id = svc.messages.add(cid, "assistant", STOPPED, meta=meta).id
@@ -377,6 +391,23 @@ class VoiceSession:
         """A fixed line spoken outside the model ("On it.")."""
         await self._speak_sentence(turn, text)
         await self._push(Caption(role="assistant", text=text, final=True))
+
+    # ---- narration -----------------------------------------------------------------------------------------
+    def _busy(self) -> bool:
+        """Narration waits: a reply is being given, or the user is talking."""
+        return self._turn is not None or (self.turns is not None and self.turns.user_speaking)
+
+    async def _narrate(self, line: str) -> None:
+        """A narration line: spoken like an acknowledgement (id -1, not part of any reply), captioned, not saved."""
+        spoken = speakable(line)
+        if not spoken or self._busy():
+            return
+        speech = await self.tts.synthesize(spoken, self.blend, private=self.svc.settings.get().private_mode)
+        if speech is None or self._busy():
+            return
+        await self._send_audio(TtsMeta(sentence_id=-1, text=line, sample_rate=speech.sample_rate,
+                                       turn_id=new_id("vn")), speech.audio)
+        await self._push(Caption(role="assistant", text=line, final=True))
 
     # ---- the short acknowledgement -----------------------------------------------------------------------
     async def _prepare_acks(self) -> None:

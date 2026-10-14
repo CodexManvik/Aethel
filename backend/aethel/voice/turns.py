@@ -92,6 +92,16 @@ class TurnManager:
             self._since = since if self._since is None else max(self._since, since)
             self._bump()
 
+    @property
+    def has_words(self) -> bool:
+        """Words are waiting for Aethel's turn."""
+        return bool(self._text)
+
+    @property
+    def user_speaking(self) -> bool:
+        """The user is talking, or what they just said is still being recognised."""
+        return self._speaking or self._transcribing > 0
+
     def on_speech_start(self) -> None:
         """The user started speaking again: any pending decision is off, more is coming."""
         self._speaking = True
