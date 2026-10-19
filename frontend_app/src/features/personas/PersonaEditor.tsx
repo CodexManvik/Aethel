@@ -53,7 +53,7 @@ export function PersonaEditor({ persona, onBack }: { persona: Persona; onBack():
     qc.setQueryData<Persona[]>(["personas"], (list) => list?.map((p) => (p.id === saved.id ? saved : p)));
     return saved;
   };
-  const { queue, state } = useAutosave<Patch>(async (body) => {
+  const { queue, cancel, state } = useAutosave<Patch>(async (body) => {
     try {
       await patch(body);
     } catch (e) {
@@ -145,7 +145,7 @@ export function PersonaEditor({ persona, onBack }: { persona: Persona; onBack():
             {confirmDelete ? (
               <div className="flex items-center gap-3">
                 <span className="text-[13px] text-ink">Delete {persona.name}? The folder moves to the trash.</span>
-                <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>Delete</Button>
+                <Button variant="danger" disabled={remove.isPending} onClick={() => { cancel(); remove.mutate(); }}>Delete</Button>
                 <Button onClick={() => setConfirmDelete(false)}>Keep</Button>
               </div>
             ) : (

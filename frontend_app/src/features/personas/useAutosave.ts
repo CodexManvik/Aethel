@@ -2,6 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
+/** `newer` over `older`; sections are merged too (the server merges them), so two edited sections both survive. */
+function merge<T extends object>(older: Partial<T>, newer: Partial<T>): Partial<T> {
+  const out: Record<string, unknown> = { ...older };
+  for (const [k, v] of Object.entries(newer)) {
+    const before = out[k];
+    out[k] = k === "sections" && before && typeof before === "object" ? { ...before, ...(v as object) } : v;
+  }
+  return out as Partial<T>;
+}
+
 /** Collects changes and saves them together once editing pauses for `delay` ms; whatever is pending is saved when
  * the editor closes. */
 export function useAutosave<T extends object>(save: (patch: Partial<T>) => Promise<unknown>, delay = 800) {
@@ -22,23 +32,26 @@ export function useAutosave<T extends object>(save: (patch: Partial<T>) => Promi
       await saveRef.current(patch);
       setState("saved");
     } catch {
+      // kept for the next try (the next edit, or closing the editor); anything typed since wins over it
+      pending.current = merge(patch, pending.current);
       setState("error");
     }
   }, []);
 
   const queue = useCallback((patch: Partial<T>) => {
-    const merged: Record<string, unknown> = { ...pending.current };
-    for (const [k, v] of Object.entries(patch)) {
-      const before = merged[k];
-      // sections are merged on the server too, so two edited sections both survive one save
-      merged[k] = k === "sections" && before && typeof before === "object" ? { ...before, ...(v as object) } : v;
-    }
-    pending.current = merged as Partial<T>;
+    pending.current = merge(pending.current, patch);
     setState("idle");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), delay);
   }, [delay, flush]);
 
+  /** Drops whatever is pending (the persona is being deleted). */
+  const cancel = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = {};
+  }, []);
+
   useEffect(() => () => void flush(), [flush]);
-  return { queue, flush, state };
+  return { queue, flush, cancel, state };
 }

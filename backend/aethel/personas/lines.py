@@ -35,7 +35,8 @@ class PersonaLines:
         if len(index) == 0:
             path.unlink(missing_ok=True)
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.parent.is_dir():  # the persona was deleted: never recreate its folder (the rows rebuild it)
+            return
         tmp = path.with_suffix(".tmp.tvim")
         index.write(str(tmp))
         os.replace(tmp, path)

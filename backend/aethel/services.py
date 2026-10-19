@@ -130,7 +130,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     facts = FactStore(db, _embed)
     episodic = EpisodicIndex(db, _embed, aethel_home() / "episodic" / "index.tvim")
     voice = VoiceService(settings=settings, keys=keys, system1=system1, db=db)
-    personas = PersonaStore(aethel_home() / "personas", known_voices=lambda: voice.kokoro.voices() or None)
+    personas = PersonaStore(aethel_home() / "personas", known_voices=lambda: voice.kokoro.voices() or None,
+                            in_use=lambda pid: db.query_one(
+                                "SELECT 1 FROM conversations WHERE persona_id = ? UNION ALL"
+                                " SELECT 1 FROM facts WHERE scope = ? LIMIT 1", (pid, f"persona:{pid}")) is not None)
     personas.ensure_builtin()
     persona_lines = PersonaLines(db, _embed, personas.folder)
     try:

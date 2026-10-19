@@ -4,7 +4,7 @@ import { resolveTheme, useUi } from "../../stores/ui";
 import { useSession } from "../../stores/session";
 import { glowOpacity, useTone } from "../../stores/tone";
 import { PersonaAvatar } from "../personas/PersonaAvatar";
-import { BUILTIN_ID, talkTo, useActivePersonaId, usePersonas, type Persona } from "../personas/personasApi";
+import { BUILTIN_ID, talkTo, useActivePersonaId, useOpenConversation, usePersonas, type Persona } from "../personas/personasApi";
 
 const FALLBACK: Persona[] = [{ id: BUILTIN_ID, name: "Aethel", built_in: true, anchors: [], accent: null } as unknown as Persona];
 
@@ -15,7 +15,10 @@ export function Rail() {
   const personas = Array.isArray(data) && data.length ? data : FALLBACK;
   const activeId = useActivePersonaId();
   const conversationId = useSession((s) => s.conversationId);
-  const tone = useTone((s) => (conversationId ? s.byConversation[conversationId] : undefined));
+  const open = useOpenConversation();
+  // live from tone_changed; after a reload, what the conversation last stored
+  const tone = useTone((s) => (conversationId ? s.byConversation[conversationId] : undefined))
+    ?? (open?.tone ? { ...open.tone, label: "" } : undefined);
 
   return (
     <nav className="relative z-20 flex h-full w-16 flex-col items-center gap-3 border-r border-hairline bg-canvas py-5">
@@ -24,7 +27,7 @@ export function Rail() {
           const active = p.id === activeId && screen === "conversation";
           return (
             <button key={p.id} type="button" aria-label={p.name} title={p.built_in ? p.name : `Talk to ${p.name}`}
-              aria-current={p.id === activeId ? "true" : undefined}
+              aria-current={active ? "true" : undefined}
               onClick={() => (p.id === activeId ? setScreen("conversation") : talkTo(p.id))}>
               <PersonaAvatar persona={p} active={active} glow={p.id === activeId && !p.built_in ? glowOpacity(tone) : 0} />
             </button>

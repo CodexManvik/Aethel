@@ -33,6 +33,22 @@ def test_create_slugs_the_name_and_handles_collisions(store):
     assert [p.id for p in store.list()] == ["aethel", "aethel-2", "mira-lane", "mira-lane-2"]
 
 
+def test_a_deleted_or_still_used_id_is_never_reused(tmp_path):
+    used = {"kit"}
+    s = PersonaStore(tmp_path / "p", in_use=lambda pid: pid in used)
+    zed = s.create(Persona(id="x", name="Zed"))
+    s.delete(zed.id)
+    assert s.create(Persona(id="x", name="Zed")).id == "zed-2"  # "zed" is in the trash, its memories may remain
+    assert s.create(Persona(id="x", name="Kit")).id == "kit-2"  # a conversation still says "kit"
+
+
+def test_migration_falls_back_to_the_default_voice(tmp_path):
+    s = PersonaStore(tmp_path / "p", known_voices=lambda: ["af_heart"])
+    rosia = Persona(id="rosia", name="Rosia", voice=PersonaVoice(blend={"bf_gone": 1.0}))
+    assert s.migrate_legacy(rosia, tmp_path / "sentinel") == "rosia"
+    assert s.get("rosia").voice.blend == {"af_heart": 1.0}
+
+
 def test_slug_edge_cases():
     assert slug("  ✨ ") == "persona" and slug("Zoë O'Brien") == "zo-o-brien" and len(slug("a" * 99)) == 40
 

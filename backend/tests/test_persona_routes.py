@@ -60,6 +60,10 @@ def test_crud(tmp_path):
         assert client.patch("/api/personas/mira", json={"accent_pick": None}).json()["accent"] is None
         assert client.patch("/api/personas/mira", json={"image_frequency": "always"}).status_code == 422
         assert client.patch("/api/personas/nobody", json={}).status_code == 404
+        assert client.patch("/api/personas/mira", json={"sections": {"Personality": "x" * 6001}}).status_code == 422
+        extra = {f"Extra {i}": "x" for i in range(9)}  # 4 standard + 9 > 12
+        assert client.patch("/api/personas/mira", json={"sections": extra}).status_code == 422
+        assert client.patch("/api/personas/mira", json={"sections": {"Bad\nname": "x"}}).status_code == 422
         assert client.delete("/api/personas/aethel").status_code == 409
         assert client.delete("/api/personas/mira").status_code == 204
         assert client.get("/api/personas/mira").status_code == 404
@@ -92,6 +96,7 @@ def test_style_import_flow():
                                                                 "import_id": second["import_id"]}).json()
         assert saved["style"] == "Edited directive." and saved["lines"] == 1  # 20 identical lines, deduplicated
         assert client.put("/api/personas/rosie/style", json={"directive": "x", "import_id": "stale"}).status_code == 409
+        assert client.get("/api/personas/rosie").json()["style"] == "Edited directive."  # nothing written on a 409
         bad = client.post("/api/personas/rosie/style/import", json={"content": "{nope"})
         assert bad.status_code == 422
         assert client.delete("/api/personas/rosie/style").status_code == 204

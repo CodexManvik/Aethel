@@ -2,7 +2,7 @@
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ...personas.accent import accent_from_rgb
 from ...personas.distill import ExportError, directive, extract_style_metrics, of_speaker, parse_export, speakers
 from ...personas.draft import DESCRIPTION_MAX, DraftError, draft_persona
-from ...personas.model import SECTIONS, Persona, PersonaVoice
+from ...personas.model import MAX_SECTIONS, SECTIONS, Persona, PersonaVoice
 from ...protocol import PersonaUpdated
 from ...providers.base import ProviderError
 from ...providers.router import NoProviderAvailable
@@ -24,6 +24,8 @@ IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
 EXPORT_MAX = 20_000_000
 DIRECTIVE_MAX = 2000
 HEX = r"^#[0-9a-fA-F]{6}$"
+SECTION_MAX = 6000  # each section leads every reply's prompt: a cap keeps one from eating the budget
+Sections = Annotated[dict[str, Annotated[str, Field(max_length=SECTION_MAX)]], Field(max_length=MAX_SECTIONS)]
 _pending: dict[str, tuple[str, list]] = {}  # persona id -> (import id, the chosen speaker's lines), until saved
 
 
@@ -34,7 +36,7 @@ class PersonaOut(Persona):
 
 class PersonaIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    sections: dict[str, str] = {}
+    sections: Sections = {}
     voice: PersonaVoice = Field(default_factory=PersonaVoice)
     image_style: str = Field(default="", max_length=200)
     image_frequency: Literal["never", "on_request", "sometimes"] = "on_request"
@@ -45,7 +47,7 @@ class PersonaPatch(BaseModel):
     """Only the fields sent change; sections are merged (send one to change one). accent_pick: a colour chosen by
     hand (the light and dark versions are derived from it), or null to go back to the portrait's."""
     name: str | None = Field(default=None, min_length=1, max_length=60)
-    sections: dict[str, str] | None = None
+    sections: Sections | None = None
     voice: PersonaVoice | None = None
     image_style: str | None = Field(default=None, max_length=200)
     image_frequency: Literal["never", "on_request", "sometimes"] | None = None
@@ -143,6 +145,8 @@ async def update_persona(pid: str, body: PersonaPatch, svc: Services = Depends(g
                            if pick else None)
     try:
         updated = svc.personas.update(pid, patch)
+    except KeyError as exc:  # deleted meanwhile
+        raise HTTPException(status_code=404, detail="There's no persona with that id.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _changed(svc, pid)
@@ -198,13 +202,16 @@ async def import_style(pid: str, body: ImportIn, svc: Services = Depends(get_ser
 async def save_style(pid: str, body: StyleIn, svc: Services = Depends(get_services)) -> PersonaOut:
     """The directive (empty clears it); with the import's id, its lines become the persona's style examples."""
     p = _require(svc, pid)
+    pending = _pending.get(pid)
+    if body.import_id is not None and (pending is None or pending[0] != body.import_id):
+        raise HTTPException(status_code=409, detail="That import has expired; import the file again.")
     svc.personas.set_style_directive(pid, re.sub(r"\n{3,}", "\n\n", body.directive))
     if body.import_id is not None:
-        pending = _pending.get(pid)
-        if pending is None or pending[0] != body.import_id:
-            raise HTTPException(status_code=409, detail="That import has expired; import the file again.")
-        await anyio.to_thread.run_sync(svc.persona_lines.replace, pid, pending[1])
         _pending.pop(pid, None)
+        await anyio.to_thread.run_sync(svc.persona_lines.replace, pid, pending[1])
+        if svc.personas.get(pid) is None:  # deleted while the lines were being embedded
+            svc.persona_lines.remove(pid)
+            raise HTTPException(status_code=404, detail="There's no persona with that id.")
     await _changed(svc, pid)
     return _out(svc, p)
 

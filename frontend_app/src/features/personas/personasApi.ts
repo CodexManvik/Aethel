@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiBlob } from "../../lib/api";
 import type { Conversation } from "../../lib/types";
@@ -41,18 +42,27 @@ export function usePersonas() {
   return useQuery({ queryKey: ["personas"], queryFn: () => api<Persona[]>("/api/personas") });
 }
 
-/** Who the user is talking to: the open conversation's persona, or the one chosen for the next new conversation. */
-export function useActivePersonaId(): string {
+export function useOpenConversation(): Conversation | undefined {
   const conversationId = useSession((s) => s.conversationId);
-  const next = useUi((s) => s.newChatPersona);
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
     queryFn: () => api<Conversation[]>("/api/conversations"),
     enabled: conversationId !== null,
   });
-  if (conversationId === null) return next;
-  const conv = Array.isArray(conversations) ? conversations.find((c) => c.id === conversationId) : undefined;
-  return conv?.persona_id ?? next;
+  return conversationId !== null && Array.isArray(conversations)
+    ? conversations.find((c) => c.id === conversationId) : undefined;
+}
+
+/** Who the user is talking to: the open conversation's persona, or the one chosen for the next new conversation.
+ * While an opened conversation's details are still loading, the last answer stands (no flash of another accent). */
+export function useActivePersonaId(): string {
+  const conversationId = useSession((s) => s.conversationId);
+  const next = useUi((s) => s.newChatPersona);
+  const conv = useOpenConversation();
+  const last = useRef(next);
+  const id = conversationId === null ? next : conv?.persona_id ?? last.current;
+  last.current = id;
+  return id;
 }
 
 export function useActivePersona(): Persona | undefined {

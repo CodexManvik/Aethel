@@ -57,6 +57,13 @@ def test_unreadable_exports():
         parse_export('{"messages": 3}')
     with pytest.raises(ExportError):
         parse_export("{not json")
+    with pytest.raises(ExportError):
+        parse_export("sender,message\nMo," + "x" * 200_000 + "\n", "big.csv")  # over csv's field limit
+
+
+def test_a_huge_multiline_message_is_capped():
+    text = "12/05/23, 14:30 - Mo: start\n" + "more words here\n" * 50_000
+    assert len(parse_export(text)[0].text) <= 1_000
 
 
 def _chat(texts_by_rosie: list[str], other_every: int = 3) -> list[Line]:
@@ -93,7 +100,14 @@ def test_directive_for_a_formal_writer():
 @pytest.fixture
 def lines_store(tmp_path):
     db = Database(tmp_path / "t.db")
+    (tmp_path / "personas" / "rosie").mkdir(parents=True)  # the persona's folder; lines never create it
     return PersonaLines(db, fake_embed, lambda pid: tmp_path / "personas" / pid)
+
+
+def test_lines_never_recreate_a_deleted_personas_folder(lines_store, tmp_path):
+    assert lines_store.replace("gone", [Line("G", "a line long enough to keep")]) == 1
+    assert not (tmp_path / "personas" / "gone").exists()
+    assert lines_store.search("gone", "a line long enough", k=1, min_score=0.1)  # from the rows
 
 
 def test_corpus_import_and_recall(lines_store, tmp_path):

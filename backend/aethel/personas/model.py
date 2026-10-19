@@ -10,9 +10,15 @@ from ..voice.tts import VoiceBlend
 
 ID_RE = r"^[a-z0-9][a-z0-9-]{0,40}$"
 SECTIONS = ("Personality", "Backstory", "Speaking style", "Boundaries")
+MAX_SECTIONS = 12
 HEX_RE = r"^#[0-9a-fA-F]{6}$"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
 _HEADING = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.M)
+SECTION_NAME_RE = r"[^\r\n#][^\r\n]{0,39}"
+# A line in a section that starts with "##" would read back as a new section, so it's written with one more leading
+# backslash, and one is taken off when it's read: "## Rules" ↔ "\## Rules", "\## x" ↔ "\\## x".
+_ESCAPED = re.compile(r"^\\(\\*##)", re.M)
+_TO_ESCAPE = re.compile(r"^(\\*##)", re.M)
 
 
 class PersonaVoice(BaseModel):
@@ -48,10 +54,16 @@ class Persona(BaseModel):
     @field_validator("sections")
     @classmethod
     def _standard_sections(cls, v: dict[str, str]) -> dict[str, str]:
-        """The four standard sections always exist (empty if absent); any others keep their place."""
+        """The four standard sections always exist (empty if absent); any others keep their place. A name is one
+        short line that can't itself look like a heading."""
         out = {k.strip(): (t or "").strip() for k, t in v.items() if k.strip()}
+        for name in out:
+            if not re.fullmatch(SECTION_NAME_RE, name):
+                raise ValueError(f"not a section name: {name[:40]!r}")
         for s in SECTIONS:
             out.setdefault(s, "")
+        if len(out) > MAX_SECTIONS:
+            raise ValueError(f"a persona has at most {MAX_SECTIONS} sections")
         return out
 
     def section(self, name: str) -> str:
@@ -90,8 +102,12 @@ def _sections(body: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for i, h in enumerate(heads):
         end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
-        out[h.group(1)] = body[h.end():end].strip()
+        out[h.group(1)] = _ESCAPED.sub(r"\1", body[h.end():end].strip())
     return out
+
+
+def _escape(text: str) -> str:
+    return _TO_ESCAPE.sub(lambda m: "\\" + m.group(1), text)
 
 
 def render_persona(p: Persona) -> str:
@@ -99,5 +115,5 @@ def render_persona(p: Persona) -> str:
     meta = p.model_dump(include=set(FIELDS) - {"id"}, mode="json")
     meta = {"id": p.id, **meta, **p.extra}
     front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=None, width=1000)
-    body = "\n\n".join(f"## {name}\n{text}".rstrip() for name, text in p.sections.items())
+    body = "\n\n".join(f"## {name}\n{_escape(text)}".rstrip() for name, text in p.sections.items())
     return f"---\n{front}---\n{body}\n"

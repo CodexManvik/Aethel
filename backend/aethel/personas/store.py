@@ -4,18 +4,20 @@ import os
 import re
 import shutil
 import threading
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from ..chat.persona import AETHEL_PERSONA
-from .model import ID_RE, Persona, parse_persona, render_persona
+from .model import ID_RE, Persona, PersonaVoice, parse_persona, render_persona
 
 log = logging.getLogger("aethel.personas")
 BUILTIN_ID = "aethel"
 FILE = "persona.md"
 STYLE_FILE = "style.md"
 TRASH = ".trash"
+RETRIES, RETRY_S = 5, 0.02
 FIXED_FOR_BUILTIN = {"id", "name", "built_in"}
 
 
@@ -31,9 +33,10 @@ def builtin_persona() -> Persona:
 
 
 class PersonaStore:
-    def __init__(self, root: Path, known_voices=None):
+    def __init__(self, root: Path, known_voices=None, in_use=None):
         self.root = root
         self.known_voices = known_voices  # a callable giving the installed voices, or None (names only checked)
+        self.in_use = in_use              # a callable: does any conversation use this persona id?
         self._lock = threading.Lock()     # create/update/delete come from request threads
 
     def _known(self):
@@ -49,20 +52,41 @@ class PersonaStore:
 
     def _read(self, pid: str) -> Persona | None:
         path = self.folder(pid) / FILE
-        try:
-            return parse_persona(path.read_text(encoding="utf-8"), pid)
-        except FileNotFoundError:
-            return None
-        except (ValueError, OSError) as exc:  # a hand-edited file that no longer parses: skip it, don't crash
-            log.warning("persona %s can't be read: %s", pid, exc)
-            return None
+        for attempt in range(RETRIES):
+            try:
+                return parse_persona(path.read_text(encoding="utf-8"), pid)
+            except FileNotFoundError:
+                return None
+            except PermissionError:  # Windows: a save's os.replace for a moment; reading again succeeds
+                if attempt == RETRIES - 1:
+                    raise
+                time.sleep(RETRY_S)
+            except (ValueError, UnicodeDecodeError) as exc:  # a hand-edited file that no longer parses: skip it
+                log.warning("persona %s can't be read: %s", pid, exc)
+                return None
+        return None
 
     def _write(self, p: Persona) -> None:
         folder = self.folder(p.id)
         folder.mkdir(parents=True, exist_ok=True)
         tmp = folder / f".{FILE}.tmp"
         tmp.write_text(render_persona(p), encoding="utf-8")
-        os.replace(tmp, folder / FILE)
+        for attempt in range(RETRIES):
+            try:
+                os.replace(tmp, folder / FILE)
+                return
+            except PermissionError:  # a reader has the file open (Windows)
+                if attempt == RETRIES - 1:
+                    raise
+                time.sleep(RETRY_S)
+
+    def _taken(self, pid: str) -> bool:
+        """An id is never handed out twice: not while its folder exists, not while it's in the trash, and not while
+        a conversation (and the memories between them) still carries it."""
+        if (self.root / pid).exists() or (self.root / TRASH).is_dir() and any(
+                re.fullmatch(rf"{re.escape(pid)}-\d{{8}}-\d{{6}}-\d+", t.name) for t in (self.root / TRASH).iterdir()):
+            return True
+        return self.in_use is not None and self.in_use(pid)
 
     def list(self) -> list[Persona]:
         if not self.root.is_dir():
@@ -86,7 +110,7 @@ class PersonaStore:
         with self._lock:
             base, n = slug(p.name), 1
             pid = base
-            while (self.root / pid).exists():
+            while self._taken(pid):
                 n += 1
                 pid = f"{base[:37]}-{n}"
             made = p.model_copy(update={"id": pid, "built_in": False,
@@ -152,7 +176,10 @@ class PersonaStore:
         old data, and then nothing happens, not even the sentinel, so data that appears later still migrates."""
         if legacy is None or sentinel.exists():
             return None
-        made = self.create(legacy)
+        try:
+            made = self.create(legacy)
+        except ValueError:  # its old voice isn't installed here: keep the persona, with the default voice
+            made = self.create(legacy.model_copy(update={"voice": PersonaVoice()}))
         sentinel.parent.mkdir(parents=True, exist_ok=True)
         sentinel.write_text(f"{made.id}\n", encoding="utf-8")
         log.info("migrated the legacy companion to persona %s", made.id)

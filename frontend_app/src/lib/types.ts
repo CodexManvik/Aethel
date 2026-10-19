@@ -8,6 +8,7 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   web?: boolean | null; // this conversation's web switch; null or absent follows Settings
+  tone?: { mood: number; energy: number } | null; // a companion conversation's last tone (the glow after a reload)
 }
 
 export interface Message {

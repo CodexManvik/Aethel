@@ -55,6 +55,19 @@ def test_round_trip():
     assert parse_persona(render_persona(fresh), "mira") == fresh
 
 
+def test_heading_lines_inside_a_section_survive_a_save():
+    text = "You are X.\n## Rules\nbe nice\n\\## literal\n### small heading"
+    p = Persona(id="x", name="X", sections={"Personality": text})
+    back = parse_persona(render_persona(p), "x")
+    assert back.section("Personality") == text and "Rules" not in back.sections
+
+
+@pytest.mark.parametrize("bad", ["Foo\nbar", "# Heading", "x" * 41])
+def test_bad_section_names_rejected(bad):
+    with pytest.raises(ValueError):
+        Persona(id="x", name="X", sections={bad: "body"})
+
+
 def test_missing_keys_take_defaults_and_sections_exist():
     p = parse_persona("---\nname: Mira\n---\n## Personality\nCurious.\n", "mira")
     assert p.image_frequency == "on_request" and p.tone_engine is True and p.accent is None

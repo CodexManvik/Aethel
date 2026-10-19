@@ -43,8 +43,8 @@ def parse_whatsapp(content: str) -> list[Line]:
         m = _WHATSAPP.match(raw.strip())
         if m:
             out.append(Line(m.group(2).strip(), m.group(3).strip(), m.group(1)))
-        elif out and raw.strip() and not raw.startswith("‎"):  # a message that goes on for several lines
-            out[-1].text += "\n" + raw.strip()
+        elif out and raw.strip() and not raw.startswith("‎") and len(out[-1].text) < MAX_LINE_CHARS:
+            out[-1].text += "\n" + raw.strip()  # a message that goes on for several lines (capped as it grows)
     return [l for l in out if _keep(l.text)]
 
 
@@ -107,7 +107,10 @@ def parse_export(content: str, filename: str = "") -> list[Line]:
         is_discord = any(isinstance(m, dict) and isinstance(m.get("author"), dict) for m in msgs[:50])
         lines = parse_discord(data) if is_discord else parse_telegram(data)
     elif filename.lower().endswith(".csv"):
-        lines = parse_csv(stripped)
+        try:
+            lines = parse_csv(stripped)
+        except csv.Error as exc:
+            raise ExportError("That CSV file couldn't be read.") from exc
     else:
         lines = parse_whatsapp(stripped)
     if not lines:

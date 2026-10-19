@@ -26,6 +26,7 @@ class Conversation(BaseModel):
     created_at: str
     updated_at: str
     web: bool | None = None  # this conversation's web switch; None follows Settings
+    tone: dict | None = None  # a companion conversation's running tone {mood, energy}, if the tone engine has run
 
 
 class Message(BaseModel):
@@ -39,7 +40,9 @@ class Message(BaseModel):
 
 
 def _conversation(row) -> Conversation:
-    return Conversation(**dict(row))
+    data = dict(row)
+    meta = json.loads(data.pop("meta", None) or "{}")
+    return Conversation(**data, tone=meta.get("tone"))
 
 
 def _message(row) -> Message:

@@ -88,6 +88,33 @@ test("edits save together once typing pauses", async () => {
   }
 });
 
+test("a save that fails is kept and sent again with the next edit", async () => {
+  personas.push(make("mira", "Mira"));
+  useUi.setState({ studioPersonaId: "mira" });
+  const base = apiMock.getMockImplementation()!;
+  let fail = true;
+  apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (init?.method === "PATCH" && fail) {
+      fail = false;
+      calls.push(`FAILED ${init.body}`);
+      throw new Error("offline");
+    }
+    return base(path, init);
+  });
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    view();
+    fireEvent.change(await screen.findByLabelText("Backstory"), { target: { value: "Sea" } });
+    await act(async () => { vi.advanceTimersByTime(850); });
+    expect(await screen.findByText("Not saved")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Personality"), { target: { value: "Dry." } });
+    await act(async () => { vi.advanceTimersByTime(850); });
+    await waitFor(() => expect(calls).toContain('PATCH /api/personas/mira {"sections":{"Backstory":"Sea","Personality":"Dry."}}'));
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("the voice blend is normalised on save and previewed in the persona's words", async () => {
   expect(normaliseBlend([{ voice: "af_heart", weight: 0.6 }, { voice: "bf_emma", weight: 0.2 }])).toEqual({ af_heart: 0.75, bf_emma: 0.25 });
   expect(normaliseBlend([{ voice: "af_heart", weight: 0 }])).toEqual({ af_heart: 1 });
