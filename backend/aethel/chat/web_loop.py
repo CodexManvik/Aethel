@@ -56,9 +56,11 @@ def _what(call: ToolCall, args: dict) -> str:
 
 async def run_web_turn(*, router: RoleRouter, prompt: list[ChatMessage], tools: list[Tool], ctx: ToolContext,
                        sources, publish: Callable[[object], Awaitable[None]], message_id: str,
-                       on_switch: Callable[[ProviderSwitch], Awaitable[None]], budget: int) -> AsyncIterator[str]:
+                       on_switch: Callable[[ProviderSwitch], Awaitable[None]], budget: int,
+                       purpose: str = "web_chat") -> AsyncIterator[str]:
     """Yields the reply's text. `sources` is the turn's numbered source list (the tools add to it through ctx).
-    `budget` is how many prompt tokens the model about to be called can take (RoleRouter.primary's real limit)."""
+    `budget` is how many prompt tokens the model about to be called can take (RoleRouter.primary's real limit).
+    The loop isn't only for the web: a companion's image_generate goes through it too."""
     ctx.sources = sources
     convo = list(prompt)
     specs = [ToolSpec(t.name, t.description, t.parameters) for t in tools]
@@ -75,7 +77,7 @@ async def run_web_turn(*, router: RoleRouter, prompt: list[ChatMessage], tools: 
         calls: list[ToolCall] = []
         text: list[str] = []
         stream = router.stream("chat", convo, tools=None if final else specs, on_switch=on_switch,
-                               purpose="web_chat", ref={"message_id": message_id})
+                               purpose=purpose, ref={"message_id": message_id})
         async with aclosing(stream):
             async for ev in stream:
                 if isinstance(ev, TextDelta):

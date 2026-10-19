@@ -42,7 +42,10 @@ export type Server =
   | ToolActivity
   | Sources
   | PersonaUpdated
-  | ToneChanged;
+  | ToneChanged
+  | ImagePending
+  | ImageReady
+  | ImageFailed;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -175,6 +178,26 @@ export type Energy = number;
 export type Label2 = string;
 export type Mood = number;
 export type Type29 = "tone_changed";
+export type Caption = string;
+export type ConversationId10 = string | null;
+export type ImageId = string;
+export type MessageId11 = string | null;
+export type PersonaId1 = string;
+export type Type30 = "image_pending";
+export type ConversationId11 = string | null;
+export type IdentityScore = number | null;
+export type ImageId1 = string;
+export type MessageId12 = string | null;
+export type PersonaId2 = string;
+export type Type31 = "image_ready";
+export type Url1 = string;
+export type ConversationId12 = string | null;
+export type ImageId2 = string;
+export type Message1 = string;
+export type MessageId13 = string | null;
+export type PersonaId3 = string;
+export type Retryable = boolean;
+export type Type32 = "image_failed";
 
 export interface AethelProtocol {
   client: Client;
@@ -428,4 +451,33 @@ export interface ToneChanged {
   label: Label2;
   mood: Mood;
   type: Type29;
+}
+/**
+ * A photo is being made: the chat shows a developing card with the caption.
+ */
+export interface ImagePending {
+  caption: Caption;
+  conversation_id: ConversationId10;
+  image_id: ImageId;
+  message_id: MessageId11;
+  persona_id: PersonaId1;
+  type: Type30;
+}
+export interface ImageReady {
+  conversation_id: ConversationId11;
+  identity_score: IdentityScore;
+  image_id: ImageId1;
+  message_id: MessageId12;
+  persona_id: PersonaId2;
+  type: Type31;
+  url: Url1;
+}
+export interface ImageFailed {
+  conversation_id: ConversationId12;
+  image_id: ImageId2;
+  message: Message1;
+  message_id: MessageId13;
+  persona_id: PersonaId3;
+  retryable: Retryable;
+  type: Type32;
 }

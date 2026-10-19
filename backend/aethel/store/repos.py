@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Callable, Literal
 
 from pydantic import BaseModel
 
@@ -145,6 +145,16 @@ class MessageRepo:
             params.append(json.dumps(meta))
         if sets:
             self.db.execute(f"UPDATE messages SET {', '.join(sets)} WHERE id = ?", (*params, msg_id))
+
+    def merge_meta(self, msg_id: str, patch: Callable[[dict], dict]) -> bool:
+        """Read, change and write a message's meta in one transaction (a photo finishing while its reply is still
+        being saved must not lose either). False if the message is gone."""
+        with self.db.transaction():
+            row = self.db.query_one("SELECT meta FROM messages WHERE id = ?", (msg_id,))
+            if row is None:
+                return False
+            self.db.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(patch(json.loads(row["meta"]))), msg_id))
+        return True
 
     def mark_stopped_if_streaming(self, msg_id: str) -> bool:
         """Atomically end a reply that's still marked streaming. False if it

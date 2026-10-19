@@ -26,6 +26,12 @@ from .memory.episodic import EpisodicIndex
 from .memory.extract import FactExtractor
 from .memory.facts import FactStore
 from .memory.rsm import KnowledgeStore
+from .images.gemini import GeminiImage
+from .images.identity import IdentityCheck
+from .images.local.zimage import LocalZImage
+from .images.openrouter import OpenRouterImage
+from .images.service import ImageService
+from .images.tool import FrequencyRule, task_image_tool
 from .personas.legacy import legacy_rosia
 from .personas.lines import PersonaLines
 from .personas.store import PersonaStore
@@ -81,6 +87,7 @@ class Services:
     voice: VoiceService            # call mode: shared speech models, who is in a call
     personas: PersonaStore         # ~/.aethel/personas: who each conversation is with
     persona_lines: PersonaLines    # each persona's imported messages, recalled as style examples
+    images: ImageService           # a persona's photos: backends, the identity check, the gallery
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -136,6 +143,16 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                 " SELECT 1 FROM facts WHERE scope = ? LIMIT 1", (pid, f"persona:{pid}")) is not None)
     personas.ensure_builtin()
     persona_lines = PersonaLines(db, _embed, personas.folder)
+    images = ImageService(
+        personas=personas, settings=settings, identity=IdentityCheck(), hub=hub, messages=messages,
+        backends={"gemini": GeminiImage(key=lambda: keys.get("gemini"), model=lambda: settings.get().images.gemini_model,
+                                        http=http_client),
+                  "openrouter": OpenRouterImage(key=lambda: keys.get("openrouter"),
+                                               model=lambda: settings.get().images.openrouter_model, http=http_client),
+                  "local": LocalZImage(local_llm=local)})
+    registry.register(task_image_tool(images, personas, conversations,
+                                      lambda tid: (t.conversation_id if (t := tasks.get(tid)) else None),
+                                      Path.home() / "Documents" / "Aethel" / "images"))
     try:
         if os.environ.get("AETHEL_MIGRATE_LEGACY") != "0":  # tests turn it off: this PC's old data isn't theirs
             personas.migrate_legacy(legacy_rosia(), aethel_home() / ".migrated-personas")
@@ -149,14 +166,15 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor,
                        web_tools=lambda: [registry.get(name) for name in registry.names("web")], personas=personas,
-                       tone=ToneEngine(), lines=persona_lines)
+                       tone=ToneEngine(), lines=persona_lines, images=images,
+                       image_rule=FrequencyRule(system1=system1, messages=messages, settings=settings))
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
-        voice=voice, personas=personas, persona_lines=persona_lines,
+        voice=voice, personas=personas, persona_lines=persona_lines, images=images,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 
