@@ -110,6 +110,21 @@ class VoiceSettings(BaseModel):
     default_blend: dict[str, float] = Field(default_factory=lambda: {"af_heart": 1.0, "speed": 1.0})
 
 
+class ImageSettings(BaseModel):
+    # Which backend draws a persona's photos, tried in this order; private mode uses only "local".
+    backends: list[Literal["gemini", "openrouter", "local"]] = Field(default_factory=lambda: ["gemini", "openrouter", "local"])
+    # Gemini's native image model, through generateContent (images/gemini.py records what was checked). Settings
+    # -> Images lists the ids the key can use.
+    gemini_model: str = Field(default="gemini-3.1-flash-image", pattern=r"^[A-Za-z0-9._-]{3,80}$")
+    # An OpenRouter model that outputs images, e.g. "google/gemini-3.1-flash-image"; empty leaves OpenRouter off.
+    openrouter_model: str = Field(default="", pattern=r"^([A-Za-z0-9._:/-]{3,120})?$")
+    # Cosine (ArcFace) a photo's face must reach against the anchor portrait. Provisional (spec §10.3) until E4
+    # (scripts/eval_identity.py) calibrates it at a 5% false-accept rate.
+    identity_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
+    # System 1's P(the user asks for a picture) for "when asked" personas. Provisional, not measured.
+    request_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+
+
 class MemorySettings(BaseModel):
     facts_enabled: bool = True
     # Measured by scripts/eval_s1_fact.py on eval/s1_fact.jsonl (120 hand-written messages, 2026-09-30,
@@ -161,6 +176,7 @@ class AppSettings(BaseModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
+    images: ImageSettings = Field(default_factory=ImageSettings)
     token_saving: TokenSavingSettings = Field(default_factory=TokenSavingSettings)
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
@@ -176,7 +192,7 @@ class AppSettings(BaseModel):
     use_learned_skills: bool = True
 
 
-REPLACED_WHOLE = {"roles", "default_blend"}  # a patch to these is the new value, not merged into the old one
+REPLACED_WHOLE = {"roles", "default_blend", "backends"}  # a patch to these is the new value, not merged into the old one
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

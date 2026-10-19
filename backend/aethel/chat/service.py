@@ -11,6 +11,7 @@ import anyio
 from ..context.builder import budget_for
 from ..context.recipes import chat_context
 from ..hub import EventHub
+from ..images.tool import chat_image_tool
 from ..personas.prompt import persona_system_prompt
 from ..personas.tone import Tone, prompt_line
 from ..protocol import (ContextUsed, ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched,
@@ -46,7 +47,10 @@ class ChatService:
                  settings: SettingsService, hub: EventHub,
                  task_note: Callable[[str], str | None] | None = None,
                  facts=None, episodic=None, extractor=None,
-                 web_tools: Callable[[], list[Tool]] | None = None, personas=None, tone=None, lines=None):
+                 web_tools: Callable[[], list[Tool]] | None = None, personas=None, tone=None, lines=None,
+                 images=None, image_rule=None):
+        self.images = images            # images.service.ImageService: a companion's photos; None: never offered
+        self.image_rule = image_rule    # images.tool.FrequencyRule: whether this message may get one
         self.personas = personas    # PersonaStore: who the conversation is with; None: always the built-in text
         self.tone = tone            # personas.tone.ToneEngine: a companion's running mood; None: off
         self.lines = lines          # personas.lines.PersonaLines: imported messages, recalled as style examples
@@ -164,12 +168,14 @@ class ChatService:
             if recalled["facts"] or recalled["episodes"]:
                 self.messages.update(assistant.id, meta={**base_meta, "context": recalled})
                 await publish(ContextUsed(message_id=assistant.id, **recalled))
-            if web_tools:
+            tools = [*web_tools, *await self._image_tools_for(conv, event.text, assistant.id)]
+            if tools:
                 s = self.settings.get()
                 deltas = run_web_turn(
-                    router=self.router, prompt=prompt, tools=web_tools, ctx=ToolContext(task_id=None),
+                    router=self.router, prompt=prompt, tools=tools, ctx=ToolContext(task_id=None),
                     sources=sources, publish=publish, message_id=assistant.id, on_switch=on_switch,
-                    budget=budget_for(s, "chat", s.max_tokens, capped=False, entries=self.router.primary("chat")))
+                    budget=budget_for(s, "chat", s.max_tokens, capped=False, entries=self.router.primary("chat")),
+                    purpose="web_chat" if web_tools else "chat_reply")
             else:
                 deltas = self._plain_turn(prompt, on_switch, assistant.id)
             async with aclosing(deltas):
@@ -200,9 +206,8 @@ class ChatService:
             self.messages.update(assistant.id, content="".join(parts), status=status)
             if sources is not None and sources.all():  # before the end of the message, so [n] can become footnotes
                 listed = [Source(n=s.n, title=s.title, url=s.url) for s in sources.all()]
-                saved = self.messages.get(assistant.id)  # None if the conversation was deleted mid-reply
-                if saved is not None:
-                    self.messages.update(assistant.id, meta={**saved.meta, "sources": [s.model_dump() for s in listed]})
+                # False if the conversation was deleted mid-reply; merged, so a photo finishing meanwhile isn't lost
+                if self.messages.merge_meta(assistant.id, lambda m: {**m, "sources": [s.model_dump() for s in listed]}):
                     await publish(Sources(message_id=assistant.id, task_id=None, sources=listed))
             self._active.pop(assistant.id, None)
             self._partials.pop(assistant.id, None)
@@ -223,6 +228,28 @@ class ChatService:
             await self._step_tone(conv, user_msg.content)
         if status in ("complete", "stopped") and self.extractor is not None:
             self.extractor.schedule(conversation_id=conv.id, persona_id=conv.persona_id, user_message_id=user_msg.id)
+
+    async def reply_done(self, message_id: str) -> None:
+        """Returns once that reply's turn has finished (at once if it isn't running)."""
+        task = self._active.get(message_id)
+        if task is not None and task is not asyncio.current_task():
+            await asyncio.wait({task})
+
+    async def _image_tools_for(self, conv, user_text: str, message_id: str) -> list[Tool]:
+        """image_generate, when the persona may send a photo now (its frequency rule) and some image model is
+        available (in private mode only one on this PC). A failure here never costs the reply."""
+        if self.images is None or self.image_rule is None:
+            return []
+        persona = self.persona_for(conv.persona_id)
+        try:
+            if persona is None or not await self.image_rule.allowed(persona, conv.id, user_text):
+                return []
+            if await self.images.backend() is None:
+                return []
+        except Exception:
+            log.exception("deciding whether to offer a photo failed")
+            return []
+        return [chat_image_tool(self.images, persona, conv.id, message_id)]
 
     async def _step_tone(self, conv, text: str) -> None:
         """A companion's tone moves with what the user said; the UI's glow follows it."""

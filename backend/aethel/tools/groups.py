@@ -10,14 +10,15 @@ GROUPS: dict[str, str] = {
     "files": "bulk file work: search inside many files, file info, edit part of a file",
     "web": "search the web and read pages, with citations",
     "browser": "your own background web browser: open pages, click, type, fill forms",
+    "images": "make a picture (a photo of the persona, or of anything) and save it",
 }
 # How the task panel names a group: "Asked for Word and Excel tools"
 GROUP_LABELS: dict[str, str] = {"desktop_extra": "extra desktop", "office": "Word and Excel", "files": "file search",
-                                "web": "web", "browser": "browser"}
+                                "web": "web", "browser": "browser", "images": "picture"}
 CORE = frozenset({"core"})
 # Groups that start deferred even when "send only the tools a task needs" is off: the browser's ~13 tools would
 # otherwise ride along with every task, and most tasks never touch it.
-ALWAYS_ON_REQUEST = frozenset({"browser"})
+ALWAYS_ON_REQUEST = frozenset({"browser", "images"})  # images: each one costs a cloud call
 # Groups that are web access: off wherever the web is off for a conversation (and in private mode).
 NEEDS_WEB = frozenset({"web", "browser"})
 CATALOGUE_START = "More tools on request"  # what catalogue_line() opens with, so it can be found and replaced

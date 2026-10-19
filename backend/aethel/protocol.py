@@ -248,11 +248,41 @@ class ToneChanged(Event):
     label: str
 
 
+class ImagePending(Event):
+    """A photo is being made: the chat shows a developing card with the caption."""
+    type: Literal["image_pending"] = "image_pending"
+    image_id: str
+    persona_id: str
+    conversation_id: str | None
+    message_id: str | None
+    caption: str
+
+
+class ImageReady(Event):
+    type: Literal["image_ready"] = "image_ready"
+    image_id: str
+    persona_id: str
+    conversation_id: str | None
+    message_id: str | None
+    url: str                        # served by /api/personas/{id}/files/...
+    identity_score: float | None    # ArcFace cosine to the anchor; None: not checked (no face, or no face models)
+
+
+class ImageFailed(Event):
+    type: Literal["image_failed"] = "image_failed"
+    image_id: str
+    persona_id: str
+    conversation_id: str | None
+    message_id: str | None
+    message: str
+    retryable: bool
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, TaskNote, StepStarted, StepFinished, ApprovalNeeded,
           ApprovalResolved, VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed,
-          ToolActivity, Sources, PersonaUpdated, ToneChanged],
+          ToolActivity, Sources, PersonaUpdated, ToneChanged, ImagePending, ImageReady, ImageFailed],
     Field(discriminator="type"),
 ]
 

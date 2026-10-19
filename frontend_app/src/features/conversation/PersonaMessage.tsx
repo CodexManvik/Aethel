@@ -2,6 +2,7 @@ import { Children } from "react";
 import Markdown, { type Components } from "react-markdown";
 import type { UiMessage } from "../../stores/session";
 import { useUi } from "../../stores/ui";
+import { DevelopingPhoto } from "../images/DevelopingPhoto";
 import { ActivityLine } from "./ActivityLine";
 import { SourceList, citeText } from "./Citations";
 import { InkText } from "./InkText";
@@ -44,6 +45,7 @@ export function PersonaMessage({ message }: { message: UiMessage }) {
           <Markdown components={components}>{message.sources ? citeText(message.content, message.sources) : message.content}</Markdown>
         )
       )}
+      {message.images?.map((photo) => <DevelopingPhoto key={photo.id} photo={photo} />)}
       {message.status === "streaming" && message.activity && <ActivityLine text={message.activity} />}
       {message.status !== "streaming" && message.sources && <SourceList sources={message.sources} />}
       {message.status === "stopped" && <p className="mt-1 font-sans text-[12px] text-faint">stopped</p>}

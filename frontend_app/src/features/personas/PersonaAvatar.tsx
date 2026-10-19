@@ -1,6 +1,6 @@
 import { useObjectUrl } from "../../lib/useObjectUrl";
 import { cn } from "../../ui/cn";
-import type { Persona } from "./personasApi";
+import { personaFile, usePortraitVersion, type Persona } from "./personasApi";
 
 interface Props {
   persona: Pick<Persona, "id" | "name" | "built_in" | "anchors" | "accent">;
@@ -13,7 +13,8 @@ interface Props {
 /** The portrait when there is one; otherwise a monogram (Æ for the built-in Aethel), tinted with the persona's accent. */
 export function PersonaAvatar({ persona, size = 36, active = false, glow = 0, className }: Props) {
   const anchor = persona.anchors[0];
-  const src = useObjectUrl(anchor ? `/api/personas/${persona.id}/files/${anchor}` : null);
+  const version = usePortraitVersion((s) => s.n);
+  const src = useObjectUrl(anchor ? personaFile(persona.id, anchor, version) : null);
   const tint = persona.accent ? `color-mix(in oklab, ${persona.accent.light} 18%, var(--paper))` : undefined;
   const rings = [
     active ? "0 0 0 2px var(--canvas), 0 0 0 3.5px var(--accent)" : "0 0 0 1px var(--hairline)",

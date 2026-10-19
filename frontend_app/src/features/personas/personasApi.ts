@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { create } from "zustand";
 import { api, apiBlob } from "../../lib/api";
 import type { Conversation } from "../../lib/types";
 import { useSession } from "../../stores/session";
@@ -37,6 +38,16 @@ export interface Persona {
 }
 
 export const BUILTIN_ID = "aethel";
+
+/** Bumped when a face or character sheet is redrawn: their file names stay the same, so pictures already shown
+ * would otherwise keep the old ones. */
+export const usePortraitVersion = create<{ n: number; bump(): void }>()((set) => ({
+  n: 0,
+  bump: () => set((s) => ({ n: s.n + 1 })),
+}));
+
+export const personaFile = (personaId: string, rel: string, version: number) =>
+  `/api/personas/${personaId}/files/${rel}?v=${version}`;
 
 export function usePersonas() {
   return useQuery({ queryKey: ["personas"], queryFn: () => api<Persona[]>("/api/personas") });

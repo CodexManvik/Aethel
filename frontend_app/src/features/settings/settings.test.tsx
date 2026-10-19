@@ -32,6 +32,7 @@ const settings: AppSettings = {
   replay_thumbnails: true,
   use_learned_skills: true,
   token_saving: { mask_superseded: true, mask_batch: 3, compact_schemas: true, tool_groups: false },
+  images: { backends: ["gemini", "openrouter", "local"], gemini_model: "gemini-3.1-flash-image", openrouter_model: "", identity_threshold: 0.45, request_threshold: 0.6 },
 };
 let rebuilds = 0;
 const providers: ProviderInfo[] = [

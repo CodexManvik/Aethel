@@ -7,6 +7,7 @@ import { AppearanceSection } from "./AppearanceSection";
 import { ToolsSection } from "./ToolsSection";
 import { BrowserSection } from "./BrowserSection";
 import { VoiceSection } from "./VoiceSection";
+import { ImagesSection } from "./ImagesSection";
 import { LearningSection } from "./LearningSection";
 import { MemorySection } from "./MemorySection";
 import { UsageSection } from "./UsageSection";
@@ -27,6 +28,7 @@ export function SettingsView() {
             <ToolsSection />
             <BrowserSection settings={settings} />
             <VoiceSection settings={settings} />
+            <ImagesSection settings={settings} />
             <LearningSection settings={settings} />
             <MemorySection settings={settings} />
             <UsageSection />

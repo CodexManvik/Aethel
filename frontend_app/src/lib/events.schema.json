@@ -410,6 +410,189 @@
       "title": "FactsChanged",
       "type": "object"
     },
+    "ImageFailed": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversation Id"
+        },
+        "image_id": {
+          "title": "Image Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message Id"
+        },
+        "persona_id": {
+          "title": "Persona Id",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "image_failed",
+          "default": "image_failed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "image_id",
+        "persona_id",
+        "conversation_id",
+        "message_id",
+        "message",
+        "retryable"
+      ],
+      "title": "ImageFailed",
+      "type": "object"
+    },
+    "ImagePending": {
+      "additionalProperties": false,
+      "description": "A photo is being made: the chat shows a developing card with the caption.",
+      "properties": {
+        "caption": {
+          "title": "Caption",
+          "type": "string"
+        },
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversation Id"
+        },
+        "image_id": {
+          "title": "Image Id",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message Id"
+        },
+        "persona_id": {
+          "title": "Persona Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "image_pending",
+          "default": "image_pending",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "image_id",
+        "persona_id",
+        "conversation_id",
+        "message_id",
+        "caption"
+      ],
+      "title": "ImagePending",
+      "type": "object"
+    },
+    "ImageReady": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversation Id"
+        },
+        "identity_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Identity Score"
+        },
+        "image_id": {
+          "title": "Image Id",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message Id"
+        },
+        "persona_id": {
+          "title": "Persona Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "image_ready",
+          "default": "image_ready",
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "image_id",
+        "persona_id",
+        "conversation_id",
+        "message_id",
+        "url",
+        "identity_score"
+      ],
+      "title": "ImageReady",
+      "type": "object"
+    },
     "KillSwitch": {
       "additionalProperties": false,
       "description": "Ctrl+Alt+Esc: cancel every task now (spec \u00a74.3).",
@@ -1403,6 +1586,9 @@
           "cursor_intent": "#/$defs/CursorIntent",
           "error": "#/$defs/ErrorEvent",
           "facts_changed": "#/$defs/FactsChanged",
+          "image_failed": "#/$defs/ImageFailed",
+          "image_pending": "#/$defs/ImagePending",
+          "image_ready": "#/$defs/ImageReady",
           "message_end": "#/$defs/MessageEnd",
           "message_start": "#/$defs/MessageStart",
           "persona_updated": "#/$defs/PersonaUpdated",
@@ -1495,6 +1681,15 @@
         },
         {
           "$ref": "#/$defs/ToneChanged"
+        },
+        {
+          "$ref": "#/$defs/ImagePending"
+        },
+        {
+          "$ref": "#/$defs/ImageReady"
+        },
+        {
+          "$ref": "#/$defs/ImageFailed"
         }
       ],
       "title": "Server"
