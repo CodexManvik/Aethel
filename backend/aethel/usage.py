@@ -10,7 +10,7 @@ from .store.repos import new_id, now_iso
 
 log = logging.getLogger("aethel.usage")
 PURPOSES = ("chat_reply", "fact_extract", "plan", "execute", "final_summary", "reflect", "vision_locate", "web_chat",
-            "narration")
+            "narration", "persona_draft")
 
 
 def _tokens(chars: int) -> int:

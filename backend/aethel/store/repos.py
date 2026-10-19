@@ -80,6 +80,16 @@ class ConversationRepo:
         self.db.execute("UPDATE conversations SET web = ? WHERE id = ?", (None if web is None else int(web), conv_id))
         return self.get(conv_id)
 
+    def meta(self, conv_id: str) -> dict:
+        row = self.db.query_one("SELECT meta FROM conversations WHERE id = ?", (conv_id,))
+        return json.loads(row["meta"]) if row else {}
+
+    def update_meta(self, conv_id: str, patch: dict) -> None:
+        """Merged into what's there. Doesn't count as activity."""
+        with self.db.transaction():
+            self.db.execute("UPDATE conversations SET meta = ? WHERE id = ?",
+                            (json.dumps({**self.meta(conv_id), **patch}), conv_id))
+
     def delete(self, conv_id: str) -> bool:
         return self.db.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)).rowcount > 0
 

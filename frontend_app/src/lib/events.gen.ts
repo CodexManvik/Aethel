@@ -40,7 +40,9 @@ export type Server =
   | FactsChanged
   | ContextUsed
   | ToolActivity
-  | Sources;
+  | Sources
+  | PersonaUpdated
+  | ToneChanged;
 export type ClientId2 = string | null;
 export type ConversationId2 = string;
 export type MessageId1 = string;
@@ -165,6 +167,14 @@ export type Url = string;
 export type Sources1 = Source[];
 export type TaskId15 = string | null;
 export type Type27 = "sources";
+export type Deleted = boolean;
+export type PersonaId = string;
+export type Type28 = "persona_updated";
+export type ConversationId9 = string;
+export type Energy = number;
+export type Label2 = string;
+export type Mood = number;
+export type Type29 = "tone_changed";
 
 export interface AethelProtocol {
   client: Client;
@@ -400,4 +410,22 @@ export interface Source {
   n: N;
   title: Title2;
   url: Url;
+}
+/**
+ * A persona was created, edited or deleted (the studio, or a file changed by the app).
+ */
+export interface PersonaUpdated {
+  deleted: Deleted;
+  persona_id: PersonaId;
+  type: Type28;
+}
+/**
+ * A companion conversation's running tone after a turn: drives the accent glow (opacity follows energy).
+ */
+export interface ToneChanged {
+  conversation_id: ConversationId9;
+  energy: Energy;
+  label: Label2;
+  mood: Mood;
+  type: Type29;
 }

@@ -27,7 +27,9 @@ from .memory.extract import FactExtractor
 from .memory.facts import FactStore
 from .memory.rsm import KnowledgeStore
 from .personas.legacy import legacy_rosia
+from .personas.lines import PersonaLines
 from .personas.store import PersonaStore
+from .personas.tone import ToneEngine
 from .store.db import Database
 from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
@@ -78,6 +80,7 @@ class Services:
     usage: UsageLog
     voice: VoiceService            # call mode: shared speech models, who is in a call
     personas: PersonaStore         # ~/.aethel/personas: who each conversation is with
+    persona_lines: PersonaLines    # each persona's imported messages, recalled as style examples
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -129,6 +132,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     voice = VoiceService(settings=settings, keys=keys, system1=system1, db=db)
     personas = PersonaStore(aethel_home() / "personas", known_voices=lambda: voice.kokoro.voices() or None)
     personas.ensure_builtin()
+    persona_lines = PersonaLines(db, _embed, personas.folder)
     try:
         if os.environ.get("AETHEL_MIGRATE_LEGACY") != "0":  # tests turn it off: this PC's old data isn't theirs
             personas.migrate_legacy(legacy_rosia(), aethel_home() / ".migrated-personas")
@@ -141,14 +145,15 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                         system1=system1, facts=facts, personas=personas)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor,
-                       web_tools=lambda: [registry.get(name) for name in registry.names("web")], personas=personas)
+                       web_tools=lambda: [registry.get(name) for name in registry.names("web")], personas=personas,
+                       tone=ToneEngine(), lines=persona_lines)
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
-        voice=voice, personas=personas,
+        voice=voice, personas=personas, persona_lines=persona_lines,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 

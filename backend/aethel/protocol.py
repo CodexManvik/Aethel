@@ -232,11 +232,27 @@ class Sources(Event):
     sources: list[Source]
 
 
+class PersonaUpdated(Event):
+    """A persona was created, edited or deleted (the studio, or a file changed by the app)."""
+    type: Literal["persona_updated"] = "persona_updated"
+    persona_id: str
+    deleted: bool = False
+
+
+class ToneChanged(Event):
+    """A companion conversation's running tone after a turn: drives the accent glow (opacity follows energy)."""
+    type: Literal["tone_changed"] = "tone_changed"
+    conversation_id: str
+    mood: float
+    energy: float
+    label: str
+
+
 ServerEvent = Annotated[
     Union[MessageStart, Token, MessageEnd, ProviderSwitched, ConversationUpdated, ErrorEvent,
           TaskCreated, TaskPlan, PlanProgress, TaskNote, StepStarted, StepFinished, ApprovalNeeded,
           ApprovalResolved, VerificationResult, TaskState, SkillLearned, CursorIntent, FactsChanged, ContextUsed,
-          ToolActivity, Sources],
+          ToolActivity, Sources, PersonaUpdated, ToneChanged],
     Field(discriminator="type"),
 ]
 

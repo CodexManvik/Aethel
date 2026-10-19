@@ -158,7 +158,7 @@ test("before a conversation exists the choice waits, then is applied when it's c
   await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "latest news?{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));
   expect(calls.filter((c) => c.startsWith("POST") || c.startsWith("PATCH"))).toEqual([
-    "POST /api/conversations {}", 'PATCH /api/conversations/c9 {"web":true}']);   // created, then switched on, then sent
+    'POST /api/conversations {"persona_id":"aethel"}', 'PATCH /api/conversations/c9 {"web":true}']);   // created, then switched on, then sent
   expect(sent[0]).toMatchObject({ type: "user_message", conversation_id: "c9", text: "latest news?" });
   expect(useUi.getState().newChatWeb).toBeNull();
 });

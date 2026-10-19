@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Screen = "conversation" | "memory" | "tasks" | "settings";
+export type Screen = "conversation" | "memory" | "tasks" | "settings" | "personas";
 export type ThemePref = "light" | "dark" | "system";
 export type MotionPref = "system" | "full" | "reduced";
 
@@ -56,6 +56,10 @@ interface UiState {
   focusMessageId: string | null; // a message to scroll to and highlight once the conversation shows it
   newChatWeb: boolean | null; // the web pill's choice for a conversation that doesn't exist yet (null: follow Settings)
   callOpen: boolean; // the call screen is showing (the call itself lives in stores/voice)
+  newChatPersona: string; // who a conversation that doesn't exist yet will be with
+  studioPersonaId: string | null; // the persona the studio opens on (null: the list)
+  setNewChatPersona(id: string): void;
+  openStudio(id: string | null): void;
   setCallOpen(open: boolean): void;
   setNewChatWeb(web: boolean | null): void;
   setFocusMessage(id: string | null): void;
@@ -77,6 +81,10 @@ export const useUi = create<UiState>()((set, get) => ({
   focusMessageId: null,
   newChatWeb: null,
   callOpen: false,
+  newChatPersona: "aethel",
+  studioPersonaId: null,
+  setNewChatPersona: (newChatPersona) => set({ newChatPersona }),
+  openStudio: (studioPersonaId) => set({ studioPersonaId, screen: "personas", threadsOpen: false }),
   setCallOpen: (callOpen) => set({ callOpen }),
   setNewChatWeb: (newChatWeb) => set({ newChatWeb }),
   setFocusMessage: (focusMessageId) => set({ focusMessageId }),

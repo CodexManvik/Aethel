@@ -12,8 +12,9 @@ from ..context.builder import budget_for
 from ..context.recipes import chat_context
 from ..hub import EventHub
 from ..personas.prompt import persona_system_prompt
+from ..personas.tone import Tone, prompt_line
 from ..protocol import (ContextUsed, ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched,
-                        Source, Sources, Token, UserMessage)
+                        Source, Sources, Token, ToneChanged, UserMessage)
 from ..providers.base import ChatMessage, ProviderError, TextDelta
 from ..providers.router import NoProviderAvailable, ProviderSwitch, RoleRouter
 from ..settings import SettingsService
@@ -45,8 +46,10 @@ class ChatService:
                  settings: SettingsService, hub: EventHub,
                  task_note: Callable[[str], str | None] | None = None,
                  facts=None, episodic=None, extractor=None,
-                 web_tools: Callable[[], list[Tool]] | None = None, personas=None):
+                 web_tools: Callable[[], list[Tool]] | None = None, personas=None, tone=None, lines=None):
         self.personas = personas    # PersonaStore: who the conversation is with; None: always the built-in text
+        self.tone = tone            # personas.tone.ToneEngine: a companion's running mood; None: off
+        self.lines = lines          # personas.lines.PersonaLines: imported messages, recalled as style examples
         self.web_tools = web_tools  # the web tools to offer when a conversation has the web on; None: never
         self.conversations = conversations
         self.messages = messages
@@ -216,8 +219,23 @@ class ChatService:
                 await anyio.to_thread.run_sync(self.episodic.add_exchange, user_msg, final)
             except Exception:
                 log.exception("indexing the exchange failed")
+        if status == "complete":
+            await self._step_tone(conv, user_msg.content)
         if status in ("complete", "stopped") and self.extractor is not None:
             self.extractor.schedule(conversation_id=conv.id, persona_id=conv.persona_id, user_message_id=user_msg.id)
+
+    async def _step_tone(self, conv, text: str) -> None:
+        """A companion's tone moves with what the user said; the UI's glow follows it."""
+        persona = self.persona_for(conv.persona_id)
+        if not self._tone_on(persona):
+            return
+        try:
+            meta = self.conversations.meta(conv.id)
+            state = await anyio.to_thread.run_sync(self.tone.step, Tone(**meta.get("tone", {})), text)
+            self.conversations.update_meta(conv.id, {"tone": {"mood": state.mood, "energy": state.energy}})
+            await self.hub.publish(ToneChanged(conversation_id=conv.id, **state.to_dict()))
+        except Exception:
+            log.exception("the tone engine failed")
 
     def _web_tools_for(self, conv: Conversation) -> list[Tool]:
         """The web tools this conversation may use: none unless the web is on for it (private mode: never)."""
@@ -234,13 +252,21 @@ class ChatService:
                 if isinstance(ev, TextDelta):
                     yield ev.text
 
-    def system_for(self, persona_id: str) -> str:
-        """The persona's prompt; a persona that's gone (deleted, or a file that no longer parses) falls back to the
-        built-in rather than fail the turn."""
+    def persona_for(self, persona_id: str):
+        """A persona that's gone (deleted, or a file that no longer parses) falls back to the built-in rather than
+        fail the turn. None when there's no persona store at all."""
         if self.personas is None:
+            return None
+        return self.personas.get(persona_id) or self.personas.builtin()
+
+    def system_for(self, persona_id: str) -> str:
+        persona = self.persona_for(persona_id)
+        if persona is None:
             return system_prompt()
-        persona = self.personas.get(persona_id) or self.personas.builtin()
         return persona_system_prompt(persona, self.personas.style_directive(persona.id))
+
+    def _tone_on(self, persona) -> bool:
+        return self.tone is not None and persona is not None and persona.tone_engine and not persona.built_in
 
     async def _context(self, conv, exclude_id: str, query: str, web: bool = False) -> tuple[list[ChatMessage], dict]:
         settings = self.settings.get()
@@ -249,9 +275,13 @@ class ChatService:
             if m.id != exclude_id and m.status != "error" and m.content
         ]
         note = self.task_note(conv.id) if self.task_note else None
+        persona = self.persona_for(conv.persona_id)
+        tone = prompt_line(Tone(**self.conversations.meta(conv.id).get("tone", {}))) if self._tone_on(persona) else None
         built, recalled = await chat_context(
             system=self.system_for(conv.persona_id), window=[ChatMessage(m.role, m.content) for m in history], query=query,
             persona_id=conv.persona_id, facts=self.facts, episodic=self.episodic, settings=settings,
             exclude_messages={m.id for m in history},
-            tail="\n\n".join(filter(None, [note, time_note(), WEB_NOTE if web else None])))
+            tail="\n\n".join(filter(None, [note, tone, time_note(), WEB_NOTE if web else None])),
+            lines=self.lines if persona is not None and not persona.built_in else None,
+            persona_name=persona.name if persona is not None else "Aethel")
         return built.messages, recalled

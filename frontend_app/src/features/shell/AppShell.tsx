@@ -10,11 +10,16 @@ import { SettingsView } from "../settings/SettingsView";
 import { MemoryView } from "../memory/MemoryView";
 import { TasksView } from "../history/TasksView";
 import { CallView } from "../call/CallView";
+import { PersonasView } from "../personas/PersonasView";
+import { useActivePersona } from "../personas/personasApi";
+import { applyPersonaAccent } from "../../lib/accent";
 
 export function AppShell() {
   const { screen, motion, callOpen } = useUi();
   useSessionEvents();
   useEffect(() => watchSystemAppearance(), []);
+  const accent = useActivePersona()?.accent ?? null;
+  useEffect(() => applyPersonaAccent(accent), [accent?.light, accent?.dark]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <MotionConfig reducedMotion={resolveMotion(motion) === "reduced" ? "always" : "never"}>
@@ -23,7 +28,7 @@ export function AppShell() {
         <main className="relative min-w-0 flex-1">
           <ThreadsPanel />
           {screen === "conversation" ? <ConversationView /> : screen === "memory" ? <MemoryView />
-            : screen === "tasks" ? <TasksView /> : <SettingsView />}
+            : screen === "tasks" ? <TasksView /> : screen === "personas" ? <PersonasView /> : <SettingsView />}
           {callOpen && <CallView />}
         </main>
         <Toaster
