@@ -11,6 +11,7 @@ import anyio
 from ..context.builder import budget_for
 from ..context.recipes import chat_context
 from ..hub import EventHub
+from ..personas.prompt import persona_system_prompt
 from ..protocol import (ContextUsed, ConversationUpdated, ErrorEvent, MessageEnd, MessageStart, ProviderSwitched,
                         Source, Sources, Token, UserMessage)
 from ..providers.base import ChatMessage, ProviderError, TextDelta
@@ -44,7 +45,8 @@ class ChatService:
                  settings: SettingsService, hub: EventHub,
                  task_note: Callable[[str], str | None] | None = None,
                  facts=None, episodic=None, extractor=None,
-                 web_tools: Callable[[], list[Tool]] | None = None):
+                 web_tools: Callable[[], list[Tool]] | None = None, personas=None):
+        self.personas = personas    # PersonaStore: who the conversation is with; None: always the built-in text
         self.web_tools = web_tools  # the web tools to offer when a conversation has the web on; None: never
         self.conversations = conversations
         self.messages = messages
@@ -232,6 +234,14 @@ class ChatService:
                 if isinstance(ev, TextDelta):
                     yield ev.text
 
+    def system_for(self, persona_id: str) -> str:
+        """The persona's prompt; a persona that's gone (deleted, or a file that no longer parses) falls back to the
+        built-in rather than fail the turn."""
+        if self.personas is None:
+            return system_prompt()
+        persona = self.personas.get(persona_id) or self.personas.builtin()
+        return persona_system_prompt(persona, self.personas.style_directive(persona.id))
+
     async def _context(self, conv, exclude_id: str, query: str, web: bool = False) -> tuple[list[ChatMessage], dict]:
         settings = self.settings.get()
         history = [
@@ -240,7 +250,7 @@ class ChatService:
         ]
         note = self.task_note(conv.id) if self.task_note else None
         built, recalled = await chat_context(
-            system=system_prompt(), window=[ChatMessage(m.role, m.content) for m in history], query=query,
+            system=self.system_for(conv.persona_id), window=[ChatMessage(m.role, m.content) for m in history], query=query,
             persona_id=conv.persona_id, facts=self.facts, episodic=self.episodic, settings=settings,
             exclude_messages={m.id for m in history},
             tail="\n\n".join(filter(None, [note, time_note(), WEB_NOTE if web else None])))

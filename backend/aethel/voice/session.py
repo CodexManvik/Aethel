@@ -142,8 +142,13 @@ class VoiceSession:
         self._holds_call = True
         self.conversation_id = conv.id
         s = self.svc.settings.get()
+        persona = self._persona(conv.persona_id)
         try:
-            self.blend = VoiceBlend.parse(s.voice.default_blend)
+            # A companion speaks with its own blend; the built-in Aethel with the one in Settings -> Voice.
+            if persona is not None and not persona.built_in:
+                self.blend = persona.voice.to_blend(self.svc.voice.kokoro.voices() or None)
+            else:
+                self.blend = VoiceBlend.parse(s.voice.default_blend)
         except ValueError:
             self.blend = VoiceBlend.parse({"af_heart": 1.0})
         self.stt, self.tts = self.svc.voice.stt(), self.svc.voice.tts()
@@ -160,8 +165,14 @@ class VoiceSession:
         if v.ack:
             self._ack_prep = asyncio.ensure_future(self._prepare_acks())
         voice = v.azure_voice if getattr(self.tts, "prefer_azure", False) else self.blend.weights[0][0]
-        persona = "Aethel" if conv.persona_id == "aethel" else conv.persona_id.replace("_", " ").title()
-        await self._push(Ready(stt=self.stt.name, tts_voice=voice, persona_name=persona))
+        name = persona.name if persona is not None else "Aethel"
+        await self._push(Ready(stt=self.stt.name, tts_voice=voice, persona_name=name))
+
+    def _persona(self, persona_id: str):
+        store = getattr(self.svc, "personas", None)
+        if store is None:
+            return None
+        return store.get(persona_id) or store.builtin()
 
     def _warm(self) -> None:
         if hasattr(self.stt, "warm"):

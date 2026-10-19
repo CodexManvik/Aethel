@@ -32,6 +32,9 @@ def list_conversations(svc: Services = Depends(get_services)) -> list[Conversati
 
 @router.post("")
 def create_conversation(body: CreateIn, svc: Services = Depends(get_services)) -> Conversation:
+    """A conversation is with one persona for its whole life: talking to another starts a new conversation."""
+    if svc.personas.get(body.persona_id) is None:
+        raise HTTPException(status_code=422, detail="There's no persona with that id.")
     return svc.conversations.create(persona_id=body.persona_id)
 
 
