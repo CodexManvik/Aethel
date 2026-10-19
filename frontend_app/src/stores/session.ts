@@ -9,6 +9,19 @@ export interface Recalled {
   episodes: RecalledEpisode[];
 }
 
+export interface UiPhoto {
+  id: string;
+  personaId: string;
+  status: "pending" | "ready" | "failed";
+  caption: string;
+  url?: string;          // the backend path of the picture, once it's ready
+  score?: number | null; // identity score; null: not checked
+  error?: string;
+  startedAt?: number;    // when the card started developing (ms), for the running average of how long photos take
+}
+
+export const photoUrl = (personaId: string, id: string) => `/api/personas/${personaId}/files/gallery/${id}.jpg`;
+
 export interface UiMessage {
   id: string;
   role: "user" | "assistant";
@@ -21,6 +34,7 @@ export interface UiMessage {
   recalled?: Recalled;   // replies: the facts and earlier moments that went into them
   activity?: string;     // replies being written: what Aethel is doing on the web right now
   sources?: Source[];    // replies that used the web: the numbered sources behind their [n]
+  images?: UiPhoto[];    // replies with a photo (developing, ready or failed)
 }
 
 export interface Notice {
@@ -51,6 +65,12 @@ export function toUiMessages(messages: Message[]): UiMessage[] {
       if (recalled && (recalled.facts?.length || recalled.episodes?.length)) ui.recalled = recalled;
       const sources = m.meta?.sources as Source[] | undefined;
       if (sources?.length) ui.sources = sources;
+      const images = m.meta?.images as { id: string; persona_id: string; status: UiPhoto["status"]; score?: number | null;
+        caption?: string }[] | undefined;
+      if (images?.length) {
+        ui.images = images.map((i) => ({ id: i.id, personaId: i.persona_id, status: i.status, caption: i.caption ?? "",
+          score: i.score ?? null, ...(i.status === "ready" ? { url: photoUrl(i.persona_id, i.id) } : {}) }));
+      }
       return ui;
     });
 }
@@ -58,6 +78,17 @@ export function toUiMessages(messages: Message[]): UiMessage[] {
 const setOn = (data: SessionData, id: string, patch: Partial<UiMessage>): SessionData => ({
   ...data,
   messages: data.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+});
+
+/** Adds the photo to its reply, or updates it there. */
+const setPhoto = (data: SessionData, messageId: string, photo: UiPhoto): SessionData => ({
+  ...data,
+  messages: data.messages.map((m) => {
+    if (m.id !== messageId) return m;
+    const images = m.images ?? [];
+    const at = images.findIndex((i) => i.id === photo.id);
+    return { ...m, images: at < 0 ? [...images, photo] : images.map((i, n) => (n === at ? { ...i, ...photo } : i)) };
+  }),
 });
 
 export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
@@ -123,6 +154,20 @@ export function applyEvent(data: SessionData, ev: ServerEvent): SessionData {
       return has(ev.message_id)
         ? setOn(data, ev.message_id, { sources: ev.sources })
         : { ...data, pendingSources: { ...data.pendingSources, [ev.message_id]: ev.sources } };
+    case "image_pending":
+      if (!ev.message_id || !has(ev.message_id)) return data;
+      return setPhoto(data, ev.message_id, { id: ev.image_id, personaId: ev.persona_id, status: "pending",
+        caption: ev.caption, startedAt: Date.now() });
+    case "image_ready":
+      if (!ev.message_id || !has(ev.message_id)) return data;
+      return setPhoto(data, ev.message_id, { id: ev.image_id, personaId: ev.persona_id, status: "ready",
+        caption: data.messages.find((m) => m.id === ev.message_id)?.images?.find((i) => i.id === ev.image_id)?.caption ?? "",
+        url: ev.url, score: ev.identity_score });
+    case "image_failed":
+      if (!ev.message_id || !has(ev.message_id)) return data;
+      return setPhoto(data, ev.message_id, { id: ev.image_id, personaId: ev.persona_id, status: "failed",
+        caption: data.messages.find((m) => m.id === ev.message_id)?.images?.find((i) => i.id === ev.image_id)?.caption ?? "",
+        error: ev.message });
     case "task_created": {
       if (ev.conversation_id !== data.conversationId) return data;
       return {

@@ -49,11 +49,20 @@ export interface AppSettings {
   memory: MemorySettings;
   browser: { show: boolean };
   voice: VoiceSettings;
+  images: ImageSettings;
   context_caps: Record<string, number>;
   auto_approve_skills: boolean;
   replay_thumbnails: boolean;
   use_learned_skills: boolean;
   token_saving: { mask_superseded: boolean; mask_batch: number; compact_schemas: boolean; tool_groups: boolean };
+}
+
+export interface ImageSettings {
+  backends: ("gemini" | "openrouter" | "local")[];
+  gemini_model: string;
+  openrouter_model: string;
+  identity_threshold: number;
+  request_threshold: number;
 }
 
 export interface VoiceSettings {

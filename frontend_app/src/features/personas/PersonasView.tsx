@@ -72,7 +72,7 @@ function Steps({ at }: { at: number }) {
     <ol className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] uppercase tracking-[0.12em]" aria-label="Steps">
       {STEPS.map((s, i) => (
         <li key={s} aria-current={i === at ? "step" : undefined}
-          className={cn(i === at ? "text-accent" : i === 2 || i === 3 ? "text-faint line-through decoration-hairline" : "text-muted")}>
+          className={cn(i === at ? "text-accent" : "text-muted")}>
           {i + 1}. {s}
         </li>
       ))}
@@ -120,7 +120,7 @@ function CreateFlow({ onCancel, onCreated }: { onCancel(): void; onCreated(p: Pe
           {draft.isPending ? "Drafting…" : "Draft it"}
         </Button>
         <Button disabled={draft.isPending || blank.isPending} onClick={() => blank.mutate()}>Write it myself</Button>
-        <span className="ml-auto text-[12px] text-faint">A face and character sheet come in a later update.</span>
+        <span className="ml-auto text-[12px] text-faint">Then you pick a face, a character sheet and a voice.</span>
       </div>
     </>
   );

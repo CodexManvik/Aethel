@@ -7,6 +7,8 @@ import { Button } from "../../ui/Button";
 import { cn } from "../../ui/cn";
 import { inputClass } from "../../ui/Field";
 import { Switch } from "../../ui/Switch";
+import { Faces } from "./Faces";
+import { Gallery } from "./Gallery";
 import { PersonaAvatar } from "./PersonaAvatar";
 import { SECTIONS, talkTo, type ImageFrequency, type Persona, type PersonaVoice } from "./personasApi";
 import { StyleImport } from "./StyleImport";
@@ -104,10 +106,13 @@ export function PersonaEditor({ persona, onBack }: { persona: Persona; onBack():
           <Block title="Voice" hint="Blend up to three voices. Used in calls; Azure's voice, when chosen in Settings, replaces it.">
             <VoiceBlendEditor name={persona.name} value={persona.voice} onChange={(voice) => queue({ voice })} />
           </Block>
-          <Block title="Face" hint="A portrait, a character sheet and photos in chat arrive in the next update.">
-            <p className="font-voice text-[14px] italic text-muted">Add a face later.</p>
+          <Block title="Face" hint="Pick a face from four drawn from the image style below, then make a character sheet so photos keep it.">
+            <Faces persona={persona} />
           </Block>
-          <Block title="Photos in chat" hint="How often they may send a picture of themselves once faces arrive.">
+          <Block title="Photos" hint={`What ${persona.name} has sent you. A dot shows how well the face matched.`}>
+            <Gallery persona={persona} />
+          </Block>
+          <Block title="Photos in chat" hint="How often they may send a picture of themselves. Only once they have a face.">
             <div role="radiogroup" aria-label="Photos in chat" className="inline-flex rounded-full border border-hairline p-0.5">
               {FREQUENCY.map((f) => (
                 <button key={f.id} type="button" role="radio" aria-checked={persona.image_frequency === f.id}
