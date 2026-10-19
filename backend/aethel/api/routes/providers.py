@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...providers.base import ChatMessage, ProviderError, TextDelta
-from ...providers.catalog import KEY_OPTIONAL, PROVIDERS, api_key_for, base_url_for
+from ...providers.catalog import api_key_for, key_name, meta_for, providers
 from ...providers.router import LOCAL_API_KEY
 from ...services import Services
 from ...settings import ProviderId, RouteEntry
@@ -30,6 +30,8 @@ class ProviderInfo(BaseModel):
     key_optional: bool = False
     has_key: bool
     base_url: str
+    endpoint: bool = False  # one of the user's own endpoints
+    key_name: str = ""      # where its key is kept (POST /api/keys, the OS credential store)
 
 
 class TestIn(BaseModel):
@@ -49,16 +51,15 @@ def list_providers(svc: Services = Depends(get_services)) -> list[ProviderInfo]:
     s = svc.settings.get()
     return [
         ProviderInfo(id=m.id, label=m.label, needs_key=m.needs_key,
-                     has_key=(not m.needs_key) or svc.keys.get(m.id) is not None,
-                     key_optional=m.id in KEY_OPTIONAL,
-                     base_url=base_url_for(m.id, s))
-        for m in PROVIDERS.values()
+                     has_key=(not m.needs_key) or svc.keys.get(key_name(m.id)) is not None,
+                     key_optional=m.endpoint, base_url=m.base_url, endpoint=m.endpoint, key_name=key_name(m.id))
+        for m in providers(s)
     ]
 
 
 @router.get("/{provider_id}/models")
 async def list_models(provider_id: str, svc: Services = Depends(get_services)) -> dict:
-    if provider_id not in PROVIDERS:
+    if meta_for(provider_id, svc.settings.get()) is None:
         raise HTTPException(status_code=404, detail="Unknown provider")
     _refuse_cloud_in_private_mode(svc, provider_id)
     if provider_id == "local":

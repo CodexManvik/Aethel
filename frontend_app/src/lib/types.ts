@@ -1,4 +1,11 @@
-export type ProviderId = "groq" | "gemini" | "openrouter" | "custom" | "local";
+/** A built-in provider ("groq", "gemini", "openrouter", "local") or one of the user's endpoint ids. */
+export type ProviderId = string;
+
+export interface Endpoint {
+  id: string;
+  name: string;
+  base_url: string;
+}
 export type MessageStatus = "complete" | "streaming" | "stopped" | "error";
 
 export interface Conversation {
@@ -37,7 +44,7 @@ export interface LocalLLMSettings {
 
 export interface AppSettings {
   roles: Record<string, RouteEntry[]>;
-  custom_base_url: string;
+  endpoints: Endpoint[];
   private_mode: boolean;
   internet: boolean;
   local_llm: LocalLLMSettings;
@@ -106,6 +113,8 @@ export interface ProviderInfo {
   has_key: boolean;
   key_optional?: boolean;
   base_url: string;
+  endpoint?: boolean;   // one of the user's own endpoints
+  key_name?: string;    // where its key is kept
 }
 
 export interface ProviderTestResult {

@@ -7,7 +7,7 @@ import type { AppSettings, ProviderInfo } from "../../lib/types";
 const apiMock = vi.hoisted(() => vi.fn());
 const saveKeyMock = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/api", async (orig) => ({ ...(await orig<typeof import("../../lib/api")>()), api: apiMock }));
-vi.mock("../../lib/keys", () => ({ saveKey: saveKeyMock, pushStoredKeys: vi.fn() }));
+vi.mock("../../lib/keys", async (orig) => ({ ...(await orig<typeof import("../../lib/keys")>()), saveKey: saveKeyMock, pushStoredKeys: vi.fn() }));
 
 const settings: AppSettings = {
   roles: {
@@ -15,7 +15,7 @@ const settings: AppSettings = {
     agent: [{ provider: "gemini", model: "gemini-2.5-flash" }],
     vision: [{ provider: "gemini", model: "gemini-2.5-flash" }],
   },
-  custom_base_url: "",
+  endpoints: [],
   private_mode: false,
   internet: false,
   local_llm: { model_path: "", context_size: 0, threads: 4, gpu_layers: 99 },
@@ -177,22 +177,43 @@ test("memory switches patch settings and Rebuild starts a rebuild", async () => 
   await waitFor(() => expect(rebuilds).toBe(1));
 });
 
-test("saving the custom endpoint confirms it, and a bad URL says why", async () => {
-  const { ProvidersSection, saveError } = await import("./ProvidersSection");
+test("an endpoint is added with its key, saved, and removed", async () => {
+  const { ProvidersSection, saveError, endpointId } = await import("./ProvidersSection");
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ProvidersSection settings={settings} />
     </QueryClientProvider>,
   );
-  const saveUrl = () => screen.getAllByRole("button", { name: "Save" }).slice(-1)[0]; // the last Save is the URL's
-  expect(saveUrl()).toBeDisabled(); // nothing changed yet
-  await userEvent.type(screen.getByLabelText("Custom endpoint URL"), "http://127.0.0.1:1234/v1");
-  expect(saveUrl()).toBeEnabled();
-  await userEvent.click(saveUrl());
-  await waitFor(() => expect(patches).toContainEqual({ custom_base_url: "http://127.0.0.1:1234/v1" }));
+  await userEvent.click(screen.getByRole("button", { name: /Add endpoint/ }));
+  await userEvent.type(screen.getByLabelText("Endpoint name"), "LM Studio");
+  await userEvent.type(screen.getByLabelText("Endpoint URL"), "http://127.0.0.1:1234/v1");
+  await userEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(patches).toContainEqual(
+    { endpoints: [{ id: "lm-studio", name: "LM Studio", base_url: "http://127.0.0.1:1234/v1" }] }));
+  expect(endpointId("LM Studio", ["lm-studio"])).toBe("lm-studio-2");
+  expect(endpointId("Groq", [])).toBe("groq-2");
+  expect(endpointId("4090 box", [])).toBe("box");
   expect(saveError(new Error('[{"msg":"Value error, must start with http:// or https://, e.g. http://127.0.0.1:1234/v1"}]')))
     .toBe("That URL doesn't look right: it must start with http:// or https://, e.g. http://127.0.0.1:1234/v1.");
+  expect(saveError(new Error(`[{"msg":"Value error, the chat role uses 'lm', which is no longer a provider"}]`)))
+    .toBe("Couldn't save: the chat role uses 'lm', which is no longer a provider.");
   expect(saveError(new Error("boom"))).toBe("Couldn't save: boom");
+});
+
+test("an existing endpoint can be repointed and removed", async () => {
+  const { ProvidersSection } = await import("./ProvidersSection");
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ProvidersSection settings={{ ...settings, endpoints: [{ id: "custom", name: "Custom", base_url: "http://127.0.0.1:1234/v1" }] }} />
+    </QueryClientProvider>,
+  );
+  const url = screen.getByLabelText("Custom URL");
+  await userEvent.clear(url);
+  await userEvent.type(url, "http://192.168.1.20:8080/v1");
+  await userEvent.click(within(screen.getByTestId("endpoint-custom")).getAllByRole("button", { name: "Save" })[0]);
+  await waitFor(() => expect(patches).toContainEqual({ endpoints: [{ id: "custom", name: "Custom", base_url: "http://192.168.1.20:8080/v1" }] }));
+  await userEvent.click(within(screen.getByTestId("endpoint-custom")).getByRole("button", { name: "Remove" }));
+  await waitFor(() => expect(patches).toContainEqual({ endpoints: [] }));
 });
 
 test("usage lists the last 7 days by purpose, biggest first, with a total", async () => {

@@ -58,7 +58,9 @@ async def test_a_custom_endpoint_needs_a_url_but_not_a_key(settings):
     from aethel.keys import KeyStore
     from aethel.providers.catalog import NO_KEY, api_key_for
     keys = KeyStore()
-    assert api_key_for("custom", keys, settings.get()) == (None, "no custom endpoint URL set (Settings → Providers)")
+    assert api_key_for("custom", keys, settings.get()) == (None, "no provider or endpoint called 'custom'")
+    settings.update({"endpoints": [{"id": "custom", "name": "Custom", "base_url": ""}]})
+    assert api_key_for("custom", keys, settings.get()) == (None, "the endpoint 'Custom' has no URL (Settings → Providers)")
     settings.update({"custom_base_url": "http://127.0.0.1:1234/v1"})
     assert api_key_for("custom", keys, settings.get()) == (NO_KEY, None)   # local servers take no key
     keys.set_many({"custom": "sk-real"})

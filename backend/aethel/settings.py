@@ -4,15 +4,18 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .store.db import Database
 
-ProviderId = Literal["groq", "gemini", "openrouter", "custom", "local"]
+# A built-in provider, or the id of one of the user's endpoints (AppSettings.endpoints).
+BUILTIN_PROVIDERS = ("groq", "gemini", "openrouter", "local")
+ENDPOINT_ID_RE = r"^[a-z][a-z0-9-]{1,30}$"
+ProviderId = str
 
 
 class RouteEntry(BaseModel):
-    provider: ProviderId
+    provider: ProviderId = Field(min_length=1, max_length=40)
     model: str = Field(min_length=1)
     # The model's context window in tokens, for the context builder's budget. The hosted models Aethel
     # suggests all take 32k or more; lower it for a smaller model. (The per-role caps usually bind first.)
@@ -162,9 +165,29 @@ def _check_base_url(value: str) -> str:
     return value
 
 
+class Endpoint(BaseModel):
+    """An OpenAI-compatible server the user added: LM Studio, Ollama, vLLM, another PC, a hosted API. Its key (if
+    any) is kept as "endpoint:<id>" ("custom" for the one migrated from the old single URL)."""
+    id: str = Field(pattern=ENDPOINT_ID_RE)
+    name: str = Field(min_length=1, max_length=60)
+    base_url: str = ""  # empty: not set up yet (unusable until it is)
+
+    @field_validator("id")
+    @classmethod
+    def _not_builtin(cls, value: str) -> str:
+        if value in BUILTIN_PROVIDERS:
+            raise ValueError(f"{value!r} is a built-in provider's name")
+        return value
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        return _check_base_url(value)
+
+
 class AppSettings(BaseModel):
     roles: dict[str, list[RouteEntry]] = Field(default_factory=default_roles)
-    custom_base_url: str = ""  # empty, or an http(s) URL of an OpenAI-compatible API (usually ending in /v1)
+    endpoints: list[Endpoint] = Field(default_factory=list)
     private_mode: bool = False
     internet: bool = False
     local_llm: LocalLLMSettings = Field(default_factory=LocalLLMSettings)
@@ -181,10 +204,49 @@ class AppSettings(BaseModel):
     # Upper bound on the prompt per role, whatever the model allows: long prompts are slow and costly.
     context_caps: dict[str, int] = Field(default_factory=lambda: {"chat": 16000, "agent": 24000})
 
-    @field_validator("custom_base_url")
+    @model_validator(mode="before")
     @classmethod
-    def _base_url(cls, value: str) -> str:
-        return _check_base_url(value)
+    def _migrate_custom(cls, data):
+        """The single "custom_base_url" of earlier versions is now the endpoint "custom"; a role that names
+        "custom" keeps working. Still accepted on input (the eval scripts set it)."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        url = data.pop("custom_base_url", None)  # None: not given; "" clears it, as it always did
+        endpoints = [dict(e) if isinstance(e, dict) else e.model_dump() for e in data.get("endpoints") or []]
+        has_custom = any(e.get("id") == "custom" for e in endpoints)
+        uses_custom = any((e.get("provider") if isinstance(e, dict) else getattr(e, "provider", None)) == "custom"
+                          for entries in (data.get("roles") or {}).values() for e in entries or [])
+        if url is not None and has_custom:
+            endpoints = [{**e, "base_url": url} if e.get("id") == "custom" else e for e in endpoints]
+        elif url:
+            endpoints.insert(0, {"id": "custom", "name": "Custom", "base_url": url})
+        elif uses_custom and not has_custom:
+            endpoints.insert(0, {"id": "custom", "name": "Custom", "base_url": ""})
+        data["endpoints"] = endpoints
+        return data
+
+    @model_validator(mode="after")
+    def _known_providers(self):
+        ids = [e.id for e in self.endpoints]
+        if len(ids) != len(set(ids)):
+            raise ValueError("two endpoints have the same id")
+        known = set(BUILTIN_PROVIDERS) | set(ids)
+        for role, entries in self.roles.items():
+            for entry in entries:
+                if entry.provider not in known:
+                    raise ValueError(f"the {role} role uses {entry.provider!r}, which is no longer a provider or "
+                                     "endpoint: take it out of the role first")
+        return self
+
+    def endpoint(self, endpoint_id: str) -> Endpoint | None:
+        return next((e for e in self.endpoints if e.id == endpoint_id), None)
+
+    @property
+    def custom_base_url(self) -> str:
+        """Earlier versions' single custom URL, read through (scripts still use it)."""
+        ep = self.endpoint("custom")
+        return ep.base_url if ep else ""
     replay_thumbnails: bool = True  # a small screenshot after each on-screen step, kept only on this PC
     auto_approve_skills: bool = True  # learned skills go live at once (spec §6.3); off = quarantined until approved
     # Off: tasks run without learned skills or macros and nothing new is learned (E1's "LLM only" condition,
@@ -223,6 +285,12 @@ class SettingsService:
             # A custom URL saved before it was validated mustn't lock the user out of every setting.
             data = json.loads(row["value"])
             data["custom_base_url"] = ""
+            for ep in data.get("endpoints") or []:  # a URL that no longer validates: keep the endpoint, unset
+                if isinstance(ep, dict):
+                    try:
+                        _check_base_url(str(ep.get("base_url", "")))
+                    except ValueError:
+                        ep["base_url"] = ""
             return AppSettings.model_validate(data)
 
     def update(self, patch: dict) -> AppSettings:

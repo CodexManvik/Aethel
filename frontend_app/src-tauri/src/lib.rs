@@ -19,8 +19,22 @@ struct BackendInfo {
 
 struct BackendProcess(Mutex<Option<Child>>);
 
+/// A user endpoint's key: "endpoint:" and a slug (the backend's ENDPOINT_ID_RE: a lowercase letter, then 1-30 of
+/// lowercase letters, digits and hyphens).
+fn is_endpoint_key(provider: &str) -> bool {
+    match provider.strip_prefix("endpoint:") {
+        Some(id) => {
+            let mut chars = id.chars();
+            matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+                && (2..=31).contains(&id.len())
+                && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        }
+        None => false,
+    }
+}
+
 fn validate_provider(provider: &str) -> Result<(), String> {
-    if KNOWN_PROVIDERS.contains(&provider) {
+    if KNOWN_PROVIDERS.contains(&provider) || is_endpoint_key(provider) {
         Ok(())
     } else {
         Err(format!("unknown provider: {provider}"))
@@ -220,6 +234,24 @@ fn secret_get_all() -> Result<HashMap<String, String>, String> {
     Ok(out)
 }
 
+/// The stored keys of the given endpoints (the credential store can't list them, so the app asks by name).
+#[tauri::command]
+fn secret_get_many(providers: Vec<String>) -> Result<HashMap<String, String>, String> {
+    let mut out = HashMap::new();
+    for provider in providers {
+        validate_provider(&provider)?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, &provider).map_err(|e| e.to_string())?;
+        match entry.get_password() {
+            Ok(value) => {
+                out.insert(provider, value);
+            }
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(out)
+}
+
 /// The ghost cursor (spec §4.4): a transparent, always-on-top window over the
 /// primary monitor that never takes clicks or focus. It's always "shown" but
 /// draws nothing until a task points somewhere, so showing it can't steal focus
@@ -280,7 +312,7 @@ pub fn run() {
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            get_backend_info, secret_set, secret_delete, secret_get_all, backend_log_tail, open_backend_logs,
+            get_backend_info, secret_set, secret_delete, secret_get_all, secret_get_many, backend_log_tail, open_backend_logs,
             backend_exited, restart_backend
         ])
         .setup(move |app| {

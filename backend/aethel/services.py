@@ -182,12 +182,13 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
 
 
 def local_ports(local, settings: AppSettings) -> list[int]:
-    """The ports of the model servers on this computer (the one Aethel runs, and a custom one that's local): the
+    """The ports of the model servers on this computer (the one Aethel runs, and any endpoint that's local): the
     background browser is kept away from them, as it is from the backend itself."""
     ports = {local._port() if local is not None and hasattr(local, "_port") else 8080}
-    url = urlsplit(settings.custom_base_url) if settings.custom_base_url else None
-    if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
-        ports.add(url.port)
+    for endpoint in settings.endpoints:
+        url = urlsplit(endpoint.base_url) if endpoint.base_url else None
+        if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
+            ports.add(url.port)
     return sorted(ports)
 
 

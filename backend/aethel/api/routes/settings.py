@@ -18,4 +18,5 @@ def patch_settings(patch: dict = Body(...), svc: Services = Depends(get_services
     try:
         return svc.settings.update(patch)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors(include_url=False)) from exc
+        # without the context: it can hold the ValueError itself, which isn't JSON (the message says it all)
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False)) from exc

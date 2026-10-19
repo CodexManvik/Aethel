@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const apiMock = vi.hoisted(() => vi.fn());
 const saveKeyMock = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/api", async (orig) => ({ ...(await orig<typeof import("../../lib/api")>()), api: apiMock }));
-vi.mock("../../lib/keys", () => ({ saveKey: saveKeyMock }));
+vi.mock("../../lib/keys", async (orig) => ({ ...(await orig<typeof import("../../lib/keys")>()), saveKey: saveKeyMock }));
 import { VoiceSection, describeVoice } from "./VoiceSection";
 import type { AppSettings } from "../../lib/types";
 
