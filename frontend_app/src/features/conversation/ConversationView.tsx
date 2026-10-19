@@ -10,6 +10,7 @@ import { WebPill } from "./WebPill";
 import { useSendMessage, useStartCall, useStartTask } from "./useConversations";
 import { useUi } from "../../stores/ui";
 import { useVoice } from "../../stores/voice";
+import { useActivePersona } from "../personas/personasApi";
 
 export function ConversationView() {
   const { conversationId, messages, streamingId, socketStatus } = useSession();
@@ -19,6 +20,7 @@ export function ConversationView() {
   const callState = useVoice((s) => s.state);
   const inCall = !["idle", "ended", "error"].includes(callState);
   const { data: settings } = useSettings();
+  const persona = useActivePersona();
   const stop = () => streamingId && getSocket().send({ type: "stop_generation", message_id: streamingId });
   const status =
     socketStatus !== "open" ? "reconnecting…" : streamingId ? "writing…" : "here with you";
@@ -38,7 +40,7 @@ export function ConversationView() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Notices />
         <header className="flex items-baseline gap-3 border-b border-hairline px-10 pt-6 pb-4">
-          <span className="font-display text-[34px] leading-none">Aethel</span>
+          <span className="font-display text-[34px] leading-none">{persona?.name ?? "Aethel"}</span>
           <span className="flex items-center gap-1.5 text-[12px] text-muted">
             <span className={socketStatus === "open" ? "size-1.5 rounded-full bg-accent" : "breathe size-1.5 rounded-full bg-faint"} />
             {status}

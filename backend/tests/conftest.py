@@ -34,6 +34,7 @@ def aethel_home(tmp_path, monkeypatch):
     monkeypatch.setenv("AETHEL_DEV", "1")
     monkeypatch.setenv("AETHEL_MCP", "0")  # no real desktop/Office servers in tests
     monkeypatch.setenv("AETHEL_SYSTEM1", "0")  # and no 1.7 GB model download
+    monkeypatch.setenv("AETHEL_MIGRATE_LEGACY", "0")  # the old app's data on this PC never leaks into a test
     monkeypatch.delenv("AETHEL_TOKEN", raising=False)
     for var in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "CUSTOM_API_KEY", "AZURE_SPEECH_KEY",
                 "AZURE_SPEECH_REGION"):

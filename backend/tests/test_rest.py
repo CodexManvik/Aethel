@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from aethel.app import create_app
+from aethel.personas.model import Persona
 from aethel.providers.base import ProviderError
 from aethel.services import build_services
 from tests.fakes import FakeLocal, FakeProvider, factory_from
@@ -13,6 +14,7 @@ def _client(mapping=None, local=None):
 
 def test_conversation_crud():
     client, svc = _client()
+    svc.personas.create(Persona(id="x", name="Mira"))
     with client:
         a = client.post("/api/conversations", json={}).json()
         b = client.post("/api/conversations", json={"persona_id": "mira"}).json()

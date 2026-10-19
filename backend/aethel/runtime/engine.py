@@ -45,7 +45,8 @@ from .checks import Check, CheckResult, run_checks_with
 from .macro import bind, describe, fill, ground
 from .recall import Recall, recall
 from .reflect import learn
-from .prompts import (COMPLETE_STEP, FINISH_TASK, SUBMIT_PLAN, executor_system, planner_system, repair_prompt,
+from ..personas.prompt import speaking_hint
+from .prompts import (COMPLETE_STEP, SUBMIT_PLAN, executor_system, finish_task_spec, planner_system, repair_prompt,
                       resume_note, submit_plan_spec)
 from .store import TERMINAL_STATES, TaskRepo
 
@@ -193,8 +194,9 @@ class TaskEngine:
                  router: RoleRouter, registry: ToolRegistry, approvals: ApprovalBroker, hub: EventHub,
                  max_steps: int = 40, max_seconds: float = 15 * 60, max_identical_calls: int = MAX_IDENTICAL_CALLS,
                  clock=time.monotonic, settings: SettingsService | None = None, knowledge=None, system1=None,
-                 facts=None):
+                 facts=None, personas=None):
         self.tasks = tasks
+        self.personas = personas    # personas.store.PersonaStore; None: the closing summary is in Aethel's voice
         self.knowledge = knowledge  # memory.rsm.KnowledgeStore; None: nothing learned is used
         self.facts = facts          # memory.facts.FactStore; None: the planner isn't told what's remembered
         self.system1 = system1
@@ -589,6 +591,12 @@ class TaskEngine:
         conv = self.conversations.get(self._conv[task_id]) if task_id in self._conv else None
         return bool(self.settings is not None and conv is not None and effective_web(self.settings.get(), conv))
 
+    def _speaking(self, task_id: str) -> str | None:
+        """How the conversation's persona speaks, for the closing summary (None: the built-in Aethel)."""
+        conv = self.conversations.get(self._conv[task_id]) if task_id in self._conv else None
+        persona = self.personas.get(conv.persona_id) if self.personas is not None and conv is not None else None
+        return speaking_hint(persona) if persona is not None else None
+
     def _available(self, task_id: str) -> set[str]:
         """The tool groups this task may use at all: everything registered, but web access (web search, the
         background browser) only where the web is on."""
@@ -613,7 +621,7 @@ class TaskEngine:
         active = self._groups.get(task_id)  # None: groups are off, every available tool is offered
         available = self._available(task_id)
         specs = self.registry.specs(available if active is None else active & available, compact=self._compact())
-        specs += [COMPLETE_STEP, FINISH_TASK]
+        specs += [COMPLETE_STEP, finish_task_spec(self._speaking(task_id))]
         if active is not None:
             left = inactive_groups(available, active)
             if left:

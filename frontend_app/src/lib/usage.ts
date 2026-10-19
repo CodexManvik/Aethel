@@ -23,6 +23,7 @@ export const PURPOSE_LABEL: Record<string, string> = {
   vision_locate: "Finding things on screen",
   web_chat: "Web answers",
   narration: "Narrating tasks",
+  persona_draft: "Drafting personas",
 };
 
 export const formatTokens = (n: number): string => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`);

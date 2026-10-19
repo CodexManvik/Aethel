@@ -3,27 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, apiBlob } from "../../lib/api";
 import type { StepRecord, TaskDetail, TaskRecord } from "../../lib/types";
+import { useObjectUrl } from "../../lib/useObjectUrl";
 import { Button } from "../../ui/Button";
 import { cn } from "../../ui/cn";
-
-function useObjectUrl(path: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!path) return setUrl(null);
-    let alive = true;
-    let made: string | null = null;
-    apiBlob(path).then((blob) => {
-      if (!alive) return;
-      made = URL.createObjectURL(blob);
-      setUrl(made);
-    }).catch(() => alive && setUrl(null));
-    return () => {
-      alive = false;
-      if (made) URL.revokeObjectURL(made);
-    };
-  }, [path]);
-  return url;
-}
 
 async function exportTask(task: TaskRecord) {
   try {

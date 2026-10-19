@@ -26,6 +26,7 @@ class Conversation(BaseModel):
     created_at: str
     updated_at: str
     web: bool | None = None  # this conversation's web switch; None follows Settings
+    tone: dict | None = None  # a companion conversation's running tone {mood, energy}, if the tone engine has run
 
 
 class Message(BaseModel):
@@ -39,7 +40,9 @@ class Message(BaseModel):
 
 
 def _conversation(row) -> Conversation:
-    return Conversation(**dict(row))
+    data = dict(row)
+    meta = json.loads(data.pop("meta", None) or "{}")
+    return Conversation(**data, tone=meta.get("tone"))
 
 
 def _message(row) -> Message:
@@ -79,6 +82,16 @@ class ConversationRepo:
         """True or False for this conversation, None to follow Settings again. Doesn't count as activity."""
         self.db.execute("UPDATE conversations SET web = ? WHERE id = ?", (None if web is None else int(web), conv_id))
         return self.get(conv_id)
+
+    def meta(self, conv_id: str) -> dict:
+        row = self.db.query_one("SELECT meta FROM conversations WHERE id = ?", (conv_id,))
+        return json.loads(row["meta"]) if row else {}
+
+    def update_meta(self, conv_id: str, patch: dict) -> None:
+        """Merged into what's there. Doesn't count as activity."""
+        with self.db.transaction():
+            self.db.execute("UPDATE conversations SET meta = ? WHERE id = ?",
+                            (json.dumps({**self.meta(conv_id), **patch}), conv_id))
 
     def delete(self, conv_id: str) -> bool:
         return self.db.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)).rowcount > 0

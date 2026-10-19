@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,10 @@ from .memory.episodic import EpisodicIndex
 from .memory.extract import FactExtractor
 from .memory.facts import FactStore
 from .memory.rsm import KnowledgeStore
+from .personas.legacy import legacy_rosia
+from .personas.lines import PersonaLines
+from .personas.store import PersonaStore
+from .personas.tone import ToneEngine
 from .store.db import Database
 from .system1.service import System1
 from .store.repos import ConversationRepo, MessageRepo
@@ -74,6 +79,8 @@ class Services:
     extractor: FactExtractor
     usage: UsageLog
     voice: VoiceService            # call mode: shared speech models, who is in a call
+    personas: PersonaStore         # ~/.aethel/personas: who each conversation is with
+    persona_lines: PersonaLines    # each persona's imported messages, recalled as style examples
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -122,21 +129,34 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     knowledge = KnowledgeStore(aethel_home() / "knowledge", _embed)
     facts = FactStore(db, _embed)
     episodic = EpisodicIndex(db, _embed, aethel_home() / "episodic" / "index.tvim")
+    voice = VoiceService(settings=settings, keys=keys, system1=system1, db=db)
+    personas = PersonaStore(aethel_home() / "personas", known_voices=lambda: voice.kokoro.voices() or None,
+                            in_use=lambda pid: db.query_one(
+                                "SELECT 1 FROM conversations WHERE persona_id = ? UNION ALL"
+                                " SELECT 1 FROM facts WHERE scope = ? LIMIT 1", (pid, f"persona:{pid}")) is not None)
+    personas.ensure_builtin()
+    persona_lines = PersonaLines(db, _embed, personas.folder)
+    try:
+        if os.environ.get("AETHEL_MIGRATE_LEGACY") != "0":  # tests turn it off: this PC's old data isn't theirs
+            personas.migrate_legacy(legacy_rosia(), aethel_home() / ".migrated-personas")
+    except Exception:  # never worth failing startup over
+        logging.getLogger("aethel.personas").exception("migrating the legacy companion failed")
     extractor = FactExtractor(facts=facts, messages=messages, router=router, system1=system1, settings=settings,
                               hub=hub)
     engine = TaskEngine(tasks=tasks, messages=messages, conversations=conversations, router=router,
                         registry=registry, approvals=approvals, hub=hub, settings=settings, knowledge=knowledge,
-                        system1=system1, facts=facts)
+                        system1=system1, facts=facts, personas=personas)
     chat = ChatService(conversations=conversations, messages=messages, router=router, settings=settings, hub=hub,
                        task_note=engine.note_for_chat, facts=facts, episodic=episodic, extractor=extractor,
-                       web_tools=lambda: [registry.get(name) for name in registry.names("web")])
+                       web_tools=lambda: [registry.get(name) for name in registry.names("web")], personas=personas,
+                       tone=ToneEngine(), lines=persona_lines)
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
         http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
-        voice=VoiceService(settings=settings, keys=keys, system1=system1, db=db),
+        voice=voice, personas=personas, persona_lines=persona_lines,
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 

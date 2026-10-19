@@ -79,6 +79,13 @@ FINISH_TASK = ToolSpec(
 )
 
 
+def finish_task_spec(speaking: str | None) -> ToolSpec:
+    """finish_task, its summary in the conversation's persona's voice (None: the built-in's, unchanged)."""
+    if not speaking:
+        return FINISH_TASK
+    return ToolSpec(FINISH_TASK.name, f"{FINISH_TASK.description} {speaking}", FINISH_TASK.parameters)
+
+
 def executor_system(goal: str, plan: list[str], checks: list[str], now: datetime, web: bool = False,
                     browser: bool = False) -> str:
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(plan))

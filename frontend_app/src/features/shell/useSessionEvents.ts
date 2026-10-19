@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { getSocket } from "../../lib/session";
 import { useSession } from "../../stores/session";
 import { useTasks } from "../../stores/tasks";
+import { useTone } from "../../stores/tone";
 import { useUi } from "../../stores/ui";
 import { hydrateTasks, refreshOpenConversation } from "../conversation/useConversations";
 
@@ -24,6 +25,10 @@ export function useSessionEvents() {
         void qc.invalidateQueries({ queryKey: ["conversations"] });
       }
       if (ownsMessage) void refreshOpenConversation().catch(() => {});
+      if (ev.type === "persona_updated") void qc.invalidateQueries({ queryKey: ["personas"] });
+      if (ev.type === "tone_changed") {
+        useTone.getState().set(ev.conversation_id, { mood: ev.mood, energy: ev.energy, label: ev.label });
+      }
       if (ev.type === "skill_learned") {
         toast(ev.created ? `Learned a new skill: ${ev.title}` : `Got better at: ${ev.title}`);
         void qc.invalidateQueries({ queryKey: ["memory"] });

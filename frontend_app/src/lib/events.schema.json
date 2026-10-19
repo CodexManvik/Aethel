@@ -509,6 +509,34 @@
       "title": "MessageStart",
       "type": "object"
     },
+    "PersonaUpdated": {
+      "additionalProperties": false,
+      "description": "A persona was created, edited or deleted (the studio, or a file changed by the app).",
+      "properties": {
+        "deleted": {
+          "default": false,
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "persona_id": {
+          "title": "Persona Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "persona_updated",
+          "default": "persona_updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "persona_id",
+        "deleted"
+      ],
+      "title": "PersonaUpdated",
+      "type": "object"
+    },
     "PlanProgress": {
       "additionalProperties": false,
       "properties": {
@@ -1167,6 +1195,43 @@
       "title": "Token",
       "type": "object"
     },
+    "ToneChanged": {
+      "additionalProperties": false,
+      "description": "A companion conversation's running tone after a turn: drives the accent glow (opacity follows energy).",
+      "properties": {
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "energy": {
+          "title": "Energy",
+          "type": "number"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "mood": {
+          "title": "Mood",
+          "type": "number"
+        },
+        "type": {
+          "const": "tone_changed",
+          "default": "tone_changed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "conversation_id",
+        "mood",
+        "energy",
+        "label"
+      ],
+      "title": "ToneChanged",
+      "type": "object"
+    },
     "ToolActivity": {
       "additionalProperties": false,
       "description": "What a reply or task is doing on the web right now: 'Searching \"rain\"', 'Reading bbc.co.uk'.",
@@ -1340,6 +1405,7 @@
           "facts_changed": "#/$defs/FactsChanged",
           "message_end": "#/$defs/MessageEnd",
           "message_start": "#/$defs/MessageStart",
+          "persona_updated": "#/$defs/PersonaUpdated",
           "plan_progress": "#/$defs/PlanProgress",
           "provider_switched": "#/$defs/ProviderSwitched",
           "skill_learned": "#/$defs/SkillLearned",
@@ -1351,6 +1417,7 @@
           "task_plan": "#/$defs/TaskPlan",
           "task_state": "#/$defs/TaskState",
           "token": "#/$defs/Token",
+          "tone_changed": "#/$defs/ToneChanged",
           "tool_activity": "#/$defs/ToolActivity",
           "verification": "#/$defs/VerificationResult"
         },
@@ -1422,6 +1489,12 @@
         },
         {
           "$ref": "#/$defs/Sources"
+        },
+        {
+          "$ref": "#/$defs/PersonaUpdated"
+        },
+        {
+          "$ref": "#/$defs/ToneChanged"
         }
       ],
       "title": "Server"

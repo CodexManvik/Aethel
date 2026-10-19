@@ -60,7 +60,8 @@ export function useDeleteConversation() {
 async function ensureConversation(qc: QueryClient): Promise<string> {
   const existing = useSession.getState().conversationId;
   if (existing) return existing;
-  const conv = await api<Conversation>("/api/conversations", { method: "POST", body: JSON.stringify({}) });
+  const conv = await api<Conversation>("/api/conversations", {
+    method: "POST", body: JSON.stringify({ persona_id: useUi.getState().newChatPersona }) });
   useSession.getState().setConversation(conv.id, []);
   const web = useUi.getState().newChatWeb;
   if (web !== null) {

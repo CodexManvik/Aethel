@@ -36,6 +36,16 @@
   color-scheme: dark;
 }
 
+/* A persona's own accent (lib/accent.ts sets both on <html>); more specific than the theme blocks above. */
+:root[data-persona-accent],
+:root[data-persona-accent][data-theme="light"] {
+  --accent: var(--accent-light);
+}
+
+:root[data-persona-accent][data-theme="dark"] {
+  --accent: var(--accent-dark);
+}
+
 [data-motion="reduced"] {
   --dur-fast: 0ms;
   --dur-base: 0ms;
