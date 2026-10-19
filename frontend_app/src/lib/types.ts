@@ -37,6 +37,7 @@ export interface RouteEntry {
 
 export interface LocalLLMSettings {
   model_path: string;
+  server_path: string;
   context_size: number;
   threads: number;
   gpu_layers: number;
@@ -65,7 +66,10 @@ export interface AppSettings {
 }
 
 export interface ImageSettings {
-  backends: ("gemini" | "openrouter" | "local")[];
+  backends: ("gemini" | "openai" | "comfyui" | "openrouter" | "local")[];
+  openai: { base_url: string; model: string };
+  comfyui: { base_url: string; workflow_path: string };
+  local_dir: string;
   gemini_model: string;
   openrouter_model: string;
   identity_threshold: number;

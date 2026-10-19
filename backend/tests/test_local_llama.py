@@ -46,6 +46,35 @@ def test_find_binary_honours_env_override(tmp_path, monkeypatch):
     assert found is not None and found.parent == exe.parent
 
 
+def test_a_chosen_model_that_is_gone_is_not_replaced_quietly(tmp_path):
+    _write(tmp_path / "models" / "llm" / "big.gguf", 50)
+    gone = str(tmp_path / "elsewhere" / "deleted.gguf")
+    llama = _llama(tmp_path, model_path=gone)
+    assert llama.discover_model() == (None, None)
+    assert "doesn't exist" in llama.status()["why_not"]
+
+
+def test_the_chosen_server_wins_over_the_environment(tmp_path, monkeypatch):
+    env_exe = _write(tmp_path / "envbin" / "llama-server.exe", 1)
+    mine = _write(tmp_path / "D" / "llama" / "llama-server.exe", 1)
+    monkeypatch.setenv("LLAMA_SERVER_BINARY", str(env_exe))
+    assert _llama(tmp_path, server_path=str(mine)).find_binary() == mine
+    assert _llama(tmp_path, server_path=str(mine.parent)).find_binary() == mine  # the folder works too
+    gone = _llama(tmp_path, server_path=str(tmp_path / "nope"))
+    assert gone.find_binary() is None and "isn't at" in gone.missing_server_reason()
+
+
+def test_status_reports_what_it_would_use(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLAMA_SERVER_BINARY", raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    model = _write(tmp_path / "models" / "llm" / "m.gguf", 5)
+    server = _write(tmp_path / "srv" / "llama-server.exe", 1)
+    llama = _llama(tmp_path, server_path=str(server))
+    llama.is_up = lambda: False
+    assert llama.status() == {"model": str(model), "mmproj": None, "server": str(server), "running": False,
+                              "why_not": None}
+
+
 def test_build_command_flags(tmp_path):
     llama = _llama(tmp_path, context_size=4096, threads=6, gpu_layers=20)
     cmd = llama.build_command(Path("llama-server"), Path("m.gguf"), Path("p.gguf"), 8080)

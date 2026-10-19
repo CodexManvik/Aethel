@@ -1,9 +1,23 @@
 """What every image backend offers, and the choice between them."""
+import ipaddress
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
+from urllib.parse import urlsplit
 
 Size = Literal["portrait", "square", "landscape"]
 ASPECT = {"portrait": "3:4", "square": "1:1", "landscape": "4:3"}
+
+
+def is_loopback(url: str) -> bool:
+    """A server on this PC (127.0.0.0/8, ::1, localhost): talking to it never leaves the machine, so private mode
+    may use it. A LAN address is another computer and doesn't count."""
+    host = (urlsplit(url).hostname or "").lower()
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class ImageError(RuntimeError):

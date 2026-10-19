@@ -14,6 +14,13 @@ ENDPOINT_ID_RE = r"^[a-z][a-z0-9-]{1,30}$"
 ProviderId = str
 
 
+def _check_base_url(value: str) -> str:
+    value = value.strip().rstrip("/")
+    if value and not re.match(r"^https?://[^\s/]+", value):
+        raise ValueError("must start with http:// or https://, e.g. http://127.0.0.1:1234/v1")
+    return value
+
+
 class RouteEntry(BaseModel):
     provider: ProviderId = Field(min_length=1, max_length=40)
     model: str = Field(min_length=1)
@@ -29,7 +36,8 @@ REASONING_REPLY_TOKENS = 2048
 
 
 class LocalLLMSettings(BaseModel):
-    model_path: str = ""
+    model_path: str = ""   # a .gguf anywhere; empty: the largest in models/llm
+    server_path: str = ""  # llama-server(.exe), or the folder it's in; empty: LLAMA_SERVER_BINARY, PATH, bin/
     context_size: int = Field(default=0, ge=0)
     threads: int = Field(default=4, ge=1)
     gpu_layers: int = Field(default=99, ge=0)
@@ -113,9 +121,41 @@ class VoiceSettings(BaseModel):
     default_blend: dict[str, float] = Field(default_factory=lambda: {"af_heart": 1.0, "speed": 1.0})
 
 
+ImageBackendId = Literal["gemini", "openai", "comfyui", "openrouter", "local"]
+IMAGE_BACKENDS: tuple[str, ...] = ("gemini", "openai", "comfyui", "openrouter", "local")
+
+
+class OpenAIImageSettings(BaseModel):
+    # Any server with the OpenAI images API (/images/generations, /images/edits): OpenAI itself, LocalAI, proxies.
+    # Its key, if it needs one, is kept as "endpoint:images-openai". Empty URL or model: off.
+    base_url: str = ""
+    model: str = Field(default="", pattern=r"^([A-Za-z0-9._:/-]{1,120})?$")
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        return _check_base_url(value)
+
+
+class ComfyUISettings(BaseModel):
+    # A ComfyUI server and the user's own workflow, exported with "Save (API format)"; images/comfyui.py fills its
+    # {{prompt}}, {{negative}}, {{seed}}, {{width}}, {{height}} and {{reference}} placeholders. Empty: off.
+    base_url: str = ""
+    workflow_path: str = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        return _check_base_url(value)
+
+
 class ImageSettings(BaseModel):
-    # Which backend draws a persona's photos, tried in this order; private mode uses only "local".
-    backends: list[Literal["gemini", "openrouter", "local"]] = Field(default_factory=lambda: ["gemini", "openrouter", "local"])
+    # Which backend draws a persona's photos, tried in this order; one that isn't set up is skipped. Private mode
+    # uses only those on this PC: the local model, and an OpenAI-compatible or ComfyUI server at a loopback address.
+    backends: list[ImageBackendId] = Field(default_factory=lambda: list(IMAGE_BACKENDS))
+    openai: OpenAIImageSettings = Field(default_factory=OpenAIImageSettings)
+    comfyui: ComfyUISettings = Field(default_factory=ComfyUISettings)
+    local_dir: str = ""  # the folder with the Z-Image weights; empty: models/image
     # Gemini's native image model, through generateContent (images/gemini.py records what was checked). Settings
     # -> Images lists the ids the key can use.
     gemini_model: str = Field(default="gemini-3.1-flash-image", pattern=r"^[A-Za-z0-9._-]{3,80}$")
@@ -126,6 +166,16 @@ class ImageSettings(BaseModel):
     identity_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     # System 1's P(the user asks for a picture) for "when asked" personas. Provisional, not measured.
     request_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+
+    @field_validator("backends")
+    @classmethod
+    def _every_backend(cls, value: list[str]) -> list[str]:
+        """Settings saved before a backend existed still try it: missing ones go in before "local" (the slowest)."""
+        out = list(dict.fromkeys(value))
+        for name in IMAGE_BACKENDS:
+            if name not in out:
+                out.insert(out.index("local") if "local" in out else len(out), name)
+        return out
 
 
 class MemorySettings(BaseModel):
@@ -158,13 +208,6 @@ class TokenSavingSettings(BaseModel):
     tool_groups: bool = False
 
 
-def _check_base_url(value: str) -> str:
-    value = value.strip().rstrip("/")
-    if value and not re.match(r"^https?://[^\s/]+", value):
-        raise ValueError("must start with http:// or https://, e.g. http://127.0.0.1:1234/v1")
-    return value
-
-
 class Endpoint(BaseModel):
     """An OpenAI-compatible server the user added: LM Studio, Ollama, vLLM, another PC, a hosted API. Its key (if
     any) is kept as "endpoint:<id>" ("custom" for the one migrated from the old single URL)."""
@@ -175,7 +218,7 @@ class Endpoint(BaseModel):
     @field_validator("id")
     @classmethod
     def _not_builtin(cls, value: str) -> str:
-        if value in BUILTIN_PROVIDERS:
+        if value in BUILTIN_PROVIDERS or value == "images-openai":  # the image server's key is "endpoint:images-openai"
             raise ValueError(f"{value!r} is a built-in provider's name")
         return value
 

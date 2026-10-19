@@ -57,6 +57,14 @@ def list_providers(svc: Services = Depends(get_services)) -> list[ProviderInfo]:
     ]
 
 
+@router.get("/local/status")
+def local_status(svc: Services = Depends(get_services)) -> dict:
+    """Which .gguf and llama-server the local model would use, or why it can't start."""
+    if svc.local_llm is None or not hasattr(svc.local_llm, "status"):
+        return {"model": None, "mmproj": None, "server": None, "running": False, "why_not": "Not available."}
+    return svc.local_llm.status()
+
+
 @router.get("/{provider_id}/models")
 async def list_models(provider_id: str, svc: Services = Depends(get_services)) -> dict:
     if meta_for(provider_id, svc.settings.get()) is None:

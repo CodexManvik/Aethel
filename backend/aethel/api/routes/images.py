@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from PIL import Image
 from pydantic import BaseModel
 
+from ...images.comfyui import WorkflowError, load_workflow, placeholders
 from ...images.models import FACE_MODELS, ModelError, download, is_installed
 from ...images.service import GALLERY
 from ...personas.accent import accent_for
@@ -115,6 +116,19 @@ async def gemini_models(svc: Services = Depends(get_services)) -> list[str]:
         return await svc.images.backends["gemini"].models()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Couldn't list Gemini's models: {exc}") from exc
+
+
+class WorkflowIn(BaseModel):
+    path: str
+
+
+@router.post("/api/images/comfyui/check")
+def check_workflow(body: WorkflowIn) -> dict:
+    """Is this an API-format ComfyUI workflow, and which placeholders does it use?"""
+    try:
+        return {"ok": True, "placeholders": placeholders(load_workflow(body.path)), "error": None}
+    except WorkflowError as exc:
+        return {"ok": False, "placeholders": [], "error": str(exc)}
 
 
 @router.post("/api/images/{image_id}/retry")

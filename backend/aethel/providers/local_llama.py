@@ -47,6 +47,14 @@ class LocalLlama:
 
     # ---- discovery -------------------------------------------------------
     def find_binary(self) -> Path | None:
+        chosen = self._settings().server_path.strip()
+        if chosen:  # what the user picked wins; if it's gone, say so rather than quietly use another
+            p = Path(chosen)
+            if p.is_file():
+                return p
+            if (p / BINARY_NAME).is_file():
+                return p / BINARY_NAME
+            return None
         override = os.environ.get("LLAMA_SERVER_BINARY")
         if override:
             p = Path(override)
@@ -61,6 +69,27 @@ class LocalLlama:
             if candidate.is_file():
                 return candidate
         return None
+
+    def missing_server_reason(self) -> str:
+        chosen = self._settings().server_path.strip()
+        if chosen:
+            return f"llama-server isn't at {chosen} any more. Choose it again in Settings → Local model."
+        return "llama-server wasn't found. Choose it in Settings → Local model (or download it there)."
+
+    def status(self) -> dict:
+        """What the local model would run with, for Settings → Local model."""
+        model, mmproj = self.discover_model()
+        binary = self.find_binary()
+        chosen_model = self._settings().model_path.strip()
+        why = None
+        if model is None:
+            why = (f"The model file {chosen_model} doesn't exist." if chosen_model
+                   else f"No .gguf in {self.models_dir / 'llm'}; choose one.")
+        elif binary is None:
+            why = self.missing_server_reason()
+        return {"model": str(model) if model else None, "mmproj": str(mmproj) if mmproj else None,
+                "server": str(binary) if binary else None, "running": self._process is not None and self.is_up(),
+                "why_not": why}
 
     @staticmethod
     def _scan(directory: Path) -> tuple[Path | None, Path | None]:
@@ -77,9 +106,11 @@ class LocalLlama:
         return main, proj
 
     def discover_model(self) -> tuple[Path | None, Path | None]:
-        override = self._settings().model_path
-        if override and Path(override).is_file():
+        override = self._settings().model_path.strip()
+        if override:  # the user's choice, anywhere; gone means none (not quietly another model)
             chosen = Path(override)
+            if not chosen.is_file():
+                return None, None
             proj = next((s for s in sorted(chosen.parent.glob("*.gguf")) if "mmproj" in s.name.lower()), None)
             return chosen, proj
         return self._scan(self.models_dir / "llm")
@@ -120,9 +151,7 @@ class LocalLlama:
                 )
             binary = self.find_binary()
             if binary is None:
-                raise LocalLLMUnavailable(
-                    "llama-server not found. Install it (scripts/install.ps1) or set LLAMA_SERVER_BINARY."
-                )
+                raise LocalLLMUnavailable(self.missing_server_reason())
             port = self._port()
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 if probe.connect_ex(("127.0.0.1", port)) == 0:

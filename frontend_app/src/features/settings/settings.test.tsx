@@ -18,7 +18,7 @@ const settings: AppSettings = {
   endpoints: [],
   private_mode: false,
   internet: false,
-  local_llm: { model_path: "", context_size: 0, threads: 4, gpu_layers: 99 },
+  local_llm: { model_path: "", server_path: "", context_size: 0, threads: 4, gpu_layers: 99 },
   temperature: 0.8,
   max_tokens: 1024,
   agent_max_tokens: 8192,
@@ -32,7 +32,7 @@ const settings: AppSettings = {
   replay_thumbnails: true,
   use_learned_skills: true,
   token_saving: { mask_superseded: true, mask_batch: 3, compact_schemas: true, tool_groups: false },
-  images: { backends: ["gemini", "openrouter", "local"], gemini_model: "gemini-3.1-flash-image", openrouter_model: "", identity_threshold: 0.45, request_threshold: 0.6 },
+  images: { backends: ["gemini", "openai", "comfyui", "openrouter", "local"], gemini_model: "gemini-3.1-flash-image", openrouter_model: "", identity_threshold: 0.45, request_threshold: 0.6, openai: { base_url: "", model: "" }, comfyui: { base_url: "", workflow_path: "" }, local_dir: "" },
 };
 let rebuilds = 0;
 const providers: ProviderInfo[] = [

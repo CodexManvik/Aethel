@@ -309,6 +309,7 @@ pub fn run() {
     let info = BackendInfo { url: format!("http://127.0.0.1:{port}"), token: token.clone() };
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init()) // "Browse…" for model files, the llama-server and ComfyUI workflows
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![

@@ -26,9 +26,11 @@ from .memory.episodic import EpisodicIndex
 from .memory.extract import FactExtractor
 from .memory.facts import FactStore
 from .memory.rsm import KnowledgeStore
+from .images.comfyui import ComfyUI
 from .images.gemini import GeminiImage
 from .images.identity import IdentityCheck
 from .images.local.zimage import LocalZImage
+from .images.openai_images import OpenAIImages
 from .images.openrouter import OpenRouterImage
 from .images.service import ImageService
 from .images.tool import FrequencyRule, task_image_tool
@@ -150,7 +152,12 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                         http=http_client),
                   "openrouter": OpenRouterImage(key=lambda: keys.get("openrouter"),
                                                model=lambda: settings.get().images.openrouter_model, http=http_client),
-                  "local": LocalZImage(local_llm=local)})
+                  "openai": OpenAIImages(base_url=lambda: settings.get().images.openai.base_url,
+                                         model=lambda: settings.get().images.openai.model,
+                                         key=lambda: keys.get("endpoint:images-openai"), http=http_client),
+                  "comfyui": ComfyUI(base_url=lambda: settings.get().images.comfyui.base_url,
+                                     workflow_path=lambda: settings.get().images.comfyui.workflow_path, http=http_client),
+                  "local": LocalZImage(image_dir=lambda: settings.get().images.local_dir, local_llm=local)})
     registry.register(task_image_tool(images, personas, conversations,
                                       lambda tid: (t.conversation_id if (t := tasks.get(tid)) else None),
                                       Path.home() / "Documents" / "Aethel" / "images"))
