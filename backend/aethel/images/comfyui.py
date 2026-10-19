@@ -124,6 +124,9 @@ class ComfyUI:
             image = await self._wait(base, prompt_id)
             got = await self.http.get(f"{base}/view", params=image, timeout=60)
             got.raise_for_status()
+        except httpx.HTTPStatusError as exc:  # it answered, with an error: retrying won't help unless it's a 5xx
+            code = exc.response.status_code
+            raise ImageError(f"ComfyUI answered {code} ({exc.request.url.path}).", retryable=code >= 500) from exc
         except httpx.HTTPError as exc:
             raise ImageError(f"Couldn't reach ComfyUI: {type(exc).__name__}", retryable=True) from exc
         return ImageResult(data=got.content, mime=got.headers.get("content-type", "image/png").split(";")[0],
@@ -148,10 +151,11 @@ class ComfyUI:
                 status = entry.get("status") or {}
                 if status.get("status_str") == "error":
                     raise ImageError("ComfyUI's workflow failed while running.")
-                for output in (entry.get("outputs") or {}).values():
-                    for image in output.get("images") or []:
-                        return {"filename": image["filename"], "subfolder": image.get("subfolder", ""),
-                                "type": image.get("type", "output")}
+                images = [i for out in (entry.get("outputs") or {}).values() for i in out.get("images") or []]
+                if images:  # a Save Image's output before any Preview Image's temp file
+                    image = next((i for i in images if i.get("type", "output") == "output"), images[0])
+                    return {"filename": image["filename"], "subfolder": image.get("subfolder", ""),
+                            "type": image.get("type", "output")}
                 if status.get("completed"):
                     raise ImageError("ComfyUI finished without an image: does the workflow end in Save Image?")
             await self._sleep(POLL_S)

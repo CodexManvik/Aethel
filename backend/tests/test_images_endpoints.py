@@ -49,13 +49,20 @@ async def test_openai_edits_with_references_and_a_url_answer():
     def handler(r):
         if r.url.path.endswith("/images/edits"):
             seen["type"], seen["body"] = r.headers["content-type"], r.content
-            return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/x.png"}]})
+            return httpx.Response(200, json={"data": [{"url": "https://api.example.com/files/x.png"}]})
         return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
 
     got = await _openai(handler, key=None).generate(ImageRequest("beach", [b"ANCHOR", b"SHEET"]))
     assert seen["type"].startswith("multipart/form-data")
     assert seen["body"].count(b'name="image[]"') == 2 and b"ANCHOR" in seen["body"] and b"1024x1536" in seen["body"]
     assert got.data == PNG
+
+
+async def test_a_picture_link_to_another_site_is_not_followed():
+    def handler(r):
+        return httpx.Response(200, json={"data": [{"url": "http://169.254.169.254/latest"}]})
+    with pytest.raises(ImageError, match="another site"):
+        await _openai(handler).generate(ImageRequest("x"))
 
 
 @pytest.mark.parametrize("status,retryable", [(429, True), (500, True), (400, False)])

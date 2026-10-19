@@ -77,7 +77,8 @@ async def main(args) -> None:
     keys = KeyStore()
     out = {}
     if args.base_url:  # one given OpenAI-compatible endpoint (e.g. your own llama-server), not your roles
-        settings = settings.model_copy(update={"custom_base_url": args.base_url.rstrip("/")})
+        # validated, not copied: the URL becomes the endpoint "custom" (settings.py migrates it)
+        settings = type(settings).model_validate({**settings.model_dump(), "custom_base_url": args.base_url.rstrip("/")})
         runs = {"endpoint": RouteEntry(provider="custom", model=args.model)}
     else:
         runs = {role: (settings.roles.get(role) or [None])[0] for role in ("utility", "chat")}

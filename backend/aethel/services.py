@@ -146,6 +146,9 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                 " SELECT 1 FROM facts WHERE scope = ? LIMIT 1", (pid, f"persona:{pid}")) is not None)
     personas.ensure_builtin()
     persona_lines = PersonaLines(db, _embed, personas.folder)
+    # The user's own image servers get a client that follows no redirects and no system proxy: what goes to a
+    # server on this PC stays on this PC.
+    image_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     images = ImageService(
         personas=personas, settings=settings, identity=IdentityCheck(), hub=hub, messages=messages,
         backends={"gemini": GeminiImage(key=lambda: keys.get("gemini"), model=lambda: settings.get().images.gemini_model,
@@ -154,9 +157,9 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                                model=lambda: settings.get().images.openrouter_model, http=http_client),
                   "openai": OpenAIImages(base_url=lambda: settings.get().images.openai.base_url,
                                          model=lambda: settings.get().images.openai.model,
-                                         key=lambda: keys.get("endpoint:images-openai"), http=http_client),
+                                         key=lambda: keys.get("endpoint:images-openai"), http=image_http),
                   "comfyui": ComfyUI(base_url=lambda: settings.get().images.comfyui.base_url,
-                                     workflow_path=lambda: settings.get().images.comfyui.workflow_path, http=http_client),
+                                     workflow_path=lambda: settings.get().images.comfyui.workflow_path, http=image_http),
                   "local": LocalZImage(image_dir=lambda: settings.get().images.local_dir, local_llm=local)})
     registry.register(task_image_tool(images, personas, conversations,
                                       lambda tid: (t.conversation_id if (t := tasks.get(tid)) else None),
@@ -192,8 +195,8 @@ def local_ports(local, settings: AppSettings) -> list[int]:
     """The ports of the model servers on this computer (the one Aethel runs, and any endpoint that's local): the
     background browser is kept away from them, as it is from the backend itself."""
     ports = {local._port() if local is not None and hasattr(local, "_port") else 8080}
-    for endpoint in settings.endpoints:
-        url = urlsplit(endpoint.base_url) if endpoint.base_url else None
+    for base in [e.base_url for e in settings.endpoints] + [settings.images.openai.base_url, settings.images.comfyui.base_url]:
+        url = urlsplit(base) if base else None
         if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
             ports.add(url.port)
     return sorted(ports)

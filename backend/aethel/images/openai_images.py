@@ -4,6 +4,7 @@ without, /images/generations. The picture comes back as b64_json, or as a url th
 import base64
 import time
 from typing import Callable
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -11,6 +12,7 @@ from .backend import ImageError, ImageRequest, ImageResult, is_loopback
 
 SIZES = {"portrait": "1024x1536", "square": "1024x1024", "landscape": "1536x1024"}
 TIMEOUT_S = 180.0
+MAX_PICTURE_BYTES = 40 * 1024 * 1024
 
 
 class OpenAIImages:
@@ -67,13 +69,28 @@ class OpenAIImages:
         if item.get("b64_json"):
             return base64.b64decode(item["b64_json"]), "image/png"
         if item.get("url"):
+            # Only from the server that was asked: a link elsewhere could make Aethel fetch anything (and, from a
+            # server on this PC, take a private-mode request off the machine).
+            if _origin(item["url"]) != _origin(self._base()):
+                raise ImageError("The image server answered with a link to another site; it wasn't followed.")
             try:
-                got = await self.http.get(item["url"], timeout=60)
-                got.raise_for_status()
+                async with self.http.stream("GET", item["url"], timeout=60) as got:
+                    got.raise_for_status()
+                    data = bytearray()
+                    async for chunk in got.aiter_bytes():
+                        data += chunk
+                        if len(data) > MAX_PICTURE_BYTES:
+                            raise ImageError("The picture was too large.")
+                    mime = got.headers.get("content-type", "image/png").split(";")[0]
             except httpx.HTTPError as exc:
                 raise ImageError("The picture's link couldn't be fetched.", retryable=True) from exc
-            return got.content, got.headers.get("content-type", "image/png").split(";")[0]
+            return bytes(data), mime
         raise ImageError("The image server didn't return a picture.")
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parts = urlsplit(url)
+    return parts.scheme.lower(), (parts.hostname or "").lower(), parts.port
 
 
 def _message(r: httpx.Response) -> str:

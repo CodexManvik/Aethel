@@ -123,6 +123,7 @@ class VoiceSettings(BaseModel):
 
 ImageBackendId = Literal["gemini", "openai", "comfyui", "openrouter", "local"]
 IMAGE_BACKENDS: tuple[str, ...] = ("gemini", "openai", "comfyui", "openrouter", "local")
+NEW_IMAGE_BACKENDS = ("openai", "comfyui")  # added 2026-10-19
 
 
 class OpenAIImageSettings(BaseModel):
@@ -170,10 +171,11 @@ class ImageSettings(BaseModel):
     @field_validator("backends")
     @classmethod
     def _every_backend(cls, value: list[str]) -> list[str]:
-        """Settings saved before a backend existed still try it: missing ones go in before "local" (the slowest)."""
+        """A list saved before "openai" and "comfyui" existed (it has neither) gains them, before "local" (the slowest).
+        A list that has either was written knowing them, so a backend left out of it stays out."""
         out = list(dict.fromkeys(value))
-        for name in IMAGE_BACKENDS:
-            if name not in out:
+        if not any(name in out for name in NEW_IMAGE_BACKENDS):
+            for name in NEW_IMAGE_BACKENDS:
                 out.insert(out.index("local") if "local" in out else len(out), name)
         return out
 
@@ -256,12 +258,17 @@ class AppSettings(BaseModel):
             return data
         data = dict(data)
         url = data.pop("custom_base_url", None)  # None: not given; "" clears it, as it always did
-        endpoints = [dict(e) if isinstance(e, dict) else e.model_dump() for e in data.get("endpoints") or []]
-        has_custom = any(e.get("id") == "custom" for e in endpoints)
+        raw = data.get("endpoints") or []
+        if not isinstance(raw, list):
+            return data  # not a list: pydantic rejects it with a proper message (a 422, not a crash here)
+        endpoints = [e.model_dump() if isinstance(e, BaseModel) else e for e in raw]
+        has_custom = any(isinstance(e, dict) and e.get("id") == "custom" for e in endpoints)
+        roles = data.get("roles") if isinstance(data.get("roles"), dict) else {}
         uses_custom = any((e.get("provider") if isinstance(e, dict) else getattr(e, "provider", None)) == "custom"
-                          for entries in (data.get("roles") or {}).values() for e in entries or [])
+                          for entries in roles.values() if isinstance(entries, list) for e in entries)
         if url is not None and has_custom:
-            endpoints = [{**e, "base_url": url} if e.get("id") == "custom" else e for e in endpoints]
+            endpoints = [{**e, "base_url": url} if isinstance(e, dict) and e.get("id") == "custom" else e
+                         for e in endpoints]
         elif url:
             endpoints.insert(0, {"id": "custom", "name": "Custom", "base_url": url})
         elif uses_custom and not has_custom:
@@ -325,15 +332,27 @@ class SettingsService:
         try:
             return AppSettings.model_validate_json(row["value"])
         except ValidationError:
-            # A custom URL saved before it was validated mustn't lock the user out of every setting.
+            # Something saved before it was checked mustn't lock the user out of every setting: repair only what is
+            # broken (an old custom URL, an endpoint URL, a role naming a provider that's gone), keep the rest.
             data = json.loads(row["value"])
-            data["custom_base_url"] = ""
-            for ep in data.get("endpoints") or []:  # a URL that no longer validates: keep the endpoint, unset
-                if isinstance(ep, dict):
-                    try:
-                        _check_base_url(str(ep.get("base_url", "")))
-                    except ValueError:
-                        ep["base_url"] = ""
+            try:
+                _check_base_url(str(data.get("custom_base_url") or ""))
+            except ValueError:
+                data["custom_base_url"] = ""
+            endpoints = [ep for ep in data.get("endpoints") or [] if isinstance(ep, dict)]
+            for ep in endpoints:
+                try:
+                    _check_base_url(str(ep.get("base_url", "")))
+                except ValueError:
+                    ep["base_url"] = ""
+            data["endpoints"] = endpoints
+            known = set(BUILTIN_PROVIDERS) | {str(ep.get("id")) for ep in endpoints}
+            if data.get("custom_base_url") or any(
+                    isinstance(e, dict) and e.get("provider") == "custom" for es in (data.get("roles") or {}).values()
+                    for e in es or []):
+                known.add("custom")  # the migration makes it
+            data["roles"] = {role: [e for e in es or [] if isinstance(e, dict) and e.get("provider") in known]
+                             for role, es in (data.get("roles") or {}).items()}
             return AppSettings.model_validate(data)
 
     def update(self, patch: dict) -> AppSettings:
