@@ -229,6 +229,12 @@ class ChatService:
         if status in ("complete", "stopped") and self.extractor is not None:
             self.extractor.schedule(conversation_id=conv.id, persona_id=conv.persona_id, user_message_id=user_msg.id)
 
+    async def reply_done(self, message_id: str) -> None:
+        """Returns once that reply's turn has finished (at once if it isn't running)."""
+        task = self._active.get(message_id)
+        if task is not None and task is not asyncio.current_task():
+            await asyncio.wait({task})
+
     async def _image_tools_for(self, conv, user_text: str, message_id: str) -> list[Tool]:
         """image_generate, when the persona may send a photo now (its frequency rule) and some image model is
         available (in private mode only one on this PC). A failure here never costs the reply."""

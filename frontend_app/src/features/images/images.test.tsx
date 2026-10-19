@@ -50,6 +50,27 @@ test("a failed photo says so quietly and can be tried again", async () => {
   expect(calls).toContain("POST /api/images/img1/retry");
 });
 
+test("a retry that fails again can be tried again; an interrupted one can't", async () => {
+  const { rerender } = render(<DevelopingPhoto photo={photo({ status: "failed" })} />);
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
+  rerender(<DevelopingPhoto photo={photo({ status: "pending" })} />);
+  rerender(<DevelopingPhoto photo={photo({ status: "failed" })} />);
+  expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  rerender(<DevelopingPhoto photo={photo({ id: "img2", status: "failed", stale: true })} />);
+  expect(screen.getByText("The photo was interrupted and can't be redone.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+});
+
+test("re-reading the conversation keeps a photo that finished meanwhile", async () => {
+  const { useSession } = await import("../../stores/session");
+  useSession.getState().setConversation("c1", [{ id: "m1", role: "assistant", content: "hi", status: "complete",
+    images: [{ id: "img1", personaId: "mira", status: "ready", caption: "beach", url: "/x.jpg", score: 0.8 }] }]);
+  useSession.getState().replaceMessages("c1", [{ id: "m1", role: "assistant", content: "hi", status: "complete",
+    images: [{ id: "img1", personaId: "mira", status: "pending", caption: "beach" }] }]);
+  expect(useSession.getState().messages[0].images?.[0].status).toBe("ready");
+});
+
 test("the card takes the stored average time to develop", () => {
   expect(expectedMs()).toBe(12000);
   recordDuration(20000);

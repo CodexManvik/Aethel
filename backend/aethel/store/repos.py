@@ -156,6 +156,21 @@ class MessageRepo:
             self.db.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(patch(json.loads(row["meta"]))), msg_id))
         return True
 
+    def fail_stale_images(self) -> int:
+        """At startup no photo is being made, so one still marked pending was cut off: mark it failed (its job, and
+        so its retry, died with the app). Returns how many."""
+        rows = self.db.query("SELECT id, meta FROM messages WHERE json_extract(meta, '$.images') IS NOT NULL")
+        n = 0
+        for row in rows:
+            meta = json.loads(row["meta"])
+            stale = [i for i in meta.get("images", []) if i.get("status") == "pending"]
+            if stale:
+                n += len(stale)
+                meta["images"] = [{**i, "status": "failed", "stale": True} if i.get("status") == "pending" else i
+                                  for i in meta["images"]]
+                self.db.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(meta), row["id"]))
+        return n
+
     def mark_stopped_if_streaming(self, msg_id: str) -> bool:
         """Atomically end a reply that's still marked streaming. False if it
         doesn't exist or already finished."""

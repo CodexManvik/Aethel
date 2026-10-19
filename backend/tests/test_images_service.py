@@ -177,6 +177,94 @@ async def test_the_reference_pool_is_capped(setup):
     assert svc.set_reference(setup[3].id, unpooled["id"], True)["reference"] is True
 
 
+@pytest.mark.anyio
+async def test_a_path_is_never_an_image_id(setup):
+    svc, _ = _service(setup, FakeBackend(), FakeIdentity([]))
+    for bad in ("..\\victim", "../x", "a" * 16 + "/..", "ABCDEF0123456789"):
+        with pytest.raises(KeyError):
+            svc.set_reference(setup[3].id, bad, True)
+
+
+class FlakyBackend(FakeBackend):
+    """The first picture works, the second try fails."""
+
+    async def generate(self, req):
+        if self.requests:
+            self.requests.append(req)
+            raise ImageError("busy", retryable=True)
+        return await super().generate(req)
+
+
+@pytest.mark.anyio
+async def test_a_failed_second_try_keeps_the_first_picture(setup):
+    svc, hub = _service(setup, FlakyBackend(), FakeIdentity([0.1]))
+    got = await svc.generate(persona=setup[3], scene="x")
+    assert got["ok"] and got["score"] == 0.1 and svc.gallery(setup[3].id)[0]["low"] is True
+
+
+class BrokenIdentity(FakeIdentity):
+    def compare(self, data, anchor):
+        raise RuntimeError("onnx went away")
+
+
+@pytest.mark.anyio
+async def test_a_broken_face_check_never_costs_the_picture(setup):
+    svc, _ = _service(setup, FakeBackend(), BrokenIdentity([]))
+    got = await svc.generate(persona=setup[3], scene="x")
+    assert got["ok"] and got["score"] is None
+
+
+class SlowBackend(FakeBackend):
+    def __init__(self, store, pid):
+        super().__init__()
+        self.store, self.pid = store, pid
+
+    async def generate(self, req):
+        self.store.delete(self.pid)  # the persona goes while its photo is being drawn
+        return await super().generate(req)
+
+
+@pytest.mark.anyio
+async def test_a_persona_deleted_mid_photo_isnt_recreated(setup):
+    store, mira = setup[2], setup[3]
+    svc, hub = _service(setup, SlowBackend(store, mira.id), FakeIdentity([0.9]))
+    await svc.start(persona=mira, scene="x")
+    await svc.wait_idle()
+    assert type(hub.events[-1]).__name__ == "ImageFailed" and not (store.root / mira.id).exists()
+
+
+@pytest.mark.anyio
+async def test_a_photo_drawn_on_this_pc_waits_for_its_reply(setup):
+    order = []
+    local = FakeBackend()
+    local.cloud = False
+
+    async def reply_done(message_id):
+        order.append(f"reply {message_id} done")
+
+    svc, _ = _service(setup, local, FakeIdentity([0.9]))
+    svc.reply_done = reply_done
+    original = local.generate
+
+    async def generate(req):
+        order.append("drawing")
+        return await original(req)
+    local.generate = generate
+    await svc.generate(persona=setup[3], scene="x", message_id="m1")
+    assert order == ["reply m1 done", "drawing"]
+
+
+def test_photos_cut_off_by_a_restart_are_marked_failed(setup):
+    db = setup[0]
+    conv = ConversationRepo(db).create(persona_id=setup[3].id)
+    messages = MessageRepo(db)
+    m = messages.add(conv.id, "assistant", "here", meta={"images": [{"id": "a", "status": "pending"},
+                                                                   {"id": "b", "status": "ready"}]})
+    assert messages.fail_stale_images() == 1
+    assert messages.get(m.id).meta["images"] == [{"id": "a", "status": "failed", "stale": True},
+                                                 {"id": "b", "status": "ready"}]
+
+
 class FakeS1:
     def __init__(self, p):
         self.p = p

@@ -1,5 +1,6 @@
 """Photos (spec §10): what can make them, the face models, retry, the gallery, and the studio's faces."""
 import asyncio
+import os
 import shutil
 import threading
 
@@ -49,6 +50,8 @@ class Download:
                     self.done = base
         except (ModelError, httpx.HTTPError, OSError) as exc:
             self.error = str(exc)
+        except Exception as exc:  # whatever it was, the studio must hear the download stopped
+            self.error = f"The download failed ({type(exc).__name__})."
         finally:
             self.running = False
 
@@ -159,7 +162,12 @@ async def set_anchor(pid: str, body: AnchorIn, svc: Services = Depends(get_servi
     if not body.image_id.isalnum() or not source.is_file():
         raise HTTPException(status_code=404, detail="No such photo.")
     (folder / "portraits").mkdir(exist_ok=True)
-    shutil.copyfile(source, folder / "portraits" / "anchor.jpg")
+
+    def copy() -> None:  # aside, then moved into place: a photo being made may be reading the old anchor
+        tmp = folder / "portraits" / ".anchor.jpg.tmp"
+        shutil.copyfile(source, tmp)
+        os.replace(tmp, folder / "portraits" / "anchor.jpg")
+    await anyio.to_thread.run_sync(copy)
     patch: dict = {"anchors": ["portraits/anchor.jpg"], "sheet": []}  # the old sheet shows the old face
     if p.accent is None or p.accent.source == "anchor":
         accent = await anyio.to_thread.run_sync(lambda: accent_for(Image.open(source)))

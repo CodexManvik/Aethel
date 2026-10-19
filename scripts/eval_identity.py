@@ -127,7 +127,7 @@ async def run(args) -> dict:
             out["conditions"][name] = [await score(ImageRequest(compose(persona, s), refs)) for s in scenes]
         print(f"distractors: {args.distractors} photos")
         out["different"] = [await score(ImageRequest(DISTRACTOR.format(scene=s)))
-                            for s in SCENES[-args.distractors:]]
+                            for s in SCENES[len(SCENES) - args.distractors:]]  # [-0:] would be all of them
     different = [s for s in out["different"] if s is not None]
     tau = calibrate(different)
     out["calibrated_tau"] = tau

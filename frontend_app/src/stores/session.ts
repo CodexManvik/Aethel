@@ -17,6 +17,7 @@ export interface UiPhoto {
   url?: string;          // the backend path of the picture, once it's ready
   score?: number | null; // identity score; null: not checked
   error?: string;
+  stale?: boolean;       // cut off when the app stopped: its retry died with it
   startedAt?: number;    // when the card started developing (ms), for the running average of how long photos take
 }
 
@@ -66,10 +67,11 @@ export function toUiMessages(messages: Message[]): UiMessage[] {
       const sources = m.meta?.sources as Source[] | undefined;
       if (sources?.length) ui.sources = sources;
       const images = m.meta?.images as { id: string; persona_id: string; status: UiPhoto["status"]; score?: number | null;
-        caption?: string }[] | undefined;
+        caption?: string; stale?: boolean }[] | undefined;
       if (images?.length) {
         ui.images = images.map((i) => ({ id: i.id, personaId: i.persona_id, status: i.status, caption: i.caption ?? "",
-          score: i.score ?? null, ...(i.status === "ready" ? { url: photoUrl(i.persona_id, i.id) } : {}) }));
+          score: i.score ?? null, ...(i.stale ? { stale: true } : {}),
+          ...(i.status === "ready" ? { url: photoUrl(i.persona_id, i.id) } : {}) }));
       }
       return ui;
     });
@@ -232,7 +234,20 @@ export const useSession = create<SessionState>()((set) => ({
       if (s.conversationId !== conversationId) return s;
       const known = new Set(fetched.map((m) => m.id));
       const pending = s.messages.filter((m) => m.status === "pending" && !known.has(m.id));
-      const messages = [...fetched, ...pending];
+      // A photo event can land between the server's snapshot and this: keep the newer state of each photo.
+      const before = new Map(s.messages.map((m) => [m.id, m]));
+      const merged = fetched.map((m) => {
+        const mine = before.get(m.id)?.images;
+        if (!mine?.length) return m;
+        const theirs = m.images ?? [];
+        const ids = new Set(theirs.map((i) => i.id));
+        const images = [...theirs.map((i) => {
+          const local = mine.find((x) => x.id === i.id);
+          return local && i.status === "pending" && local.status !== "pending" ? local : i;
+        }), ...mine.filter((x) => !ids.has(x.id))];
+        return { ...m, images };
+      });
+      const messages = [...merged, ...pending];
       return { messages, streamingId: messages.find((m) => m.status === "streaming")?.id ?? null };
     }),
 }));

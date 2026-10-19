@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { useObjectUrl } from "../../lib/useObjectUrl";
 import type { UiPhoto } from "../../stores/session";
 
@@ -35,6 +35,8 @@ const reduced = () => document.documentElement.dataset.motion === "reduced";
 export function DevelopingPhoto({ photo }: { photo: UiPhoto }) {
   const src = useObjectUrl(photo.status === "ready" && photo.url ? photo.url : null);
   const [retrying, setRetrying] = useState(false);
+  const [gone, setGone] = useState(false);
+  useEffect(() => setRetrying(false), [photo.status]); // a retry that fails again can be tried again
   const [duration] = useState(expectedMs);
   const [developed, setDeveloped] = useState(false);
   const recorded = useRef(false);
@@ -52,13 +54,22 @@ export function DevelopingPhoto({ photo }: { photo: UiPhoto }) {
   }, [photo.status, photo.startedAt]);
 
   if (photo.status === "failed") {
+    const retry = () => {
+      setRetrying(true);
+      api(`/api/images/${photo.id}/retry`, { method: "POST" }).catch((e) => {
+        setRetrying(false);
+        if (e instanceof ApiError && e.status === 404) setGone(true);
+      });
+    };
     return (
       <div className="mt-3 flex items-center gap-3 font-sans text-[12.5px] text-muted" data-testid="photo-failed">
-        <span>The photo didn't come out.</span>
-        <button type="button" disabled={retrying} className="text-accent underline underline-offset-2 disabled:opacity-50"
-          onClick={() => { setRetrying(true); void api(`/api/images/${photo.id}/retry`, { method: "POST" }).catch(() => setRetrying(false)); }}>
-          Try again
-        </button>
+        <span>{photo.stale || gone ? "The photo was interrupted and can't be redone." : "The photo didn't come out."}</span>
+        {!photo.stale && !gone && (
+          <button type="button" disabled={retrying} className="text-accent underline underline-offset-2 disabled:opacity-50"
+            onClick={retry}>
+            Try again
+          </button>
+        )}
       </div>
     );
   }

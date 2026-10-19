@@ -107,6 +107,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     db = Database(db_path())
     conversations, messages = ConversationRepo(db), MessageRepo(db)
     messages.reconcile_interrupted()  # replies cut off by a previous kill/crash
+    messages.fail_stale_images()      # photos that were still being made when the app stopped
     tasks = TaskRepo(db)
     tasks.reconcile_interrupted()     # tasks cut off by a previous kill/crash become 'paused'
     settings = SettingsService(db)
@@ -168,6 +169,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                        web_tools=lambda: [registry.get(name) for name in registry.names("web")], personas=personas,
                        tone=ToneEngine(), lines=persona_lines, images=images,
                        image_rule=FrequencyRule(system1=system1, messages=messages, settings=settings))
+    images.reply_done = chat.reply_done  # a photo drawn on this PC waits for its reply to finish
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,

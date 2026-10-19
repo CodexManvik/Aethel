@@ -9,6 +9,8 @@ import asyncio
 import io
 import json
 import logging
+import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,6 +29,7 @@ log = logging.getLogger("aethel.images")
 MAX_REFERENCES = 6
 GALLERY = "gallery"
 ANCHOR_CACHE = "anchor.npy"
+IMAGE_ID_RE = re.compile(r"[0-9a-f]{16}")
 Reason = Literal["chat", "task", "studio"]
 
 
@@ -57,9 +60,11 @@ def image_url(persona_id: str, image_id: str) -> str:
 
 
 class ImageService:
-    def __init__(self, *, personas, backends: dict[str, ImageBackend], settings, identity, hub, messages=None):
+    def __init__(self, *, personas, backends: dict[str, ImageBackend], settings, identity, hub, messages=None,
+                 reply_done=None):
         self.personas, self.backends, self.settings = personas, backends, settings
         self.identity, self.hub, self.messages = identity, hub, messages
+        self.reply_done = reply_done  # async (message_id): returns once that reply has finished streaming
         self._tasks: set[asyncio.Task] = set()
         self._by_id: dict[str, asyncio.Task] = {}
         self._failed: dict[str, Job] = {}  # image id -> the job, for "Try again"
@@ -85,6 +90,8 @@ class ImageService:
 
     def set_reference(self, persona_id: str, image_id: str, on: bool) -> dict:
         """Adds a gallery photo to the reference pool or takes it out; the pool plus anchor and sheet stays ≤ 6."""
+        if not IMAGE_ID_RE.fullmatch(image_id):
+            raise KeyError(image_id)  # never a path: "..\\x" would reach outside the gallery on Windows
         persona = self.personas.get(persona_id)
         side = self.personas.folder(persona_id) / GALLERY / f"{image_id}.json"
         if persona is None or not side.is_file():
@@ -123,9 +130,13 @@ class ImageService:
         if cache.is_file() and cache_key.is_file() and cache_key.read_text(encoding="utf-8") == key:
             return np.load(cache)
         vec = self.identity.embedding_of(anchor.read_bytes())
-        if vec is not None:
-            np.save(cache, vec)
-            cache_key.write_text(key, encoding="utf-8")
+        if vec is not None:  # written aside and moved into place: two jobs may compute it at once
+            tmp = folder / f".{ANCHOR_CACHE}.{uuid.uuid4().hex[:8]}.npy"
+            np.save(tmp, vec)
+            os.replace(tmp, cache)
+            tmp_key = folder / f".{ANCHOR_CACHE}.key.{uuid.uuid4().hex[:8]}"
+            tmp_key.write_text(key, encoding="utf-8")
+            os.replace(tmp_key, cache_key)
         return vec
 
     # ---- making one ----------------------------------------------------------------------------------------
@@ -216,20 +227,35 @@ class ImageService:
         refs = self.references(persona, backend.max_references) if job.references else []
         req = ImageRequest(compose(persona, job.scene, job.framing, job.expression, references=bool(refs)), refs,
                            job.size)
-        anchor = await asyncio.to_thread(self.anchor_embedding, persona) if job.references else None
+        try:
+            anchor = await asyncio.to_thread(self.anchor_embedding, persona) if job.references else None
+        except Exception:  # the face check is broken: the photo still goes out, unchecked
+            log.exception("the anchor's embedding failed; photo not checked")
+            anchor = None
+        if not backend.cloud and job.message_id is not None and self.reply_done is not None:
+            # A model on this PC may take the GPU from the local LLM: let the reply finish first.
+            await self.reply_done(job.message_id)
         threshold = self.settings.get().images.identity_threshold
         best_data, best_result, best_score, tries = None, None, None, 0
         for _ in range(2):
-            result = await backend.generate(req)
+            try:
+                result = await backend.generate(req)
+            except ImageError:
+                if best_data is None:
+                    raise
+                break  # the second try failed: the first (paid for) picture is kept
             tries += 1
             data = await asyncio.to_thread(to_jpeg, result.data)
-            score = (await asyncio.to_thread(self.identity.compare, data, anchor)) if anchor is not None else None
+            score = await self._score(data, anchor)
             if best_data is None or (score is not None and (best_score is None or score > best_score)):
                 best_data, best_result, best_score = data, result, score
             if score is None or score >= threshold:
                 break  # no face to check (scenery), unchecked, or it passed
+        persona = self.personas.get(job.persona_id)  # deleted meanwhile: don't recreate its folder
+        if persona is None:
+            raise ImageError("That persona was deleted while the photo was being made.")
         folder = self.personas.folder(persona.id) / GALLERY
-        folder.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(exist_ok=True)
         (folder / f"{job.image_id}.jpg").write_bytes(best_data)
         pool_room = MAX_REFERENCES - len(persona.anchors) - len(persona.sheet) - len(self._pool(persona.id))
         meta = {"scene": job.scene, "framing": job.framing, "expression": job.expression,
@@ -241,6 +267,15 @@ class ImageService:
                 "reference": job.reason == "chat" and best_score is not None and best_score >= threshold and pool_room > 0}
         (folder / f"{job.image_id}.json").write_text(json.dumps(meta), encoding="utf-8")
         return meta
+
+    async def _score(self, data: bytes, anchor) -> float | None:
+        if anchor is None:
+            return None
+        try:
+            return await asyncio.to_thread(self.identity.compare, data, anchor)
+        except Exception:  # a broken check never costs the picture
+            log.exception("the identity check failed; photo not checked")
+            return None
 
     def _mark(self, job: Job, status: str, score: float | None = None) -> None:
         """The reply's meta.images, so a reload shows the photo (or that it failed)."""

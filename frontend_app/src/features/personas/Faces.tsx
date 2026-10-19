@@ -5,7 +5,7 @@ import { api } from "../../lib/api";
 import { useObjectUrl } from "../../lib/useObjectUrl";
 import { Button } from "../../ui/Button";
 import { cn } from "../../ui/cn";
-import type { Persona } from "./personasApi";
+import { personaFile, usePortraitVersion, type Persona } from "./personasApi";
 
 export interface ImagesStatus {
   backend: string | null;
@@ -25,7 +25,6 @@ interface Made {
 }
 
 const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const file = (p: Persona, rel: string) => `/api/personas/${p.id}/files/${rel}`;
 
 export function useImagesStatus() {
   return useQuery({
@@ -78,7 +77,10 @@ export function Faces({ persona }: { persona: Persona }) {
   const qc = useQueryClient();
   const { data: status } = useImagesStatus();
   const [faces, setFaces] = useState<Made[]>([]);
+  const version = usePortraitVersion((s) => s.n);
+  const file = (rel: string) => personaFile(persona.id, rel, version);
   const refresh = () => {
+    usePortraitVersion.getState().bump(); // same file names, new pictures
     void qc.invalidateQueries({ queryKey: ["personas"] });
     void qc.invalidateQueries({ queryKey: ["gallery", persona.id] });
   };
@@ -121,8 +123,8 @@ export function Faces({ persona }: { persona: Persona }) {
         </>
       ) : persona.anchors.length > 0 ? (
         <div className="flex items-start gap-3">
-          <div className="w-28"><Thumb path={file(persona, persona.anchors[0])} label="The face" /></div>
-          {persona.sheet.map((s) => <div key={s} className="w-20"><Thumb path={file(persona, s)} label={s.split("/").pop()!} /></div>)}
+          <div className="w-28"><Thumb path={file(persona.anchors[0])} label="The face" /></div>
+          {persona.sheet.map((s) => <div key={s} className="w-20"><Thumb path={file(s)} label={s.split("/").pop()!} /></div>)}
         </div>
       ) : (
         <p className="font-voice text-[14px] italic text-muted">No face yet.</p>
