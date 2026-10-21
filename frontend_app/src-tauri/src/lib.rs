@@ -156,7 +156,9 @@ fn spawn_backend(token: &str, port: u16, installed: Option<&Layout>) -> std::io:
         if let Ok(joined) = std::env::join_paths(paths) {
             cmd.env("PATH", joined);
         }
-        cmd.env("AETHEL_UV", layout.uv()).env("AETHEL_RESOURCES", &layout.resources).envs(layout.uv_env());
+        cmd.env("AETHEL_UV", layout.uv()).env("AETHEL_RESOURCES", &layout.resources).envs(layout.uv_env())
+            // Program Files is read-only for the app: Python's bytecode cache goes with the runtime instead.
+            .env("PYTHONPYCACHEPREFIX", layout.runtime().join("pycache"));
         runtime::clean_python_env(&mut cmd);
     }
     cmd.args(["-m", "aethel"])

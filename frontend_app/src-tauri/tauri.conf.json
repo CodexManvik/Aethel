@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Aethel",
-  "version": "0.1.0",
+  "version": "2.0.0-beta.1",
   "identifier": "com.aethel.app",
   "build": {
     "frontendDist": "../dist",
@@ -44,13 +44,20 @@
     "resources": {
       "payload/backend/": "backend/",
       "payload/requirements/": "requirements/",
-      "payload/uv/": "uv/"
+      "payload/uv/": "uv/",
+      "../../LICENSE": "LICENSE",
+      "../../docs/third_party.md": "THIRD_PARTY.md"
     },
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "perMachine",
+        "displayLanguageSelector": false
       }
     },
-    "shortDescription": "Aethel: a companion that lives on your computer"
+    "shortDescription": "Aethel: a companion that lives on your computer",
+    "publisher": "CodexManvik",
+    "copyright": "Copyright (c) 2026 CodexManvik. MIT licence.",
+    "homepage": "https://github.com/CodexManvik/Aethel",
+    "licenseFile": "../../LICENSE"
   }
 }
