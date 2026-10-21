@@ -1,9 +1,11 @@
 """Things the installed app fetches on request (spec 2026-10-19 §I3), each pinned to a release and a SHA-256 and
 recorded in docs/third_party.md: Kokoro's voices, a llama.cpp server, and the optional packages for local images.
 One download at a time per item, in a thread; the Settings sections poll /api/downloads."""
+import importlib
 import importlib.util
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -14,7 +16,7 @@ from typing import Callable
 
 import httpx
 
-from .images.models import ModelError, download
+from .images.models import VERIFIED, ModelError, download
 from .paths import MODELS_DIR, aethel_home
 
 log = logging.getLogger("aethel.downloads")
@@ -71,7 +73,8 @@ class Job:
 class Downloads:
     def __init__(self, *, settings, client_factory: Callable[[], httpx.Client] | None = None, runner=subprocess.run):
         self.settings = settings
-        self._client = client_factory or (lambda: httpx.Client(trust_env=False))
+        # The system proxy is honoured (as uv does): every file is checked against its pinned hash anyway.
+        self._client = client_factory or (lambda: httpx.Client())
         self._run = runner
         self.jobs: dict[str, Job] = {name: Job() for name in ("voices", "llama-vulkan", "llama-cpu", "local-images")}
 
@@ -140,11 +143,17 @@ class Downloads:
             archive = download("llama", client, cache, spec={**spec, "url": LLAMA_URL + spec["file"]},
                                progress=lambda d, _t: setattr(job, "done", d))
         dest = llama_dir(flavor)
-        safe_extract(archive, dest)
-        archive.unlink(missing_ok=True)
-        server = find_server(dest)
-        if server is None:
+        staging = dest.with_name(dest.name + ".part")
+        shutil.rmtree(staging, ignore_errors=True)
+        safe_extract(archive, staging)  # aside first: a half-unpacked server must never look installed
+        if find_server(staging) is None:
+            shutil.rmtree(staging, ignore_errors=True)
             raise ModelError("The download didn't contain llama-server.exe.")
+        shutil.rmtree(dest, ignore_errors=True)
+        os.replace(staging, dest)
+        archive.unlink(missing_ok=True)
+        archive.with_name(archive.name + VERIFIED).unlink(missing_ok=True)
+        server = find_server(dest)
         local = self.settings.get().local_llm.model_dump()
         self.settings.update({"local_llm": {**local, "server_path": str(server)}})  # use it straight away
 
@@ -152,10 +161,18 @@ class Downloads:
         uv, resources = os.environ["AETHEL_UV"], Path(os.environ["AETHEL_RESOURCES"])
         log_path = aethel_home() / "logs" / "local-images.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        reqs = resources / "requirements"
+        # Hashed, and constrained by the core lock so it can never change a package the backend runs on (the same
+        # command as the runtime's RestoreLocalImages step in runtime.rs).
         with open(log_path, "w", encoding="utf-8") as out:
-            result = self._run([uv, "pip", "install", "--python", sys.executable, "-r",
-                                str(resources / "requirements" / "local-images.txt")],
+            result = self._run([uv, "pip", "install", "--python", sys.executable, "--require-hashes",
+                                "--index-strategy", "unsafe-best-match", "-r", str(reqs / "local-images.txt"),
+                                "--constraint", str(reqs / "core.txt")],
                                stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if result.returncode != 0:
             raise ModelError(f"Installing local image support failed. The details are in {log_path}.")
+        importlib.invalidate_caches()  # so installed() sees the new packages in this process
+        marker = aethel_home() / "runtime" / "local-images.installed"  # an app update's sync puts it back
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("1", encoding="utf-8")

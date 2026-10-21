@@ -76,7 +76,7 @@ export function LocalModelSection({ settings }: { settings: AppSettings }) {
         value={local.server_path} placeholder={"D:\\llama.cpp\\llama-server.exe"}
         onChange={(v) => setLocal((l) => ({ ...l, server_path: v }))} onBrowse={() => void pick("server_path")} />
       {status && typeof status === "object" && status.server === null && (
-        <Field label="Get llama-server" hint={`llama.cpp ${"b11381"} from its GitHub release, checked against a pinned hash. The GPU build works with NVIDIA, AMD and Intel graphics (Vulkan); the CPU build works anywhere.`}>
+        <Field label="Get llama-server" hint={`llama.cpp ${"b11381"} from its GitHub release, checked against a pinned hash. The GPU build works with NVIDIA, AMD and Intel graphics (Vulkan); the CPU build works anywhere. Once downloaded, it becomes the llama-server above.`}>
           <div className="flex gap-2">
             <DownloadButton name="llama-vulkan" label="GPU (33 MB)" onDone={refreshAfterDownload} />
             <DownloadButton name="llama-cpu" label="CPU only (19 MB)" onDone={refreshAfterDownload} />

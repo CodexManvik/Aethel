@@ -36,7 +36,9 @@ async function fetchUv() {
   }
   const out = join(payload, "uv");
   mkdirSync(out, { recursive: true });
-  execFileSync("tar", ["-xf", zip, "-C", out]); // Windows 10+ tar reads zip
+  // Windows' own bsdtar reads zip; Git Bash's GNU tar (often first on PATH) can't, so name it outright.
+  const tar = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  execFileSync(tar, ["-xf", zip, "-C", out]);
   for (const exe of ["uv.exe", "uvx.exe"]) if (!existsSync(join(out, exe))) throw new Error(`${exe} missing from the uv zip`);
 }
 

@@ -23,6 +23,23 @@ def _zip(entries: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+def svc_home(_tmp_path):
+    from aethel.paths import aethel_home
+    return aethel_home()
+
+
+def test_a_half_unpacked_server_never_counts_as_installed(svc, monkeypatch):
+    archive = _zip({"README.md": b"no server here"})
+    monkeypatch.setitem(dl.LLAMA, "cpu", {"file": "llama.zip", "size": len(archive),
+                                          "sha256": hashlib.sha256(archive).hexdigest()})
+    downloads = dl.Downloads(settings=svc.settings, client_factory=lambda: httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, content=archive))))
+    downloads.start("llama-cpu")
+    _wait(downloads, "llama-cpu")
+    assert "didn't contain" in downloads.jobs["llama-cpu"].error
+    assert not dl.llama_dir("cpu").exists() and not dl.llama_dir("cpu").with_name(dl.llama_dir("cpu").name + ".part").exists()
+
+
 def _wait(downloads, name):
     for _ in range(200):
         if not downloads.jobs[name].running:
@@ -98,8 +115,11 @@ def test_local_images_only_in_the_installed_app(svc, monkeypatch, tmp_path):
     assert downloads.status()["packages_installable"] is True
     downloads.start("local-images")
     _wait(downloads, "local-images")
-    assert calls[0][:3] == ["C:/app/uv/uv.exe", "pip", "install"] and calls[0][-1].endswith("local-images.txt")
+    args = calls[0]
+    assert args[:3] == ["C:/app/uv/uv.exe", "pip", "install"] and "--require-hashes" in args
+    assert args[args.index("-r") + 1].endswith("local-images.txt") and args[args.index("--constraint") + 1].endswith("core.txt")
     assert downloads.jobs["local-images"].error is None
+    assert (svc_home(tmp_path) / "runtime" / "local-images.installed").exists()  # so an app update puts it back
 
 
 def test_routes(svc):

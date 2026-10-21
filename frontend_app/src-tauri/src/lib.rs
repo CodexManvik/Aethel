@@ -24,6 +24,8 @@ struct BackendProcess(Mutex<Option<Child>>);
 /// The installed app's layout (None in a dev build), and how its first-run setup is going.
 struct Installed(Option<Layout>);
 struct Setup(Mutex<SetupStatus>);
+/// The setup step's process while one runs (uv, or the import check), so quitting mid-setup stops it.
+struct SetupProcess(Mutex<Option<u32>>);
 
 /// A user endpoint's key: "endpoint:" and a slug (the backend's ENDPOINT_ID_RE: a lowercase letter, then 1-30 of
 /// lowercase letters, digits and hyphens).
@@ -155,6 +157,7 @@ fn spawn_backend(token: &str, port: u16, installed: Option<&Layout>) -> std::io:
             cmd.env("PATH", joined);
         }
         cmd.env("AETHEL_UV", layout.uv()).env("AETHEL_RESOURCES", &layout.resources).envs(layout.uv_env());
+        runtime::clean_python_env(&mut cmd);
     }
     cmd.args(["-m", "aethel"])
         .current_dir(backend_dir)
@@ -245,7 +248,8 @@ fn start_installed(app: AppHandle, layout: Layout, token: String, port: u16) {
                 *s = status;
             }
         };
-        let mut runner = runtime::uv_runner(&layout);
+        let running = app.state::<SetupProcess>();
+        let mut runner = runtime::process_runner(&layout, &running.0);
         let result = runtime::ensure(&layout, &mut runner, &mut |status| set(status))
             .and_then(|_| spawn_backend(&token, port, Some(&layout)).map_err(|e| e.to_string()));
         match result {
@@ -388,6 +392,14 @@ pub fn run() {
     let info = BackendInfo { url: format!("http://127.0.0.1:{port}"), token: token.clone() };
 
     let app = tauri::Builder::default()
+        // One Aethel at a time: a second launch (a double-click during the first run's setup, say) would set up the
+        // same runtime twice and start a second backend on the same port. It focuses the open window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init()) // "Browse…" for model files, the llama-server and ComfyUI workflows
         // The ghost-cursor overlay is a window too, always there: without this, closing Aethel's window would leave
         // the app (and its backend, and llama-server) running with nothing on screen.
@@ -399,6 +411,7 @@ pub fn run() {
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
         .manage(Setup(Mutex::new(SetupStatus::new("ready"))))
+        .manage(SetupProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_backend_info, secret_set, secret_delete, secret_get_all, secret_get_many, backend_log_tail, open_backend_logs,
             backend_exited, restart_backend, setup_status, setup_log_tail
@@ -431,6 +444,10 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // A setup step still running (the window was closed mid-setup) mustn't go on writing the runtime.
+            if let Some(pid) = handle.state::<SetupProcess>().0.lock().ok().and_then(|mut slot| slot.take()) {
+                runtime::stop_tree(pid);
+            }
             // The backend puts llama-server in a kill-on-close job, so this hard
             // kill takes llama-server down with it.
             if let Ok(mut guard) = handle.state::<BackendProcess>().0.lock() {
