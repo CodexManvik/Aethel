@@ -184,7 +184,7 @@ async def main(args) -> None:
         print("Restored your settings from an interrupted run.")
     s = svc.settings.get()
     saved = {"use_learned_skills": s.use_learned_skills, "token_saving": s.token_saving.model_dump(),
-             "custom_base_url": s.custom_base_url, "roles": {k: [e.model_dump() for e in v] for k, v in s.roles.items()}}
+             "endpoints": [e.model_dump() for e in s.endpoints], "roles": {k: [e.model_dump() for e in v] for k, v in s.roles.items()}}
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(saved), encoding="utf-8")
     if args.base_url:  # every role on one endpoint of your own, for this run only

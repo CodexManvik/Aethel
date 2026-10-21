@@ -14,6 +14,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from ...paths import MODELS_DIR
 from ..backend import ImageError, ImageRequest, ImageResult
@@ -121,17 +122,25 @@ class LocalZImage:
     cloud = False
     max_references = 0
 
-    def __init__(self, *, image_dir: Path | None = None, local_llm=None, loader=None, small_gpu=None):
-        self.image_dir = image_dir or Path(os.environ.get("AETHEL_IMAGE_DIR", MODELS_DIR / "image"))
+    def __init__(self, *, image_dir: Path | Callable[[], str] | None = None, local_llm=None, loader=None,
+                 small_gpu=None):
+        # A folder, or a callable giving the one chosen in Settings → Images ("" for the default).
+        self._image_dir = image_dir
         self.local_llm = local_llm  # LocalLlama: suspended around generation on a small GPU
         self._loader = loader or _load_pipeline
         self._small_gpu = small_gpu or _small_gpu
         self._pipe = None
+        self._pipe_dir: Path | None = None
         self._lock = threading.Lock()  # one picture at a time: the GPU can't hold two
+
+    @property
+    def image_dir(self) -> Path:
+        chosen = self._image_dir() if callable(self._image_dir) else self._image_dir
+        return Path(chosen) if chosen else Path(os.environ.get("AETHEL_IMAGE_DIR", MODELS_DIR / "image"))
 
     async def available(self) -> tuple[bool, str]:
         if find_components(self.image_dir) is None:
-            return False, "No Z-Image model in models/image/."
+            return False, f"No Z-Image model in {self.image_dir}."
         return True, ""
 
     def _run(self, req: ImageRequest) -> bytes:
@@ -139,11 +148,15 @@ class LocalZImage:
             handoff = self.local_llm is not None and self._small_gpu()
             suspended = handoff and self.local_llm.suspend()
             try:
-                if self._pipe is None:
-                    comps = find_components(self.image_dir)
+                folder = self.image_dir
+                if self._pipe is None or self._pipe_dir != folder:  # a newly chosen folder: load from there
+                    if self._pipe is not None:  # free the old one first: a small GPU can't hold both
+                        self._pipe, self._pipe_dir = None, None
+                        _free_cuda()
+                    comps = find_components(folder)
                     if comps is None:
-                        raise ImageError("No Z-Image model in models/image/.")
-                    self._pipe = self._loader(comps, self.image_dir)
+                        raise ImageError(f"No Z-Image model in {folder}.")
+                    self._pipe, self._pipe_dir = self._loader(comps, folder), folder
                 width, height = SIDE[req.size]
                 image = self._pipe(prompt=req.prompt, width=width, height=height, num_inference_steps=STEPS,
                                    guidance_scale=GUIDANCE).images[0]

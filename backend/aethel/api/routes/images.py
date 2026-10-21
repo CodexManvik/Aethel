@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from PIL import Image
 from pydantic import BaseModel
 
+from ...images.comfyui import WorkflowError, load_workflow, placeholders
 from ...images.models import FACE_MODELS, ModelError, download, is_installed
 from ...images.service import GALLERY
 from ...personas.accent import accent_for
@@ -91,7 +92,8 @@ async def images_status(svc: Services = Depends(get_services)) -> ImagesStatus:
         s = svc.settings.get()
         reasons = [(await b.available())[1] for n, b in svc.images.backends.items()
                    if n in s.images.backends and not (s.private_mode and b.cloud)]
-        why = ("In private mode only a model on this PC can make photos, and there's none in models/image/."
+        why = ("In private mode only a model on this PC can make photos (the local Z-Image folder, or an image server or "
+               "ComfyUI at 127.0.0.1), and none is set up."
                if s.private_mode else next((r for r in reasons if r), "No image model is set up."))
     installed = all(is_installed(n) for n in FACE_MODELS)
     return ImagesStatus(backend=backend.name if backend else None, why_not=why, face_models=installed,
@@ -115,6 +117,19 @@ async def gemini_models(svc: Services = Depends(get_services)) -> list[str]:
         return await svc.images.backends["gemini"].models()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Couldn't list Gemini's models: {exc}") from exc
+
+
+class WorkflowIn(BaseModel):
+    path: str
+
+
+@router.post("/api/images/comfyui/check")
+def check_workflow(body: WorkflowIn) -> dict:
+    """Is this an API-format ComfyUI workflow, and which placeholders does it use?"""
+    try:
+        return {"ok": True, "placeholders": placeholders(load_workflow(body.path)), "error": None}
+    except WorkflowError as exc:
+        return {"ok": False, "placeholders": [], "error": str(exc)}
 
 
 @router.post("/api/images/{image_id}/retry")
