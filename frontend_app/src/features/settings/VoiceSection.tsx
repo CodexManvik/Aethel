@@ -7,6 +7,7 @@ import type { AppSettings } from "../../lib/types";
 import { Button } from "../../ui/Button";
 import { Field, inputClass } from "../../ui/Field";
 import { Switch } from "../../ui/Switch";
+import { DownloadButton } from "./Downloads";
 import { Section } from "./Section";
 import { useUpdateSettings } from "./useSettings";
 
@@ -76,6 +77,11 @@ export function VoiceSection({ settings }: { settings: AppSettings }) {
       <Field label="Status">
         <span className="text-[13px] text-muted">{info ? describeVoice(info) : "Checking…"}</span>
       </Field>
+      {info && info.tts && !info.tts.kokoro && (
+        <Field label="Aethel's own voice" hint="Kokoro's voices aren't on this PC yet (about 350 MB, from its GitHub release, checked against a pinned hash).">
+          <DownloadButton name="voices" label="Download the voices" onDone={refresh} />
+        </Field>
+      )}
       <Field label="Azure Speech key" hint="From your Speech resource in the Azure portal (Keys and Endpoint). It stays on this PC, in Windows Credential Manager." htmlFor="azure-key">
         <div className="flex items-center gap-2">
           <span className={hasKey ? "size-1.5 rounded-full bg-accent" : "size-1.5 rounded-full bg-hairline"} title={hasKey ? "Key saved" : "No key"} />

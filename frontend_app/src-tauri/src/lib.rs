@@ -6,7 +6,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent};
+
+mod runtime;
+use runtime::{Layout, SetupStatus};
 
 const KEYRING_SERVICE: &str = "com.aethel.app";
 const KNOWN_PROVIDERS: [&str; 6] = ["groq", "gemini", "openrouter", "custom", "typesafe", "azure_speech"];
@@ -18,6 +21,11 @@ struct BackendInfo {
 }
 
 struct BackendProcess(Mutex<Option<Child>>);
+/// The installed app's layout (None in a dev build), and how its first-run setup is going.
+struct Installed(Option<Layout>);
+struct Setup(Mutex<SetupStatus>);
+/// The setup step's process while one runs (uv, or the import check), so quitting mid-setup stops it.
+struct SetupProcess(Mutex<Option<u32>>);
 
 /// A user endpoint's key: "endpoint:" and a slug (the backend's ENDPOINT_ID_RE: a lowercase letter, then 1-30 of
 /// lowercase letters, digits and hyphens).
@@ -113,24 +121,44 @@ fn python_executable(repo: &Path) -> Result<(String, String), String> {
     ))
 }
 
-fn spawn_backend(token: &str, port: u16) -> std::io::Result<Child> {
-    let repo = repo_root();
-    let backend_dir = std::env::var("AETHEL_BACKEND_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| repo.join("backend"));
+fn spawn_backend(token: &str, port: u16, installed: Option<&Layout>) -> std::io::Result<Child> {
     let logs = aethel_home().join("logs");
     fs::create_dir_all(&logs)?;
     let mut log = File::create(logs.join("backend.log"))?;
-    let (python, how) = match python_executable(&repo) {
-        Ok(found) => found,
-        Err(why) => {
-            writeln!(log, "Aethel could not start its backend.\n\n{why}")?;
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, why));
+    let (python, how, backend_dir) = match installed {
+        // The installed app: its own runtime (set up by runtime::ensure) and the backend it carries.
+        Some(layout) => (layout.python().to_string_lossy().into_owned(), "Aethel's own runtime".to_string(), layout.backend_dir()),
+        None => {
+            let repo = repo_root();
+            let backend_dir = std::env::var("AETHEL_BACKEND_DIR").map(PathBuf::from).unwrap_or_else(|_| repo.join("backend"));
+            match python_executable(&repo) {
+                Ok((python, how)) => (python, how, backend_dir),
+                Err(why) => {
+                    writeln!(log, "Aethel could not start its backend.\n\n{why}")?;
+                    return Err(std::io::Error::new(std::io::ErrorKind::NotFound, why));
+                }
+            }
         }
     };
     writeln!(log, "Aethel backend log\npython: {python} (found via {how})\nbackend: {}\n", backend_dir.display())?;
 
     let mut cmd = quiet(&python);
+    if let Some(layout) = installed {
+        // Model files live in ~/.aethel/models unless the user set MODELS_DIR; uv (and uvx, for Windows-MCP) is the
+        // bundled one, with the runtime's own cache.
+        if std::env::var("MODELS_DIR").is_err() {
+            cmd.env("MODELS_DIR", layout.home.join("models"));
+        }
+        let uv_dir = layout.uv().parent().map(Path::to_path_buf).unwrap_or_default();
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![uv_dir];
+        paths.extend(std::env::split_paths(&path));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+        cmd.env("AETHEL_UV", layout.uv()).env("AETHEL_RESOURCES", &layout.resources).envs(layout.uv_env());
+        runtime::clean_python_env(&mut cmd);
+    }
     cmd.args(["-m", "aethel"])
         .current_dir(backend_dir)
         .env("AETHEL_TOKEN", token)
@@ -185,15 +213,70 @@ fn backend_exited(process: tauri::State<BackendProcess>) -> Option<String> {
 
 /// Stop the backend if it's running and start it again (the boot screen's Try again).
 #[tauri::command]
-fn restart_backend(info: tauri::State<BackendInfo>, process: tauri::State<BackendProcess>) -> Result<(), String> {
+fn restart_backend(app: AppHandle, info: tauri::State<BackendInfo>, process: tauri::State<BackendProcess>) -> Result<(), String> {
     let port: u16 = info.url.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(8765);
     let mut guard = process.0.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
         let _ = child.wait();
     }
-    *guard = Some(spawn_backend(&info.token, port).map_err(|e| e.to_string())?);
+    let installed = app.state::<Installed>();
+    if let Some(layout) = installed.0.clone() {
+        drop(guard);
+        let failed = app.state::<Setup>().0.lock().map(|s| s.phase == "failed").unwrap_or(false);
+        if failed {
+            start_installed(app.clone(), layout, info.token.clone(), port); // the setup failed: Try again redoes it
+            return Ok(());
+        }
+        let mut guard = process.0.lock().map_err(|e| e.to_string())?;
+        *guard = Some(spawn_backend(&info.token, port, Some(&layout)).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    *guard = Some(spawn_backend(&info.token, port, None).map_err(|e| e.to_string())?);
     Ok(())
+}
+
+/// The installed app's first-run setup, then the backend, in a background thread (the boot screen polls
+/// setup_status meanwhile).
+fn start_installed(app: AppHandle, layout: Layout, token: String, port: u16) {
+    if let Ok(mut s) = app.state::<Setup>().0.lock() {
+        *s = SetupStatus::new("checking");
+    }
+    std::thread::spawn(move || {
+        let set = |status: SetupStatus| {
+            if let Ok(mut s) = app.state::<Setup>().0.lock() {
+                *s = status;
+            }
+        };
+        let running = app.state::<SetupProcess>();
+        let mut runner = runtime::process_runner(&layout, &running.0);
+        let result = runtime::ensure(&layout, &mut runner, &mut |status| set(status))
+            .and_then(|_| spawn_backend(&token, port, Some(&layout)).map_err(|e| e.to_string()));
+        match result {
+            Ok(child) => {
+                if let Ok(mut guard) = app.state::<BackendProcess>().0.lock() {
+                    *guard = Some(child);
+                }
+                set(SetupStatus::new("ready"));
+            }
+            Err(error) => set(SetupStatus { error: Some(error), ..SetupStatus::new("failed") }),
+        }
+    });
+}
+
+/// How the installed app's setup is going ("ready" at once in a dev build).
+#[tauri::command]
+fn setup_status(setup: tauri::State<Setup>) -> SetupStatus {
+    setup.0.lock().map(|s| s.clone()).unwrap_or_else(|_| SetupStatus::new("ready"))
+}
+
+/// The end of setup.log, for the boot screen when the setup fails.
+#[tauri::command]
+fn setup_log_tail(installed: tauri::State<Installed>) -> String {
+    match &installed.0 {
+        Some(layout) => format!("{}\n\n(full log: {})", runtime::log_tail(&layout.log(), 60), layout.log().display()),
+        None => String::new(),
+    }
 }
 
 #[tauri::command]
@@ -309,12 +392,29 @@ pub fn run() {
     let info = BackendInfo { url: format!("http://127.0.0.1:{port}"), token: token.clone() };
 
     let app = tauri::Builder::default()
+        // One Aethel at a time: a second launch (a double-click during the first run's setup, say) would set up the
+        // same runtime twice and start a second backend on the same port. It focuses the open window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init()) // "Browse…" for model files, the llama-server and ComfyUI workflows
+        // The ghost-cursor overlay is a window too, always there: without this, closing Aethel's window would leave
+        // the app (and its backend, and llama-server) running with nothing on screen.
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
+            }
+        })
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
+        .manage(Setup(Mutex::new(SetupStatus::new("ready"))))
+        .manage(SetupProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_backend_info, secret_set, secret_delete, secret_get_all, secret_get_many, backend_log_tail, open_backend_logs,
-            backend_exited, restart_backend
+            backend_exited, restart_backend, setup_status, setup_log_tail
         ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
@@ -326,10 +426,15 @@ pub fn run() {
             if let Err(e) = create_cursor_overlay(app) {
                 log::warn!("ghost cursor overlay unavailable: {e}");
             }
+            let installed = runtime::installed_layout(app.path().resource_dir().ok(), aethel_home());
+            app.manage(Installed(installed.clone()));
             if std::env::var("AETHEL_EXTERNAL_BACKEND").as_deref() != Ok("1") {
-                match spawn_backend(&token, port) {
-                    Ok(child) => *app.state::<BackendProcess>().0.lock().unwrap() = Some(child),
-                    Err(e) => log::error!("failed to start the Aethel backend: {e}"),
+                match installed {
+                    Some(layout) => start_installed(app.handle().clone(), layout, token.clone(), port),
+                    None => match spawn_backend(&token, port, None) {
+                        Ok(child) => *app.state::<BackendProcess>().0.lock().unwrap() = Some(child),
+                        Err(e) => log::error!("failed to start the Aethel backend: {e}"),
+                    },
                 }
             }
             Ok(())
@@ -339,6 +444,10 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // A setup step still running (the window was closed mid-setup) mustn't go on writing the runtime.
+            if let Some(pid) = handle.state::<SetupProcess>().0.lock().ok().and_then(|mut slot| slot.take()) {
+                runtime::stop_tree(pid);
+            }
             // The backend puts llama-server in a kill-on-close job, so this hard
             // kill takes llama-server down with it.
             if let Ok(mut guard) = handle.state::<BackendProcess>().0.lock() {
@@ -362,6 +471,15 @@ mod tests {
         assert!(validate_provider("typesafe").is_ok());
         assert!(validate_provider("azure_speech").is_ok());
         assert!(validate_provider("../evil").is_err());
+    }
+
+    #[test]
+    fn endpoint_keys_are_slugs() {
+        assert!(validate_provider("endpoint:lmstudio").is_ok());
+        assert!(validate_provider("endpoint:images-openai").is_ok());
+        for bad in ["endpoint:", "endpoint:a", "endpoint:LM", "endpoint:1abc", "endpoint:../x", "lmstudio", "endpoint:a b"] {
+            assert!(validate_provider(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

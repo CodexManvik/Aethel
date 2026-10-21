@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "beforeDevCommand": "pnpm bundle:prepare && pnpm dev",
+    "beforeBuildCommand": "pnpm bundle:prepare && pnpm build"
   },
   "app": {
     "windows": [
@@ -28,7 +28,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,6 +40,17 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "resources": {
+      "payload/backend/": "backend/",
+      "payload/requirements/": "requirements/",
+      "payload/uv/": "uv/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "shortDescription": "Aethel: a companion that lives on your computer"
   }
 }

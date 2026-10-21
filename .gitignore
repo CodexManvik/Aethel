@@ -42,3 +42,5 @@ memory_metadata.json
 .continue/
 .superpowers/
 frontend_app/public/vad/
+frontend_app/src-tauri/payload/
+frontend_app/src-tauri/.payload-cache/

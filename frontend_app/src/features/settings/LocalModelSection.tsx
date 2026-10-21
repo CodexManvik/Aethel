@@ -6,6 +6,7 @@ import { browseFile, canBrowse } from "../../lib/browse";
 import type { AppSettings, LocalLLMSettings } from "../../lib/types";
 import { Button } from "../../ui/Button";
 import { Field, inputClass } from "../../ui/Field";
+import { DownloadButton } from "./Downloads";
 import { Section } from "./Section";
 import { useUpdateSettings } from "./useSettings";
 
@@ -54,6 +55,13 @@ export function LocalModelSection({ settings }: { settings: AppSettings }) {
       : await browseFile("Choose llama-server", [{ name: "llama-server", extensions: ["exe"] }]);
     if (picked) setLocal((l) => ({ ...l, [key]: picked }));
   };
+  // the download sets server_path itself: show it, and the new status
+  const refreshAfterDownload = () => {
+    void qc.invalidateQueries({ queryKey: ["local-status"] });
+    void qc.invalidateQueries({ queryKey: ["settings"] });
+    void api<AppSettings>("/api/settings").then((s) =>
+      setLocal((l) => ({ ...l, server_path: s.local_llm?.server_path ?? l.server_path }))).catch(() => {});
+  };
   const save = () => update.mutate({ local_llm: local }, {
     onSuccess: () => { toast("Local model settings saved. They apply the next time it starts."); void qc.invalidateQueries({ queryKey: ["local-status"] }); },
     onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
@@ -67,6 +75,14 @@ export function LocalModelSection({ settings }: { settings: AppSettings }) {
       <PathField id="local-server" label="llama-server" hint="The llama.cpp server program (or its folder). Empty looks on PATH."
         value={local.server_path} placeholder={"D:\\llama.cpp\\llama-server.exe"}
         onChange={(v) => setLocal((l) => ({ ...l, server_path: v }))} onBrowse={() => void pick("server_path")} />
+      {status && typeof status === "object" && status.server === null && (
+        <Field label="Get llama-server" hint={`llama.cpp ${"b11381"} from its GitHub release, checked against a pinned hash. The GPU build works with NVIDIA, AMD and Intel graphics (Vulkan); the CPU build works anywhere. Once downloaded, it becomes the llama-server above.`}>
+          <div className="flex gap-2">
+            <DownloadButton name="llama-vulkan" label="GPU (33 MB)" onDone={refreshAfterDownload} />
+            <DownloadButton name="llama-cpu" label="CPU only (19 MB)" onDone={refreshAfterDownload} />
+          </div>
+        </Field>
+      )}
       <Field label="Context size" hint="0 uses the model's own trained context." htmlFor="local-ctx">
         <input id="local-ctx" type="number" min={0} className={`${inputClass} w-28`} value={local.context_size} onChange={num("context_size")} />
       </Field>

@@ -9,6 +9,7 @@ from openai import DefaultAsyncHttpxClient
 
 from .auth import AuthConfig
 from .chat.service import ChatService
+from .downloads import Downloads
 from .hub import EventHub
 from .keys import KeyStore
 from .protocol import CursorIntent
@@ -90,6 +91,7 @@ class Services:
     personas: PersonaStore         # ~/.aethel/personas: who each conversation is with
     persona_lines: PersonaLines    # each persona's imported messages, recalled as style examples
     images: ImageService           # a persona's photos: backends, the identity check, the gallery
+    downloads: Downloads           # voices, a llama.cpp server, local image support, on request
     mcp_servers: list[ServerSpec]  # started by the app's lifespan
 
     def close(self) -> None:
@@ -187,6 +189,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
         voice=voice, personas=personas, persona_lines=persona_lines, images=images,
+        downloads=Downloads(settings=settings),
         mcp_servers=default_mcp_servers(permissions, changes, router, settings, hub, local, browser) if mcp_servers is None else mcp_servers,
     )
 

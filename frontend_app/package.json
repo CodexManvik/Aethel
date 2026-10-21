@@ -8,7 +8,9 @@
     "build": "node scripts/copy-vad-assets.mjs && tsc --noEmit && vite build",
     "test": "vitest run",
     "gen:types": "json2ts -i src/lib/events.schema.json -o src/lib/events.gen.ts --bannerComment \"/* Generated from backend/aethel/protocol.py by pnpm gen:types. Do not edit. */\" && json2ts -i src/lib/voice.schema.json -o src/lib/voice.gen.ts --bannerComment \"/* Generated from backend/aethel/voice/protocol.py by pnpm gen:types. Do not edit. */\"",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bundle:prepare": "node scripts/prepare-bundle.mjs",
+    "bundle": "tauri build"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
