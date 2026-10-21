@@ -51,3 +51,23 @@ export async function openBackendLogs(): Promise<void> {
 export async function restartBackend(): Promise<void> {
   if (inTauri()) await tauriInvoke("restart_backend");
 }
+
+/** How the installed app's first-run setup is going (its own Python and packages, spec 2026-10-19 §I2). */
+export interface SetupStatus {
+  phase: "checking" | "installing" | "ready" | "failed";
+  step: string;
+  done: number;
+  total: number;
+  error: string | null;
+}
+
+/** Desktop only; a dev build and the browser are always "ready" (they use the repo's backend). */
+export async function setupStatus(): Promise<SetupStatus> {
+  if (!inTauri()) return { phase: "ready", step: "", done: 0, total: 0, error: null };
+  return tauriInvoke<SetupStatus>("setup_status");
+}
+
+/** The end of ~/.aethel/logs/setup.log (empty outside the installed app). */
+export async function setupLogTail(): Promise<string | null> {
+  return inTauri() ? tauriInvoke<string>("setup_log_tail") : null;
+}

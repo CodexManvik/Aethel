@@ -13,6 +13,19 @@ These are model files Aethel downloads on first use, each pinned to a SHA-256 ha
 - A personal, non-commercial project is fine. Before Aethel is distributed commercially, get a legal check, or switch to SFace.
 - OpenCV Zoo's SFace (`face_recognition_sface_2021dec.onnx`, Apache-2.0, about 37 MB) was the alternative considered.
 
+## The installed app (spec 2026-10-19 §I)
+| What | Used for | Source | Size | SHA-256 | Licence |
+|---|---|---|---|---|---|
+| uv 0.12.20 `uv-x86_64-pc-windows-msvc.zip` | Shipped in the installer: it sets up Aethel's own Python 3.11 and packages on first run | [astral-sh/uv](https://github.com/astral-sh/uv/releases/tag/0.12.20) | 18,039,150 B | `95f9bc30fbb3574d276e28ac4a6de932d25153645853d13da8c21eec3bc88d06` | MIT or Apache-2.0 |
+| Python 3.11 (python-build-standalone) | Fetched by uv on first run | astral-sh/python-build-standalone | about 30 MB | uv checks it | PSF |
+| The backend's packages (`backend/requirements/core.txt`, 104 pinned with hashes) | Fetched by uv on first run (`--require-hashes`) | PyPI | about 550 MB installed | in the lock | each package's own (MIT, BSD and Apache-2.0 mostly) |
+| llama.cpp b11381, `llama-b11381-bin-win-vulkan-x64.zip` | Settings → Local model → Get llama-server (GPU) | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp/releases/tag/b11381) | 33,287,351 B | `517032b9ab2e1c7991a1313fa8c39cbc1a9da6ebf82944cf34ccf6adf3d0a37a` | MIT |
+| llama.cpp b11381, `llama-b11381-bin-win-cpu-x64.zip` | the same (CPU only) | the same | 19,367,262 B | `f5cb0430a9dd2174f392fdad17ed5d6417e5542c47efc993fa4917287a738a76` | MIT |
+| Kokoro `kokoro-v1.0.onnx` | Settings → Voice → Download the voices | [thewh1teagle/kokoro-onnx model-files-v1.0](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0) | 325,532,387 B | `7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5` | Apache-2.0 |
+| Kokoro `voices-v1.0.bin` | the same | the same | 28,214,398 B | `bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d` | Apache-2.0 |
+
+The Kokoro release publishes no digests. These hashes are of copies whose sizes match the release byte for byte; a file that doesn't match is refused, never accepted.
+
 ## Other models (installed by the user, not downloaded by Aethel)
 | Model | Where | Licence |
 |---|---|---|

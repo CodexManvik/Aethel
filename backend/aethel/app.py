@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .api import voice_ws, ws
-from .api.routes import (browser, conversations, health, images, keys, memory, personas, providers, settings,
-                         tasks, tools, usage, voice)
+from .api.routes import (browser, conversations, downloads, health, images, keys, memory, personas, providers,
+                         settings, tasks, tools, usage, voice)
 from .auth import ALLOWED_ORIGINS
 from .services import Services, build_services
 
@@ -92,6 +92,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(voice.router)
     app.include_router(personas.router)
     app.include_router(images.router)
+    app.include_router(downloads.router)
     app.include_router(ws.router)
     app.include_router(voice_ws.router)
     return app

@@ -8,6 +8,7 @@ import type { AppSettings } from "../../lib/types";
 import { Button } from "../../ui/Button";
 import { Field, inputClass } from "../../ui/Field";
 import { useImagesStatus } from "../personas/Faces";
+import { DownloadButton, useDownloads } from "./Downloads";
 import { Section } from "./Section";
 import { useUpdateSettings } from "./useSettings";
 
@@ -38,6 +39,7 @@ export function ImagesSection({ settings }: { settings: AppSettings }) {
   const qc = useQueryClient();
   const update = useUpdateSettings();
   const { data: status } = useImagesStatus();
+  const { data: downloads } = useDownloads();
   const images = settings.images;
   const [router, setRouter] = useState(images?.openrouter_model ?? "");
   const [openai, setOpenai] = useState({ base_url: images?.openai?.base_url ?? "", model: images?.openai?.model ?? "" });
@@ -146,6 +148,14 @@ export function ImagesSection({ settings }: { settings: AppSettings }) {
           <Button disabled={localDir === (images?.local_dir ?? "")} onClick={() => save({ local_dir: localDir.trim() }, "Local model folder saved")}>Save</Button>
         </div>
       </Field>
+      {downloads && typeof downloads === "object" && downloads["local-images"] && !downloads["local-images"].installed && (
+        <Field label="Local image support" hint={downloads.packages_installable
+          ? "The packages that run Z-Image on this PC (PyTorch and friends, about 3 GB). Only needed for local images."
+          : "In a dev setup: pip install -r backend/requirements/local-images.txt"}>
+          {downloads.packages_installable && <DownloadButton name="local-images" label="Install (about 3 GB)"
+            onDone={() => void qc.invalidateQueries({ queryKey: ["images", "status"] })} />}
+        </Field>
+      )}
 
       <Field label="OpenRouter image model" hint="Leave empty to keep OpenRouter off." htmlFor="openrouter-image-model">
         <div className="flex items-center gap-2">
