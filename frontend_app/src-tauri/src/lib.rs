@@ -389,6 +389,13 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init()) // "Browse…" for model files, the llama-server and ComfyUI workflows
+        // The ghost-cursor overlay is a window too, always there: without this, closing Aethel's window would leave
+        // the app (and its backend, and llama-server) running with nothing on screen.
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
+            }
+        })
         .manage(info)
         .manage(BackendProcess(Mutex::new(None)))
         .manage(Setup(Mutex::new(SetupStatus::new("ready"))))
