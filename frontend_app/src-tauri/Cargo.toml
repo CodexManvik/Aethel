@@ -1,10 +1,10 @@
 [package]
 name = "Aethel"
-version = "0.1.0"
-description = "Aethel - AI Companion"
-authors = ["you"]
-license = ""
-repository = ""
+version = "2.0.0-beta.1"
+description = "Aethel: a companion that lives on your computer"
+authors = ["CodexManvik"]
+license = "MIT"
+repository = "https://github.com/CodexManvik/Aethel"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

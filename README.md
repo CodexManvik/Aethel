@@ -8,7 +8,16 @@ uses to do better next time (**RSM — Reflective Skill Memory**).
 Nothing leaves your computer unless you explicitly switch on the optional cloud
 backend.
 
-## Running Aethel v2
+## Install (Windows)
+
+1. Download `Aethel_<version>_x64-setup.exe` from [Releases](https://github.com/CodexManvik/Aethel/releases), and check it against `SHA256SUMS.txt` if you like (`Get-FileHash .\Aethel_*_x64-setup.exe`).
+2. Run it. It installs to Program Files and asks for admin once. The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+3. Start Aethel. The first launch sets up its own Python and packages in `C:\Users\<you>\.aethel` (about 3 minutes, needs the internet, once).
+4. **Settings → Providers:** add a key (Groq, Gemini or OpenRouter), or your own endpoint (LM Studio, Ollama…). Alternatively, use **Settings → Local model**: download `llama-server` and choose a `.gguf` to run everything on this PC.
+
+Your data stays in `~/.aethel`; uninstalling leaves it. See [CHANGELOG.md](CHANGELOG.md) for what's in each release, and [LICENSE](LICENSE) (MIT) and [docs/third_party.md](docs/third_party.md) for licences.
+
+## Running Aethel v2 from source
 
 **Desktop app:** `powershell -ExecutionPolicy Bypass -File scripts\start.ps1`
 The Tauri shell starts the backend automatically (logs: `~/.aethel/logs/backend.log`).
