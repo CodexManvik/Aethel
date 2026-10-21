@@ -150,6 +150,9 @@ class LocalZImage:
             try:
                 folder = self.image_dir
                 if self._pipe is None or self._pipe_dir != folder:  # a newly chosen folder: load from there
+                    if self._pipe is not None:  # free the old one first: a small GPU can't hold both
+                        self._pipe, self._pipe_dir = None, None
+                        _free_cuda()
                     comps = find_components(folder)
                     if comps is None:
                         raise ImageError(f"No Z-Image model in {folder}.")

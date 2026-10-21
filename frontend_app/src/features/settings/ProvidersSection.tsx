@@ -67,7 +67,7 @@ export function saveError(err: unknown): string {
 
 /** A slug for a new endpoint's id, unique among the others: "LM Studio" → "lm-studio", then "lm-studio-2". */
 export function endpointId(name: string, taken: string[]): string {
-  const reserved = ["groq", "gemini", "openrouter", "local", ...taken];
+  const reserved = ["groq", "gemini", "openrouter", "local", "images-openai", ...taken];
   let base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^[^a-z]+|-+$/g, "").slice(0, 28) || "endpoint";
   if (base.length < 2) base = `${base}-endpoint`;
   let id = base;
@@ -141,11 +141,21 @@ export function ProvidersSection({ settings }: { settings: AppSettings }) {
     void qc.invalidateQueries({ queryKey: ["providers"] });
     if (id) void qc.invalidateQueries({ queryKey: ["models", id] });
   };
-  const saveEndpoints = (next: Endpoint[], done: string, id?: string, after?: () => Promise<void>) =>
+  const saveEndpoints = (next: Endpoint[], done: string, id?: string, after?: () => Promise<string | void>) =>
     update.mutate({ endpoints: next }, {
-      onSuccess: async () => { if (after) await after(); toast(done); refresh(id); },
+      onSuccess: async () => {
+        try {
+          const extra = after ? await after() : undefined;
+          toast(extra ? `${done}. ${extra}` : done);
+        } catch (e) {
+          toast.error(`${done}, but its key couldn't be changed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        refresh(id);
+      },
       onError: (err) => toast.error(saveError(err)),
     });
+  const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ""; } };
+  const hasKey = (id: string) => providers.find((p) => p.id === id)?.has_key === true;
   return (
     <Section title="Providers" description="Keys are kept in Windows Credential Manager and only ever held in memory by Aethel.">
       {providers.filter((p) => p.needs_key && !p.endpoint).map((p) => <KeyRow key={p.id} provider={p} />)}
@@ -157,9 +167,16 @@ export function ProvidersSection({ settings }: { settings: AppSettings }) {
         </p>
         {endpoints.map((e) => (
           <EndpointRow key={e.id} endpoint={e} provider={providers.find((p) => p.id === e.id)}
-            onSave={(next) => saveEndpoints(endpoints.map((x) => (x.id === e.id ? next : x)), `${e.name} saved`, e.id)}
+            onSave={(next) => saveEndpoints(endpoints.map((x) => (x.id === e.id ? next : x)), `${e.name} saved`, e.id,
+              // a key belongs to the server it was made for: a different host doesn't inherit it
+              async () => {
+                if (hasKey(e.id) && hostOf(next.base_url) !== hostOf(e.base_url)) {
+                  await saveKey(endpointKey(e.id), null);
+                  return "Its key was removed because the server changed; add it again if the new one needs it.";
+                }
+              })}
             onRemove={() => saveEndpoints(endpoints.filter((x) => x.id !== e.id), `${e.name} removed`, e.id,
-              () => saveKey(endpointKey(e.id), null).catch(() => {}))} />
+              async () => { await saveKey(endpointKey(e.id), null); })} />
         ))}
         <AddEndpoint taken={endpoints.map((e) => e.id)} onAdd={(e, key) =>
           saveEndpoints([...endpoints, e], `${e.name} added`, e.id, async () => { if (key) await saveKey(endpointKey(e.id), key); })} />

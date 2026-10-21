@@ -92,7 +92,8 @@ async def images_status(svc: Services = Depends(get_services)) -> ImagesStatus:
         s = svc.settings.get()
         reasons = [(await b.available())[1] for n, b in svc.images.backends.items()
                    if n in s.images.backends and not (s.private_mode and b.cloud)]
-        why = ("In private mode only a model on this PC can make photos, and there's none in models/image/."
+        why = ("In private mode only a model on this PC can make photos (the local Z-Image folder, or an image server or "
+               "ComfyUI at 127.0.0.1), and none is set up."
                if s.private_mode else next((r for r in reasons if r), "No image model is set up."))
     installed = all(is_installed(n) for n in FACE_MODELS)
     return ImagesStatus(backend=backend.name if backend else None, why_not=why, face_models=installed,

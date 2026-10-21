@@ -79,7 +79,7 @@ export function ImagesSection({ settings }: { settings: AppSettings }) {
         </div>
       </Field>
 
-      <Field label="Your image server" hint="Any OpenAI-compatible images API (OpenAI, LocalAI, a proxy). On this PC (127.0.0.1) it also works in private mode." htmlFor="openai-image-url">
+      <Field label="Your image server" hint="Any OpenAI-compatible images API (OpenAI, LocalAI, a proxy). One at 127.0.0.1 counts as this PC and works in private mode, so don't point that at a proxy to the cloud." htmlFor="openai-image-url">
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2">
             <input id="openai-image-url" aria-label="Image server URL" className={`${inputClass} w-64`} value={openai.base_url}
@@ -90,10 +90,25 @@ export function ImagesSection({ settings }: { settings: AppSettings }) {
           <div className="flex gap-2">
             <input aria-label="Image server key" type="password" autoComplete="off" className={`${inputClass} w-64`} value={openaiKey}
               placeholder="Key (optional)" onChange={(e) => setOpenaiKey(e.target.value)} />
-            <Button onClick={async () => {
-              if (openaiKey.trim()) { await saveKey(IMAGES_OPENAI_KEY, openaiKey.trim()); setOpenaiKey(""); }
-              save({ openai: { base_url: openai.base_url.trim(), model: openai.model } }, "Image server saved");
+            <Button onClick={() => {
+              // The server first: a key must never be stored for a URL that didn't save.
+              update.mutate({ images: { openai: { base_url: openai.base_url.trim(), model: openai.model } } }, {
+                onSuccess: async () => {
+                  void qc.invalidateQueries({ queryKey: ["images", "status"] });
+                  if (!openaiKey.trim()) return toast("Image server saved");
+                  try {
+                    await saveKey(IMAGES_OPENAI_KEY, openaiKey.trim());
+                    setOpenaiKey("");
+                    toast("Image server and key saved");
+                  } catch (e) {
+                    toast.error(`The server was saved, but its key wasn't: ${why(e)}`);
+                  }
+                },
+                onError: (e) => toast.error(why(e)),
+              });
             }}>Save</Button>
+            <Button variant="danger" onClick={() => void saveKey(IMAGES_OPENAI_KEY, null)
+              .then(() => toast("Image server key removed")).catch((e) => toast.error(why(e)))}>Remove key</Button>
           </div>
         </div>
       </Field>

@@ -41,6 +41,19 @@ test("an OpenAI-compatible image server is saved with its key", async () => {
   expect(saveKeyMock).toHaveBeenCalledWith("endpoint:images-openai", "sk-1");
 });
 
+test("a key that fails to save says so, and the server was still saved", async () => {
+  saveKeyMock.mockRejectedValue(new Error("credential store locked"));
+  const { toast } = await import("sonner");
+  const error = vi.spyOn(toast, "error");
+  view();
+  await userEvent.type(screen.getByLabelText("Image server URL"), "http://127.0.0.1:8080/v1");
+  await userEvent.type(screen.getByLabelText("Image server model"), "flux");
+  await userEvent.type(screen.getByLabelText("Image server key"), "sk-1");
+  await userEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+  await waitFor(() => expect(error).toHaveBeenCalledWith("The server was saved, but its key wasn't: credential store locked"));
+  expect(patches).toHaveLength(1);
+});
+
 test("a ComfyUI workflow is checked and saved", async () => {
   view();
   await userEvent.type(screen.getByLabelText("ComfyUI URL"), "http://127.0.0.1:8188");

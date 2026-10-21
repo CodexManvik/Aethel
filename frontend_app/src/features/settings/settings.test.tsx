@@ -193,6 +193,7 @@ test("an endpoint is added with its key, saved, and removed", async () => {
   expect(endpointId("LM Studio", ["lm-studio"])).toBe("lm-studio-2");
   expect(endpointId("Groq", [])).toBe("groq-2");
   expect(endpointId("4090 box", [])).toBe("box");
+  expect(endpointId("Images OpenAI", [])).toBe("images-openai-2");
   expect(saveError(new Error('[{"msg":"Value error, must start with http:// or https://, e.g. http://127.0.0.1:1234/v1"}]')))
     .toBe("That URL doesn't look right: it must start with http:// or https://, e.g. http://127.0.0.1:1234/v1.");
   expect(saveError(new Error(`[{"msg":"Value error, the chat role uses 'lm', which is no longer a provider"}]`)))
@@ -214,6 +215,7 @@ test("an existing endpoint can be repointed and removed", async () => {
   await waitFor(() => expect(patches).toContainEqual({ endpoints: [{ id: "custom", name: "Custom", base_url: "http://192.168.1.20:8080/v1" }] }));
   await userEvent.click(within(screen.getByTestId("endpoint-custom")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(patches).toContainEqual({ endpoints: [] }));
+  await waitFor(() => expect(saveKeyMock).toHaveBeenCalledWith("custom", null)); // its key goes with it
 });
 
 test("usage lists the last 7 days by purpose, biggest first, with a total", async () => {
