@@ -108,8 +108,8 @@ def retrieve_memories(query: str):
     # 3. Execution of Rerank, Sanitization, and Guardrail pipelines
     from reranker import rerank
     reranked_docs = rerank(query, docs)
-    cleaned_docs = [clean_text_shorthand(doc) for doc in reranked_docs]
-    safeguarded_docs = enforce_content_guardrails(cleaned_docs)
+    # Recalled text stays as stored: it's context, and slang rewriting turned "I have 4 cats" into "I have for cats".
+    safeguarded_docs = enforce_content_guardrails(reranked_docs)
 
     # 4. Final context return slice boundary slice
     return safeguarded_docs[:RETRIEVAL_PARAMS["final_return_count"]]
