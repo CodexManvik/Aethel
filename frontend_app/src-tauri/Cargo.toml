@@ -1,6 +1,6 @@
 [package]
 name = "Aethel"
-version = "2.0.0-beta.1"
+version = "2.0.0-beta.2"
 description = "Aethel: a companion that lives on your computer"
 authors = ["CodexManvik"]
 license = "MIT"
