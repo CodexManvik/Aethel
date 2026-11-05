@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.0-beta.2 (2026-11-05), pre-release
 
 ### Security
 - Office no longer runs macros in files a task opens.
