@@ -1,210 +1,210 @@
-# Aethel — Local-First AI Agent
+<h1 align="center">Aethel</h1>
 
-Aethel is a desktop AI agent that runs **100% on your own machine**. It chats,
-speaks, listens, and executes real tasks on your PC under strict permissions —
-and it *learns*: every completed task can become a reviewable markdown skill it
-uses to do better next time (**RSM — Reflective Skill Memory**).
+<p align="center"><strong>A private AI companion that lives on your Windows PC, does real work on it, and gets faster at the jobs you repeat.</strong></p>
 
-Nothing leaves your computer unless you explicitly switch on the optional cloud
-backend.
+<p align="center">
+  <a href="https://github.com/CodexManvik/Aethel/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/CodexManvik/Aethel?include_prereleases&label=release"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-blue">
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-green"></a>
+</p>
 
-## Install (Windows)
+<p align="center">
+  <a href="https://github.com/CodexManvik/Aethel/releases"><strong>Download for Windows</strong></a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#run-from-source">Run from source</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-1. Download `Aethel_<version>_x64-setup.exe` from [Releases](https://github.com/CodexManvik/Aethel/releases), and check it against `SHA256SUMS.txt` if you like (`Get-FileHash .\Aethel_*_x64-setup.exe`).
-2. Run it. It installs to Program Files and asks for admin once. The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**.
-3. Start Aethel. The first launch sets up its own Python and packages in `C:\Users\<you>\.aethel` (about 3 minutes, needs the internet, once).
-4. **Settings → Providers:** add a key (Groq, Gemini or OpenRouter), or your own endpoint (LM Studio, Ollama…). Alternatively, use **Settings → Local model**: download `llama-server` and choose a `.gguf` to run everything on this PC.
+<p align="center"><img src="docs/screenshots/01-home.webp" alt="Aethel's home screen, a greeting above a prompt box with a Task button" width="900"></p>
 
-Your data stays in `~/.aethel`; uninstalling leaves it. See [CHANGELOG.md](CHANGELOG.md) for what's in each release, and [LICENSE](LICENSE) (MIT) and [docs/third_party.md](docs/third_party.md) for licences.
+Aethel talks with you, remembers what matters, and carries out tasks across your files and apps. It asks before anything risky. When it finishes a task it writes down how it did the job, in plain Markdown you can read and edit. Once a task has worked the same way three times, Aethel compiles it into a macro that replays with little or no help from the language model.
 
-## Running Aethel v2 from source
+You choose where the thinking happens: your own API keys, your own server, or a model file on this PC.
 
-**Desktop app:** `powershell -ExecutionPolicy Bypass -File scripts\start.ps1`
-The Tauri shell starts the backend automatically (logs: `~/.aethel/logs/backend.log`).
-Add an API key in **Settings → Providers** (Groq is the default conversation model).
+> **Beta.** This is the first release of the Aethel v2 rebuild. See [Status](#status) for what isn't finished.
+>
+> **About the screenshots:** they show the real interface running on invented sample data, so "Maya" and her invoices aren't real. They also predate some of the beta: personas, calls and images aren't pictured yet.
 
-**Browser development:**
-1. `scripts\start.ps1 -BackendOnly` (API on http://127.0.0.1:8765, auth disabled)
-2. set a key for the backend process, e.g. `$env:GROQ_API_KEY = "..."` before step 1
-3. `cd frontend_app; pnpm dev` and open http://localhost:5173
+## What it does
 
-**Private mode:** put a `.gguf` model in `models/llm/` (or choose one in Settings → Local model) and install
-llama.cpp (`scripts/install.ps1`). Everything then runs on this computer.
+### Conversations you can come back to
 
-**Tasks:** press the **Task** pill in the prompt box and describe a goal (e.g. "write a haiku about rain to
-Documents\Aethel\haiku.txt"). Aethel plans a checklist, works through it with file and command tools, and checks the
-result before reporting back. Anything outside your allowed folders or commands waits for your approval in the task
-panel. Allowed folders and commands live in `~/.aethel/permissions.yaml`. **Undo file changes** restores every
-file a finished task wrote.
+Chat normally, and find any conversation again from the rail. You can use the warm built-in companion, or [a persona of your own](#also-in-the-app).
 
-**Computer control:** tasks can also drive any Windows app through
-[Windows-MCP](https://github.com/CursorTouch/Windows-MCP) (needs [uv](https://docs.astral.sh/uv/)), Word, Excel
-and PowerPoint through an in-house COM server, and precise file edits, PDF/Excel reading and search through
-[Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) (needs Node). Each connects in the background
-at launch; **Settings → Computer control** shows which are up. Only vetted tools are exposed: their shell, registry
-and process tools are never offered, since they would bypass `permissions.yaml`. Actions are scoped to the app they
-land in; anything that sends, buys, deletes or closes always asks, and Aethel never operates its own window or sign-in
-prompts. **Ctrl+Alt+Esc** stops every task at once, from any app. Set `AETHEL_MCP=0` to turn computer control off.
+<p align="center"><img src="docs/screenshots/02-conversations.webp" alt="The Conversations list beside a chat about planning vegetarian dinners" width="900"></p>
 
-**Learning:** after each task Aethel keeps notes on the apps it used and writes down how it did the job as a
-*skill* (`~/.aethel/knowledge/{apps,skills}/*.md`: plain Markdown you can read and edit). The next similar task
-starts from that skill, and skills are credited or retired by whether their tasks actually passed their checks.
-**Memory** (in the rail) shows every skill with its runs, success rate and a duration sparkline, and lets you edit
-app notes. Small, fast judgments (does this message ask for a task? which skill fits? does this file match the
-goal?) come from **System 1**: [Laya](https://huggingface.co/convaiinnovations/laya), a local decision model running
-on the CPU (about 0.2 s a judgment). It downloads once (~1.7 GB, to `~/.aethel/models/laya`) and never blocks
-anything: until it's ready, Aethel behaves as before. With it, a message that clearly asks for something to be done
-starts a task on its own, and "stop" stops one (**Settings → Learning**). The thresholds come from labelled sets
-you can extend and re-measure: `py -3.11 scripts/eval_s1_intent.py`, `py -3.11 scripts/eval_s1_judge.py`.
+### Memory you can see and change
 
-**Macros, cursor and replay:** once a skill has worked **3 times the same way**, Aethel compiles it into a *macro*,
-a replayable list of steps stored in the skill file. The next matching task ("play jazz on YouTube in Firefox" after
-three "play … on YouTube" runs) replays it without the language model: each step finds its button or field again on
-the live screen by name (System 1 picks when the name changed), and if the screen doesn't match, the model takes over
-from there and the macro is repaired afterwards. Replayed steps still go through every permission check and approval.
-While a task works on your screen, a soft **ghost cursor** shows where it's about to click (it never takes clicks
-itself; Ctrl+Alt+Esc still stops everything). **Tasks** in the rail replays any past task step by step, with a small
-picture of the screen after each on-screen step (Settings → Learning → Replay pictures), and **Export** saves a task as
-JSON + pictures. Skill selection is measured too: `py -3.11 scripts/eval_s1_skill.py`.
+When Aethel picks up a fact it says so under your message, with an **Undo**. When it uses one, each reply shows what it recalled, including moments from earlier conversations.
 
-**Tests:** `cd backend; py -3.11 -m pytest` · `cd frontend_app; pnpm test` · `cd frontend_app/src-tauri; cargo test`
+<p align="center"><img src="docs/screenshots/03-chat-memory.webp" alt="A reply listing the facts and earlier moment it recalled" width="900"></p>
 
-**Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run
-`py -3.11 scripts/gen_event_schema.py` and `cd frontend_app; pnpm gen:types`.
+The **Memory** page lists everything it knows about you, where each fact came from and how it changed. You can add, search and delete facts.
 
-## Highlights
+<p align="center"><img src="docs/screenshots/05-memory-facts.webp" alt="The Memory page listing facts, each with its source, history and a delete button" width="900"></p>
 
-- **Local everything** — llama.cpp for chat, Kokoro for speech, Whisper for
-  transcription, turbovec + LanceDB for memory. No account, no API key, no
-  telemetry.
-- **Learning without fine-tuning (RSM)** — after each conversation and task the
-  agent reflects and writes behavioural *rules* and procedural *skills* as plain
-  markdown files. You approve or reject each one. Outcome tracking promotes what
-  works, retires what fails, and merges duplicates automatically.
-- **Real agent loop** — multi-step tool use (files, shell, web search) with a
-  permission manifest, a full audit log, and one-click rollback of any file
-  change the agent makes.
-- **Voice both ways** — speak to it (local Whisper), have it speak back (local
-  Kokoro). Models download themselves on first run.
-- **Ambient tone** — an optional two-dimensional tone model (mood × energy)
-  paints a soft colour around the composer so you can feel how the conversation
-  is going without reading a status badge.
-- **Measurable** — a built-in A/B benchmark runs the same task suite with and
-  without RSM knowledge and reports the difference (`backend/benchmark_agent.py`).
+### Tasks on your computer
+
+Press **Task** and describe a goal, such as "write a haiku about rain to Documents\Aethel\haiku.txt". Aethel plans a checklist, works through it, and checks the result before reporting back.
+
+It works with:
+
+- files and commands;
+- any Windows app, through accessibility, using [Windows-MCP](https://github.com/CursorTouch/Windows-MCP);
+- Word, Excel and PowerPoint, through an in-house COM server;
+- precise file edits, and reading PDFs and spreadsheets, using [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP);
+- a background browser of its own.
+
+<p align="center"><img src="docs/screenshots/04-task-approval.webp" alt="A task paused on an approval card asking to save a workbook, with Allow once, Allow for this task and Deny" width="900"></p>
+
+Safety is built into the task system:
+
+- **Approvals:** anything outside your allowed folders or commands waits for you. Anything that sends, buys, deletes or closes always asks.
+- **Undo:** **Undo file changes** restores every file a finished task wrote.
+- **Emergency stop:** **Ctrl+Alt+Esc** stops every task at once, from any app.
+- **Limited tools:** only vetted tools are offered. The shell, registry and process tools in those servers are never exposed, because they would bypass your permissions.
+- **Your rules:** allowed folders and commands live in `~/.aethel/permissions.yaml`.
+
+While a task works on your screen, a soft ghost cursor shows where it's about to click.
+
+### It learns from what it does
+
+After each task, Aethel keeps notes on the apps it used and writes the procedure down as a **skill**, a Markdown file in `~/.aethel/knowledge/`. The next similar task starts from that skill. Skills are credited or retired by whether their tasks actually passed their checks.
+
+Once a skill has worked **three times the same way**, it compiles into a **macro**, a list of steps stored in the skill file:
+
+1. Each step finds its button or field again on the live screen, by name.
+2. A small local model, [Laya](https://huggingface.co/convaiinnovations/laya), makes the quick judgments, such as which control is the right one when a name has changed.
+3. If the screen doesn't match, the main model takes over from that point, and the macro is repaired afterwards.
+
+Replayed steps still go through every permission check and approval.
+
+<p align="center"><img src="docs/screenshots/06-memory-skills.webp" alt="Skills on the Memory page, one waiting for approval and one that replays without the language model" width="900"></p>
+
+Laya downloads once (about 1.7 GB) and runs on the CPU. Until it's ready, Aethel simply behaves as before.
+
+### Replay any task
+
+**Tasks** in the rail steps back through any past task, with a small picture of the screen after each on-screen step. **Export** saves a task as JSON and pictures.
+
+<p align="center"><img src="docs/screenshots/07-task-replay.webp" alt="The Tasks page replaying a photo-renaming task, with its steps and a picture of the screen" width="900"></p>
+
+### Your models, wherever they run
+
+Give each job its own model, with fallbacks in order.
+
+| Job | Options |
+|---|---|
+| Language models | Groq, Gemini, OpenRouter, or any number of your own OpenAI-compatible endpoints (LM Studio, Ollama, vLLM, another PC) |
+| On this PC | Any `.gguf` with `llama-server`, from any folder, or download `llama-server` in the app |
+| Images | Gemini, OpenRouter, any OpenAI-compatible images server, ComfyUI with your own workflow, or local Z-Image Turbo |
+| Speech | Azure Speech, or Whisper and Kokoro voices on this PC |
+
+<p align="center"><img src="docs/screenshots/08-settings-models.webp" alt="The Models settings, with ordered providers and fallbacks for each job" width="900"></p>
+
+**Settings** also shows token use for each kind of work, so you can see what things cost.
+
+<p align="center"><img src="docs/screenshots/09-settings-usage.webp" alt="The Usage table, listing tokens in, out and cached for each kind of work" width="900"></p>
+
+### Also in the app
+
+- **Personas:** the model drafts one from your description and you pick its face from four portraits. Each has a character sheet, a voice blend and its own accent colour, and can learn a style from a chat export.
+- **Pictures:** personas can send photos that keep their face, checked by an optional local face check.
+- **Calls:** hands-free voice conversations that you can interrupt.
+- **Web:** search and reading with citations, switchable per conversation.
+
+### Dark theme
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/10-dark-chat-memory.webp" alt="A chat in the dark theme"></td>
+    <td><img src="docs/screenshots/11-dark-task-approval.webp" alt="A task approval in the dark theme"></td>
+  </tr>
+</table>
 
 ## Install
 
-Prerequisites: [Python 3.10+](https://python.org), [Node.js 20+](https://nodejs.org),
-[Rust](https://rustup.rs) (for the Tauri desktop shell).
+**Windows only for now.**
 
-```bash
-# Windows (PowerShell) — add -Cuda for NVIDIA builds of llama.cpp
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+1. Download `Aethel_<version>_x64-setup.exe` from [Releases](https://github.com/CodexManvik/Aethel/releases). You can check it against `SHA256SUMS.txt` with `Get-FileHash .\Aethel_*_x64-setup.exe`.
+2. Run it. It installs to Program Files and asks for admin rights once. The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info**, then **Run anyway**.
+3. Start Aethel. The first launch sets up its own Python and packages in `C:\Users\<you>\.aethel`. This happens once, takes about 3 minutes and 580 MB, and needs the internet.
+4. Open **Settings → Providers** and add a key (Groq, Gemini or OpenRouter) or your own endpoint. Or use **Settings → Local model** to run everything on this PC.
+
+[Node.js](https://nodejs.org) is needed for the background browser and Desktop Commander. Without it they say so, and everything else works.
+
+## Your data
+
+- **Where it lives:** settings, conversations, memory, personas and models are all in `~/.aethel`. Uninstalling leaves that folder, so delete it to remove everything.
+- **API keys:** they're kept in Windows Credential Manager.
+- **What leaves your PC:** with cloud models, what you send goes to the provider you chose. Azure Speech and cloud image services work the same way if you turn them on.
+- **Private mode:** this runs everything on local models, so nothing leaves this computer, and web access is off.
+- **Telemetry:** Aethel has no account and no telemetry of its own.
+
+## Run from source
+
+You'll need [Python 3.11](https://python.org), [Node.js 20+](https://nodejs.org) with [pnpm](https://pnpm.io), and [Rust](https://rustup.rs).
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install -r backend\requirements\core.txt
+cd frontend_app; pnpm install; cd ..
 ```
 
-```bash
-# Linux / macOS — add --cuda for NVIDIA builds of llama.cpp
-bash scripts/install.sh
-```
+**Desktop app.** The Tauri shell starts the backend itself and logs to `~/.aethel/logs/backend.log`.
 
-The installer creates a Python environment, installs dependencies, and downloads
-the llama.cpp server binary into `bin/llama/`.
-
-## Add a model
-
-Drop a chat model into `models/llm/` — that is the only required manual step.
-See [models/README.md](models/README.md) for recommendations and links.
-
-| Folder | What | Required? |
-|---|---|---|
-| `models/llm/` | Chat model (`.gguf`) | **Yes** |
-| `models/tts/` | Kokoro voice | Downloads itself on first run |
-| `models/stt/` | Whisper | Downloads itself on first run |
-| `models/image/` | Image checkpoint | Optional, and off by default |
-
-You can also point at models anywhere on disk from **Settings → Models** instead
-of copying them into the project.
-
-## Run
-
-```bash
-# Windows
+```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
-```bash
-# Linux / macOS
-bash scripts/start.sh
+**In a browser.** This runs the API on `http://127.0.0.1:8765` with auth turned off, for development only. Then run `pnpm dev` in `frontend_app` and open `http://localhost:5173`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -BackendOnly
 ```
 
-This starts the backend — which spawns the LLM engine itself, no manual
-llama.cpp wrangling — and opens the desktop app. The first launch loads models
-and fetches the speech models in the background, so give it a moment.
+Set `AETHEL_MCP=0` to turn computer control off.
 
-Add `-BackendOnly` (or `--backend-only`) to run headless. API docs are at
-`http://localhost:8000/docs`.
+**Tests**
 
-## How it works
-
-```
-frontend_app/     Tauri v2 + React desktop app
-backend/          FastAPI server
-  agent_loop.py         multi-step tool loop (structured JSON tool calls)
-  knowledge_store.py    RSM: rules + skills as markdown on disk
-  rule_engine.py        conversation reflection -> behavioural rules
-  skill_engine.py       task reflection -> procedural skills
-  mcp_executor.py       file/shell/web tools behind the permission manifest
-  transaction_log.py    audit log + rollback
-  memory.py             episodic memory (turbovec, 4-bit quantised)
-  emotion_engine.py     optional conversation tone (mood x energy)
-  tts_engine.py         Kokoro (local) with Edge fallback
-  stt_engine.py         faster-whisper voice input
-  benchmark_agent.py    RSM on/off A/B evaluation
-models/           your model files
-scripts/          install + start scripts
+```powershell
+.venv\Scripts\python -m pip install pytest pytest-asyncio
+cd backend; ..\.venv\Scripts\python -m pytest; cd ..
+cd frontend_app; pnpm test; cd ..
+cd frontend_app\src-tauri; cargo test; cd ..\..
 ```
 
-Everything the agent learns lives in `~/.aethel/knowledge/` as markdown you can
-read, edit, delete, or put under version control. Permissions live in
-`~/.aethel/permissions.yaml`; the rollback log in `~/.aethel/transactions.json`.
+**Changing the WebSocket protocol:** edit `backend/aethel/protocol.py`, then run `py -3.11 scripts/gen_event_schema.py` and `pnpm gen:types` in `frontend_app`.
 
-### RSM in one paragraph
+## How it's built
 
-Fine-tuning a model to make it better at your tasks is slow, expensive, and
-opaque. Aethel instead writes what it learns into markdown and feeds the
-relevant pieces back through the prompt. A *rule* is a short behavioural
-instruction ("don't pad answers with pleasantries"); a *skill* is a procedure
-("to move a file: read it, write it to the destination, verify, then delete the
-source"). Each document carries outcome statistics, so retrieval is weighted by
-what has actually worked, and knowledge that keeps failing is retired
-automatically. Because it is all text, you can audit every single thing the
-system has "learned".
-
-## Configuration
-
-Copy `.env.example` to `.env` (the installer does this) and edit as needed.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `AGENT_LOOP_ENABLED` | `true` | multi-step agent loop |
-| `AGENT_MAX_STEPS` | `8` | tool-step budget per turn |
-| `GENERATION_BACKEND` | `local` | `local` (llama.cpp) or `cloud` |
-| `TTS_ENGINE` | `kokoro` | `kokoro` (local) or `edge` (cloud) |
-| `STT_MODEL_SIZE` | `small` | whisper size: tiny/base/small/medium |
-| `EMOTION_ENGINE_ENABLED` | `true` | conversation tone tracking |
-| `IMAGE_GEN_ENABLED` | `false` | image generation (needs spare VRAM) |
-| `MAX_VRAM_ALLOCATION` | `4` | GB budget; ≤4 keeps aux models on CPU |
-
-Most of these are also editable in-app under **Settings**, where each control
-explains itself on hover.
-
-## Evaluation
-
-```bash
-# A/B benchmark: the same tasks, with and without RSM knowledge
-.venv/Scripts/python backend/benchmark_agent.py --seed --runs 3
+```
+frontend_app/          Tauri 2 and React desktop app
+  src/features/        conversation, tasks, memory, personas, images, call, settings
+  src-tauri/           Rust shell, first-run setup, global stop key
+backend/aethel/        FastAPI backend
+  chat/ context/       conversations and what goes into each prompt
+  runtime/             task engine, checks, reflection and macros
+  tools/               files, shell, desktop, browser, Office, web
+  safety/              permissions, approvals, undo
+  memory/ system1/     facts, recall, and the small local judge
+  personas/ images/    personas, tone, photos and the face check
+  voice/ providers/    calls and speech, model routing
+backend/*.py           the original prototype, due to be removed
+scripts/               start scripts and evaluation harnesses
+docs/                  specs, plans and third-party licences
 ```
 
-Metrics are also exposed at `GET /admin/eval/metrics`. Every value there is
-measured from stored data — where there isn't enough data to compute something,
-it reports `null` rather than inventing a number.
+## Status
+
+Aethel is in beta, and these parts aren't finished:
+
+- **Evaluation:** this is still to come. Macros have only been tried on small tasks so far, and several thresholds (end of turn, face check, style recall) are marked "not measured" in Settings until they're calibrated. The harnesses are `scripts/eval_*.py`. Some call paid providers.
+- **First-run onboarding:** still to come.
+- **Code signing:** the installer isn't signed yet.
+- **Platforms:** Windows only.
+
+## Licence
+
+Aethel is [MIT](LICENSE) licensed. It uses third-party software and models with their own terms: see [docs/third_party.md](docs/third_party.md).
