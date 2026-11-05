@@ -9,7 +9,6 @@ import contextlib
 import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable
 
 import psutil

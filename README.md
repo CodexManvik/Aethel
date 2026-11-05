@@ -191,7 +191,6 @@ backend/aethel/        FastAPI backend
   memory/ system1/     facts, recall, and the small local judge
   personas/ images/    personas, tone, photos and the face check
   voice/ providers/    calls and speech, model routing
-backend/*.py           the original prototype, due to be removed
 scripts/               start scripts and evaluation harnesses
 docs/                  specs, plans and third-party licences
 ```

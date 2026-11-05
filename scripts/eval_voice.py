@@ -18,7 +18,6 @@ import asyncio
 import json
 import os
 import socket
-import statistics
 import sys
 import tempfile
 import time

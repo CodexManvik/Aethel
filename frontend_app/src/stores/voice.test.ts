@@ -22,7 +22,7 @@ class FakePlayback {
   close() { this.stop(); }
 }
 
-const frame = (id: number) => new ArrayBuffer(8);
+const frame = (_id: number) => new ArrayBuffer(8);
 const server = (msg: object) => handlers.onMessage(msg as never);
 const flush = () => new Promise((r) => setTimeout(r, 0));
 

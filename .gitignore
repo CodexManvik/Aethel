@@ -44,3 +44,7 @@ memory_metadata.json
 frontend_app/public/vad/
 frontend_app/src-tauri/payload/
 frontend_app/src-tauri/.payload-cache/
+
+# The old app's data on this PC: read once by the migrations, never committed
+backend/data/
+/prompt_generator.md

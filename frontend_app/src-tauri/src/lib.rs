@@ -12,7 +12,7 @@ mod runtime;
 use runtime::{Layout, SetupStatus};
 
 const KEYRING_SERVICE: &str = "com.aethel.app";
-const KNOWN_PROVIDERS: [&str; 6] = ["groq", "gemini", "openrouter", "custom", "typesafe", "azure_speech"];
+const KNOWN_PROVIDERS: [&str; 5] = ["groq", "gemini", "openrouter", "custom", "azure_speech"];
 
 #[derive(Clone, Serialize)]
 struct BackendInfo {
@@ -116,7 +116,7 @@ fn python_executable(repo: &Path) -> Result<(String, String), String> {
         tried.push(how);
     }
     Err(format!(
-        "No Python that can run Aethel was found. Tried: {}.\nInstall the packages with:\n    py -3.11 -m pip install -r requirements.txt\nor point AETHEL_PYTHON at a Python that has them.",
+        "No Python that can run Aethel was found. Tried: {}.\nInstall the packages with:\n    py -3.11 -m pip install -r backend\\requirements\\core.txt\nor point AETHEL_PYTHON at a Python that has them.",
         tried.join("; ")
     ))
 }
@@ -494,7 +494,6 @@ mod tests {
     #[test]
     fn only_known_providers_are_accepted() {
         assert!(validate_provider("groq").is_ok());
-        assert!(validate_provider("typesafe").is_ok());
         assert!(validate_provider("azure_speech").is_ok());
         assert!(validate_provider("../evil").is_err());
     }
