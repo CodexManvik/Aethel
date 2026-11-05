@@ -1,3 +1,4 @@
+import type { ServerEvent } from "../lib/events";
 import { applyTaskEvent, fromDetail, type TaskMap } from "./tasks";
 
 const created = { type: "task_created", task_id: "t1", conversation_id: "c1", goal: "haiku",
@@ -57,4 +58,14 @@ test("fromDetail maps the REST shape", () => {
   });
   expect(ui.steps[0]).toEqual({ id: "s", tool: "fs_read", summary: "x", verdict: "allow", ok: true, detail: "text", durationMs: 3 });
   expect(ui.checks).toEqual([{ description: "x exists", passed: null, detail: "" }]);
+});
+
+test("a step or approval that a reload already brought in isn't added twice", () => {
+  const started = { type: "step_started", task_id: "t1", step_id: "s1", tool: "fs_read", summary: "x", verdict: "ask" } as ServerEvent;
+  const asked = { type: "approval_needed", approval_id: "a1", task_id: "t1", step_id: "s1", tool: "fs_read", summary: "x",
+    reason: "r", tier: "write" } as ServerEvent;
+  let tasks: TaskMap = applyTaskEvent({}, created);
+  for (const ev of [started, asked, started, asked]) tasks = applyTaskEvent(tasks, ev);
+  expect(tasks.t1.steps).toHaveLength(1);
+  expect(tasks.t1.approvals).toHaveLength(1);
 });

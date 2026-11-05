@@ -178,7 +178,7 @@ fn backend_log_path() -> PathBuf {
 /// The end of backend.log, for the boot screen when the backend won't start.
 #[tauri::command]
 fn backend_log_tail(lines: Option<usize>) -> String {
-    let text = fs::read_to_string(backend_log_path()).unwrap_or_else(|e| format!("(couldn't read the log: {e})"));
+    let text = runtime::read_log(&backend_log_path()).unwrap_or_else(|e| format!("(couldn't read the log: {e})"));
     let all: Vec<&str> = text.lines().collect();
     let n = lines.unwrap_or(60).min(all.len());
     format!("{}\n\n(full log: {})", all[all.len() - n..].join("\n"), backend_log_path().display())

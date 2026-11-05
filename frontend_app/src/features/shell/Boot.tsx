@@ -47,7 +47,8 @@ export function Boot({ children }: { children: ReactNode }) {
         await waitForSetup(() => alive, (status) => alive && setState({ phase: "setup", status }));
         if (alive) setState({ phase: "waiting" });
         await Promise.race([waitForBackend(), watchForExit(() => alive)]);
-        await pushStoredKeys();
+        // A credential store that won't answer costs the saved keys, not the app.
+        await pushStoredKeys().catch((e) => toast(`Your saved API keys couldn't be read: ${String(e)}`));
         if (alive) setState({ phase: "ready" });
       } catch (err) {
         const log = await (err instanceof SetupFailed ? setupLogTail() : backendLogTail()).catch(() => null);

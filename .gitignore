@@ -32,7 +32,7 @@ personality_dataset.json
 classified_memories.json
 todo.md
 frontend_app/node_modules/
-mcp_servers/
+/mcp_servers/
 preferences.jsonl
 telemetry_logs.jsonl
 turbovec_memory.tvim

@@ -51,7 +51,8 @@ class System1:
 
     def start(self) -> None:
         """Download (first run, ~1.7 GB) and load in the background."""
-        if self._starting is None and self.settings.get().system1.enabled:
+        idle = self._starting is None or (self._starting.done() and self._model is None)  # never started, or failed
+        if idle and self.settings.get().system1.enabled:
             self._starting = asyncio.get_running_loop().create_task(self._prepare())
 
     async def _prepare(self) -> None:

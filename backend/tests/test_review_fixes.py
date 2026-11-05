@@ -332,3 +332,88 @@ def test_deleting_a_conversation_takes_what_its_tasks_left_behind():
         assert (aethel_home() / "media" / "tasks" / kept.id).exists()
         assert [r["task_id"] for r in svc.db.query("SELECT task_id FROM file_changes")] == [kept.id]
         assert client.delete(f"/api/conversations/{conv.id}").status_code == 404
+
+
+# ---- the second pass ----------------------------------------------------------------------------------------------
+class _FakeOffice:
+    def __init__(self):
+        self.ActiveWorkbook = self
+        self.alerts_when_saving = None
+        self.DisplayAlerts = True
+
+    def SaveAs(self, path):
+        self.alerts_when_saving = self.DisplayAlerts
+
+
+def test_office_never_runs_macros_and_saving_never_stops_to_ask(monkeypatch):
+    pytest.importorskip("win32com")
+    office = pytest.importorskip("aethel.mcp_servers.office")
+    fake = _FakeOffice()
+    monkeypatch.setattr(office.win32com.client, "Dispatch", lambda _progid: fake)
+    assert office.excel_save("C:/x.xlsx") == "Saved C:/x.xlsx."
+    assert fake.AutomationSecurity == office.MSO_AUTOMATION_SECURITY_FORCE_DISABLE
+    assert fake.alerts_when_saving is False and fake.DisplayAlerts is True
+
+
+def test_a_persona_file_with_a_yaml_typo_is_skipped_and_a_bom_is_fine(tmp_path):
+    from aethel.personas.store import PersonaStore
+    store = PersonaStore(tmp_path)
+    store.ensure_builtin()
+    (tmp_path / "broken").mkdir()
+    (tmp_path / "broken" / "persona.md").write_text("---\nname: [unclosed\n---\n", encoding="utf-8")
+    (tmp_path / "bom").mkdir()
+    (tmp_path / "bom" / "persona.md").write_bytes(b"\xef\xbb\xbf---\nname: Mira\nanchors: [portraits/anchor.jpg]\n---\n")
+    assert sorted(p.id for p in store.list()) == ["aethel", "bom"]
+    assert store.get("broken") is None
+    assert store.get("bom").anchors == ["portraits/anchor.jpg"]
+
+
+@pytest.mark.anyio
+async def test_system_1_is_tried_again_after_a_failed_load():
+    from aethel.system1.service import System1
+    settings = SettingsService(Database(db_path()))
+    attempts = []
+
+    def load(_folder):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise OSError("offline")
+        return object()
+
+    s1 = System1(settings.db, settings, model_dir=aethel_home(), loader=load, download=lambda _d: None)
+    s1.start()
+    await s1._starting
+    assert s1.status().startswith("failed")
+    s1.start()
+    await s1._starting
+    assert s1.status() == "ready"
+    first = s1._starting
+    s1.start()  # loaded: nothing more to do
+    assert s1._starting is first
+
+
+def test_a_cut_reply_keeps_a_photo_that_landed_meanwhile():
+    from types import SimpleNamespace
+    from aethel.store.repos import ConversationRepo, MessageRepo
+    from aethel.voice.session import VoiceSession, _Turn
+    db = Database(db_path())
+    conv = ConversationRepo(db).create()
+    messages = MessageRepo(db)
+    reply = messages.add(conv.id, "assistant", "One. Two.")
+    session = VoiceSession(SimpleNamespace(messages=messages, db=db), None, None)
+    turn = _Turn("t", 0.0, 0.0, None, 0, transcript_at=0.0)
+    turn.chat, turn.assistant_id, turn.texts, turn.heard_upto = True, reply.id, ["One."], 0
+
+    original = messages.get
+
+    def stale_then_real(msg_id):  # what a slow read sees: a photo arrives just after it
+        found = original(msg_id)
+        messages.merge_meta(msg_id, lambda m: {**m, "images": [{"id": "p"}]})
+        return found
+
+    messages.get = stale_then_real
+    assert session._cut(turn) == "One."
+    messages.get = original
+    saved = messages.get(reply.id)
+    assert saved.content == "One." and saved.status == "stopped"
+    assert saved.meta["interrupted"] is True and saved.meta["images"] == [{"id": "p"}]

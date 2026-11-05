@@ -54,7 +54,7 @@ class PersonaStore:
         path = self.folder(pid) / FILE
         for attempt in range(RETRIES):
             try:
-                return parse_persona(path.read_text(encoding="utf-8"), pid)
+                return parse_persona(path.read_text(encoding="utf-8-sig"), pid)  # -sig: Notepad may add a BOM
             except FileNotFoundError:
                 return None
             except PermissionError:  # Windows: a save's os.replace for a moment; reading again succeeds

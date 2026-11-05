@@ -78,22 +78,22 @@ export function applyTaskEvent(tasks: TaskMap, ev: ServerEvent): TaskMap {
     case "task_note":
       return patch(tasks, ev.task_id, (t) => ({ ...t, notes: [...t.notes, { text: ev.text, at: t.steps.length }] }));
     case "step_started":
-      return patch(tasks, ev.task_id, (t) => ({
+      return patch(tasks, ev.task_id, (t) => t.steps.some((s) => s.id === ev.step_id) ? t : { // a reload may have it already
         ...t,
         steps: [...t.steps, { id: ev.step_id, tool: ev.tool, summary: ev.summary, verdict: ev.verdict, ok: null,
           detail: "", durationMs: null }],
-      }));
+      });
     case "step_finished":
       return patch(tasks, ev.task_id, (t) => ({
         ...t,
         steps: t.steps.map((s) => (s.id === ev.step_id ? { ...s, ok: ev.ok, detail: ev.detail, durationMs: ev.duration_ms } : s)),
       }));
     case "approval_needed":
-      return patch(tasks, ev.task_id, (t) => ({
+      return patch(tasks, ev.task_id, (t) => t.approvals.some((a) => a.id === ev.approval_id) ? t : {
         ...t,
         approvals: [...t.approvals, { id: ev.approval_id, stepId: ev.step_id, tool: ev.tool, summary: ev.summary,
           reason: ev.reason, tier: ev.tier }],
-      }));
+      });
     case "approval_resolved":
       return patch(tasks, ev.task_id, (t) => ({ ...t, approvals: t.approvals.filter((a) => a.id !== ev.approval_id) }));
     case "verification":
