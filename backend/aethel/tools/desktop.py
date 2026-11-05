@@ -55,7 +55,16 @@ OFF_LIMITS = {"aethel", "consent", "credentialuibroker", "logonui"}  # Aethel, U
 IRREVERSIBLE_RE = re.compile(
     r"\b(send|submit|pay|buy|purchase|order|checkout|check out|delete|remove|uninstall|install|sign out|"
     r"log out|discard|don'?t save|confirm|transfer|post|publish)\b", re.IGNORECASE)
-IRREVERSIBLE_KEYS = {"alt+f4", "ctrl+w", "shift+delete", "ctrl+shift+delete"}
+_KEY_NAMES = {"control": "ctrl", "windows": "win", "lwin": "win", "rwin": "win", "super": "win", "meta": "win",
+              "cmd": "win", "command": "win", "del": "delete", "menu": "alt"}
+
+
+def _pressed(shortcut: str) -> frozenset[str]:
+    """The keys of a shortcut, whatever their order or spelling."""
+    return frozenset(_KEY_NAMES.get(k, k) for k in str(shortcut).lower().replace(" ", "").split("+") if k)
+
+
+IRREVERSIBLE_KEYS = {_pressed(k) for k in ("alt+f4", "ctrl+w", "shift+delete", "ctrl+shift+delete")}
 _ELEMENT_RE = re.compile(r'\((-?\d+),(-?\d+)\)\s+(\S+)\s+"(.*)"\s+\[action:')
 _WINDOW_RE = re.compile(r'^window "(.*)"\s*$')
 _SCALE_RE = re.compile(r"Screenshot Coordinate Scale:\s*([\d.]+)")
@@ -275,9 +284,9 @@ class Desktop:
         if kind == "shortcut":
             keys = str(args.get("shortcut") or "").lower().replace(" ", "")
             target = f"Press {keys} in {where}"
-            if "win" in keys.split("+"):
+            if "win" in _pressed(keys):
                 return Assessment("ask", "Windows-key shortcuts open system features.", target)
-            if keys in IRREVERSIBLE_KEYS:
+            if _pressed(keys) in IRREVERSIBLE_KEYS:
                 return Assessment("allow", "This can close a window or delete without asking.", target, "irreversible")
             return Assessment("allow", "", target)
 

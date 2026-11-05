@@ -135,7 +135,7 @@ class LocalLlama:
 
     def is_up(self) -> bool:
         try:
-            return httpx.get(f"{self.base_url}/models", timeout=1.5).status_code == 200
+            return httpx.get(f"{self.base_url}/models", timeout=1.5, trust_env=False).status_code == 200
         except httpx.HTTPError:
             return False
 

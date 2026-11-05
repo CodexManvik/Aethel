@@ -6,9 +6,10 @@ import zipfile
 from dataclasses import dataclass
 from typing import Literal
 
+import anyio
 from pydantic import BaseModel, model_validator
 
-from ..tools.paths import resolve_user_path
+from ..tools.paths import is_network_path, resolve_user_path
 
 
 class Check(BaseModel):
@@ -23,8 +24,9 @@ class Check(BaseModel):
             raise ValueError(f"{self.kind} needs text")
         if self.kind == "min_words" and (self.count is None or self.count < 1):
             raise ValueError("min_words needs a positive count")
-        if resolve_user_path(self.path) is None:
-            raise ValueError("checks are about files: path must be a local absolute path")  # not a URL
+        resolved = resolve_user_path(self.path)
+        if resolved is None or is_network_path(str(resolved)):  # not a URL, and not another computer: nothing asks first
+            raise ValueError("checks are about files: path must be a local absolute path")
         return self
 
     def describe(self) -> str:
@@ -44,6 +46,7 @@ class CheckResult:
     detail: str
 
 
+MAX_READ_BYTES = 20_000_000  # what a check reads of a file: a text check doesn't need more
 _PARA_RE = re.compile(r"<w:p[ >].*?</w:p>", re.DOTALL)
 _TEXT_RE = re.compile(r"<w:t(?: [^>]*)?>(.*?)</w:t>", re.DOTALL)
 
@@ -59,21 +62,42 @@ def _docx_text(p) -> str:
     return "\n".join(html.unescape("".join(_TEXT_RE.findall(para))) for para in _PARA_RE.findall(xml))
 
 
+_CELL_RE = re.compile(r"<(?:a:t|t|v)(?: [^>]*)?>(.*?)</(?:a:t|t|v)>", re.DOTALL)
+OFFICE_PARTS = {".xlsx": ("xl/sharedStrings", "xl/worksheets/"), ".pptx": ("ppt/slides/slide",)}
+
+
+def _office_text(p, parts: tuple[str, ...]) -> str:
+    """The text in a workbook's cells or a deck's slides, which are zipped XML like a .docx."""
+    try:
+        with zipfile.ZipFile(p) as z:
+            xml = [z.read(n).decode("utf-8", errors="replace") for n in sorted(z.namelist())
+                   if n.startswith(parts) and n.endswith(".xml")]
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return ""
+    return "\n".join(html.unescape(cell) for part in xml for cell in _CELL_RE.findall(part))
+
+
 def _read(path: str) -> str | None:
     p = resolve_user_path(path)  # the same resolution the fs tools use, so ~ and %VAR% match
     if p is None or not p.is_file():
         return None
-    if p.suffix.lower() == ".docx":
+    suffix = p.suffix.lower()
+    if suffix == ".docx":
         return _docx_text(p)
-    return p.read_text(encoding="utf-8", errors="replace")
+    if suffix in OFFICE_PARTS:
+        return _office_text(p, OFFICE_PARTS[suffix])
+    with open(p, "rb") as f:
+        return f.read(MAX_READ_BYTES).decode("utf-8", errors="replace")
 
 
 def run_check(check: Check) -> CheckResult:
+    if check.kind == "file_exists":  # never read: it may be a 4 GB video
+        p = resolve_user_path(check.path)
+        found = p is not None and p.exists()
+        return CheckResult(check.describe(), found, "" if found else "file not found")
     text = _read(check.path)
     if text is None:
         return CheckResult(check.describe(), False, "file not found")
-    if check.kind == "file_exists":
-        return CheckResult(check.describe(), True, "")
     if check.kind == "judge":  # needs System 1: see run_checks_with
         return CheckResult(check.describe(), True, "not measured (System 1 unavailable)")
     if check.kind == "file_contains":
@@ -102,13 +126,13 @@ async def run_checks_with(checks: list[Check], system1, threshold: float) -> lis
     they pass as not measured."""
     results = []
     for check in checks:
-        text = _read(check.path) if check.kind == "judge" else None
+        text = await anyio.to_thread.run_sync(_read, check.path) if check.kind == "judge" else None
         p = None
         if text is not None and system1 is not None:
             answer = await system1.choice({"document": text[:4000]}, judge_question(check.text), JUDGE_OPTIONS, "judge")
             p = answer[1]["yes"] if answer is not None else None
         if check.kind != "judge" or text is None or p is None:
-            results.append(run_check(check))
+            results.append(await anyio.to_thread.run_sync(run_check, check))
         else:
             results.append(CheckResult(check.describe(), p >= threshold, f"p={p:.2f}"))
     return results

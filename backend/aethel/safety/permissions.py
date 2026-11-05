@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from ..paths import PROJECT_ROOT, aethel_home
+from ..tools.paths import real_path
 
 Verdict = Literal["allow", "ask", "deny"]
 
@@ -123,7 +124,7 @@ def _expand_arg(word: str) -> str:
 
 
 def _norm(p: str) -> str:
-    return os.path.normcase(os.path.realpath(os.path.expanduser(p)))
+    return os.path.normcase(real_path(os.path.expanduser(p)))
 
 
 def _inside(child: str, parent: str) -> bool:

@@ -142,11 +142,12 @@ def _parse_plan(raw: str) -> tuple[list[str], list[Check]] | None:
     args = _parse_args(raw)
     if args is None:
         return None
-    steps = [str(s).strip() for s in args.get("steps") or [] if str(s).strip()][:10]
+    listed = args.get("steps")
+    steps = [str(s).strip() for s in listed if str(s).strip()][:10] if isinstance(listed, list) else []
     if not steps:
         return None
     checks = []
-    for item in args.get("checks") or []:
+    for item in args.get("checks") if isinstance(args.get("checks"), list) else []:
         try:
             checks.append(Check.model_validate(item))
         except ValidationError:
@@ -302,6 +303,17 @@ class TaskEngine:
         for task_id in ids:
             await self.cancel(task_id)
         return len(ids)
+
+    async def stop_for_conversation(self, conversation_id: str, timeout: float = 5.0) -> list[str]:
+        """Its conversation is going away: stop its running tasks and wait for them. Returns all its task ids."""
+        tasks = self.tasks.list_for_conversation(conversation_id)
+        runners = [r for t in tasks if (r := self._runners.get(t.id)) is not None]
+        for t in tasks:
+            if t.id in self._runners:
+                await self.cancel(t.id)
+        if runners:
+            await asyncio.wait(runners, timeout=timeout)
+        return [t.id for t in tasks]
 
     def note_for_chat(self, conversation_id: str) -> str | None:
         active = [t for t in self.tasks.list_for_conversation(conversation_id) if t.state not in TERMINAL_STATES]
@@ -503,10 +515,13 @@ class TaskEngine:
             # not the screen), so it doesn't taint the task: taint guards the LLM against
             # injected text, and here there is no LLM to inject into.
             tainted = ctx.tainted
+            before = len(self.tasks.steps(task_id))
             result = await self._handle(task_id, call, ctx, grants, seen, run, budget, decider="macro")
             ctx.tainted = tainted
-            last = self.tasks.steps(task_id)[-1:]
-            if not last or last[0].tool != step["tool"] or not last[0].ok:
+            # Only this call's own row: refused before it ran (web off, tool gone), it leaves none, and the row
+            # before it may be the same tool, and fine.
+            last = self.tasks.steps(task_id)[before:]
+            if not last or last[-1].tool != step["tool"] or not last[-1].ok:
                 # Its error text does reach the LLM, in the handover note: from here on, tainted.
                 ctx.tainted = True
                 reason = result if result.startswith("<untrusted") else _wrap_untrusted(step["tool"], result)
@@ -835,10 +850,14 @@ class TaskEngine:
             return "[LOOP DETECTED] You've already made this exact call. Use the earlier result or try something different."
         budget.consecutive_loops = 0
 
-        scope = tool.scope_for(args)
-        assessment = tool.assess(args)
-        if inspect.isawaitable(assessment):
-            assessment = await assessment
+        try:
+            scope = tool.scope_for(args)
+            assessment = tool.assess(args)
+            if inspect.isawaitable(assessment):
+                assessment = await assessment
+        except Exception as exc:  # it can't be judged, so it doesn't run; the task itself goes on
+            log.warning("assessing %s failed: %s", tool.name, exc)
+            return f"Error: I couldn't check that call: {exc}"
         if assessment.verdict == "allow" and unlisted_read(tool.name, args, ctx):
             assessment = Assessment(
                 "ask", "I've read content from outside, and this address didn't come from you or a search result. "
@@ -981,15 +1000,20 @@ class TaskEngine:
         msg = self.messages.add(record.conversation_id, "assistant", text,
                                 meta={"task_id": task_id, "task_state": state,
                                       **({"sources": [s.model_dump() for s in listed]} if listed else {})})
-        if listed:  # before the task's end, so the answer's [n] can become footnotes where it appears
-            await self.hub.publish(Sources(message_id=msg.id, task_id=task_id, sources=listed))
+        # Terminal first, with nothing awaited since the message was saved: a cancel landing during the publishes
+        # below must find it finished, or it would end the task a second time with a second closing message.
         self.tasks.set_state(task_id, state, summary=summary, error=error)
-        await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state,
-                                         summary=summary, error=error, message_id=msg.id, message_text=text))
         if state in ("done", "failed") and self.knowledge is not None:
             learning = asyncio.get_running_loop().create_task(self._learn(task_id))
             self._learning.add(learning)
             learning.add_done_callback(self._learning.discard)
+
+        async def announce() -> None:
+            if listed:  # before the task's end, so the answer's [n] can become footnotes where it appears
+                await self.hub.publish(Sources(message_id=msg.id, task_id=task_id, sources=listed))
+            await self.hub.publish(TaskState(task_id=task_id, conversation_id=record.conversation_id, state=state,
+                                             summary=summary, error=error, message_id=msg.id, message_text=text))
+        await asyncio.shield(announce())  # shielded: a window must still hear how the task ended
 
     async def _learn(self, task_id: str) -> None:
         """Credit the skills used and reflect, after the user already has the result."""

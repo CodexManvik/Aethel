@@ -148,7 +148,7 @@ class FactExtractor:
         changes = await anyio.to_thread.run_sync(self._apply, ops[:MAX_OPS], ids, persona_scope, user.id,
                                                  conversation_id)
         if changes:
-            self.messages.update(user.id, meta={**user.meta, "facts_changed": [c.model_dump() for c in changes]})
+            self.messages.merge_meta(user.id, lambda m: {**m, "facts_changed": [c.model_dump() for c in changes]})
             await self.hub.publish(FactsChanged(conversation_id=conversation_id, message_id=user.id, changes=changes))
         return changes
 

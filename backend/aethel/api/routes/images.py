@@ -101,9 +101,15 @@ async def images_status(svc: Services = Depends(get_services)) -> ImagesStatus:
                         error=_download.error)
 
 
+def _refuse_in_private_mode(svc: Services, what: str) -> None:
+    if svc.settings.get().private_mode:
+        raise HTTPException(status_code=409, detail=f"Private mode is on: {what}.")
+
+
 @router.post("/api/images/face-models", status_code=202)
-def download_face_models() -> dict:
+def download_face_models(svc: Services = Depends(get_services)) -> dict:
     """Starts the download (the user asked for it in the studio); poll /api/images/status."""
+    _refuse_in_private_mode(svc, "nothing is downloaded")
     with _download.lock:
         if not _download.running and not all(is_installed(n) for n in FACE_MODELS):
             _download.running, _download.error, _download.done = True, None, 0
@@ -113,6 +119,7 @@ def download_face_models() -> dict:
 
 @router.get("/api/images/gemini-models")
 async def gemini_models(svc: Services = Depends(get_services)) -> list[str]:
+    _refuse_in_private_mode(svc, "nothing is sent to Gemini")
     try:
         return await svc.images.backends["gemini"].models()
     except httpx.HTTPError as exc:

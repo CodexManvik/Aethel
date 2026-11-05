@@ -73,6 +73,7 @@ class Services:
     chat: ChatService
     http_client: httpx.AsyncClient  # shared by every provider the default factory builds
     web_http: httpx.AsyncClient     # the web tools' own: no env proxies, no cookies shared with provider traffic
+    local_http: httpx.AsyncClient   # servers on this PC (and image servers): no proxy, no redirects
     browser: Browser                # Aethel's own background browser (Settings -> Browser drives it)
     permissions: Permissions
     changes: ChangeLog
@@ -123,7 +124,10 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     # Not the providers' client: an environment proxy would resolve names itself, behind the SSRF check's back, and
     # pages' cookies must never ride along with a call to a model provider. Redirects are followed by hand.
     web_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    factory = provider_factory or make_provider_factory(http_client)
+    # The user's own model and image servers: no redirects and no system proxy, so what goes to a server on this PC
+    # stays on this PC.
+    local_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+    factory = provider_factory or make_provider_factory(http_client, local_http)
     usage = UsageLog(db)
     router = RoleRouter(settings=settings, keys=keys, local=local, factory=factory, usage=usage)
     hub = EventHub()
@@ -148,9 +152,6 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                 " SELECT 1 FROM facts WHERE scope = ? LIMIT 1", (pid, f"persona:{pid}")) is not None)
     personas.ensure_builtin()
     persona_lines = PersonaLines(db, _embed, personas.folder)
-    # The user's own image servers get a client that follows no redirects and no system proxy: what goes to a
-    # server on this PC stays on this PC.
-    image_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     images = ImageService(
         personas=personas, settings=settings, identity=IdentityCheck(), hub=hub, messages=messages,
         backends={"gemini": GeminiImage(key=lambda: keys.get("gemini"), model=lambda: settings.get().images.gemini_model,
@@ -159,9 +160,9 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
                                                model=lambda: settings.get().images.openrouter_model, http=http_client),
                   "openai": OpenAIImages(base_url=lambda: settings.get().images.openai.base_url,
                                          model=lambda: settings.get().images.openai.model,
-                                         key=lambda: keys.get("endpoint:images-openai"), http=image_http),
+                                         key=lambda: keys.get("endpoint:images-openai"), http=local_http),
                   "comfyui": ComfyUI(base_url=lambda: settings.get().images.comfyui.base_url,
-                                     workflow_path=lambda: settings.get().images.comfyui.workflow_path, http=image_http),
+                                     workflow_path=lambda: settings.get().images.comfyui.workflow_path, http=local_http),
                   "local": LocalZImage(image_dir=lambda: settings.get().images.local_dir, local_llm=local)})
     registry.register(task_image_tool(images, personas, conversations,
                                       lambda tid: (t.conversation_id if (t := tasks.get(tid)) else None),
@@ -185,7 +186,7 @@ def build_services(*, provider_factory: ProviderFactory | None = None, local_llm
     return Services(
         db=db, settings=settings, keys=keys, auth=AuthConfig.from_env(), conversations=conversations,
         messages=messages, local_llm=local, router=router, provider_factory=factory, hub=hub, chat=chat,
-        http_client=http_client, web_http=web_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
+        http_client=http_client, web_http=web_http, local_http=local_http, browser=browser, permissions=permissions, changes=changes, registry=registry,
         approvals=approvals, tasks=tasks, engine=engine, mcp=McpHub(registry), system1=system1,
         knowledge=knowledge, facts=facts, episodic=episodic, extractor=extractor, usage=usage,
         voice=voice, personas=personas, persona_lines=persona_lines, images=images,
@@ -199,9 +200,12 @@ def local_ports(local, settings: AppSettings) -> list[int]:
     background browser is kept away from them, as it is from the backend itself."""
     ports = {local._port() if local is not None and hasattr(local, "_port") else 8080}
     for base in [e.base_url for e in settings.endpoints] + [settings.images.openai.base_url, settings.images.comfyui.base_url]:
-        url = urlsplit(base) if base else None
-        if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
-            ports.add(url.port)
+        try:
+            url = urlsplit(base) if base else None
+            if url is not None and url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
+                ports.add(url.port)
+        except ValueError:  # a saved address that doesn't parse: it can't be reached, and it mustn't stop the app
+            continue
     return sorted(ports)
 
 

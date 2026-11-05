@@ -6,6 +6,7 @@ from typing import AsyncIterator, Awaitable, Callable
 import anyio
 import httpx
 
+from ..images.backend import is_loopback
 from ..keys import KeyStore
 from ..settings import REASONING_REPLY_TOKENS, AppSettings, RouteEntry, SettingsService
 from ..usage import UsageLog, estimate_breakdown
@@ -15,21 +16,26 @@ from .openai_compat import OpenAICompatProvider
 
 ProviderFactory = Callable[[RouteEntry, str, AppSettings], LLMProvider]
 LOCAL_API_KEY = "sk-local"
+LOCAL_TIMEOUT_S = 600.0  # a model on this PC's CPU can take minutes to read a long prompt before its first word
 # Background work (fact extraction) runs on a small fast model, and falls back to the chat models:
 # settings saved before the utility role existed, or a missing key, still work (token spec §5.2).
 ROLE_FALLBACK = {"utility": "chat"}
 
 
-def make_provider_factory(http_client: httpx.AsyncClient) -> ProviderFactory:
-    """The production factory: every provider it builds shares `http_client`
-    (one connection pool for the whole backend)."""
+def make_provider_factory(http_client: httpx.AsyncClient, local_http: httpx.AsyncClient | None = None) -> ProviderFactory:
+    """The production factory: every provider it builds shares `http_client` (one connection pool for the whole
+    backend). A server on this PC goes through `local_http` instead, which ignores system proxies: a proxy would
+    carry a private-mode conversation off the machine."""
     def factory(entry: RouteEntry, api_key: str, settings: AppSettings) -> LLMProvider:
+        base_url = base_url_for(entry.provider, settings)
+        here = is_loopback(base_url)
         return OpenAICompatProvider(
             provider=entry.provider,
-            base_url=base_url_for(entry.provider, settings),
+            base_url=base_url,
             api_key=api_key,
             model=entry.model,
-            http_client=http_client,
+            http_client=(local_http or http_client) if here else http_client,
+            **({"timeout": LOCAL_TIMEOUT_S} if here else {}),
         )
 
     return factory

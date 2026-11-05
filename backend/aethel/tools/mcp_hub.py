@@ -130,6 +130,8 @@ class McpHub:
             self._restart_soon(server)
             return f"{tool} didn't finish within {CALL_TIMEOUT_S}s."
         except Exception as exc:
+            if conn.pid is not None and not psutil.pid_exists(conn.pid):  # it died: its session will never answer again
+                self._restart_soon(server)
             return f"Error: {exc}"
 
     async def restart(self, server: str) -> None:

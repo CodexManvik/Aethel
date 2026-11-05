@@ -45,9 +45,14 @@ RECORD_LEARNING = ToolSpec(
 )
 
 
+def _first_line(text: str | None) -> str:
+    lines = (text or "").strip().splitlines()
+    return lines[0][:200] if lines else ""
+
+
 def task_report(task: TaskRecord, steps: list[StepRecord], wrap) -> str:
     lines = [f"{s.idx}. {s.tool} -> {s.summary} | {'ok' if s.ok else 'failed' if s.ok is False else 'unfinished'}"
-             f" ({s.duration_ms or 0} ms): {(s.result or '').strip().splitlines()[0][:200] if s.result else ''}"
+             f" ({s.duration_ms or 0} ms): {_first_line(s.result)}"
              for s in steps[-MAX_LOG_STEPS:]]
     outcome = "succeeded" if task.state == "done" else f"failed: {task.error or 'unknown'}"
     return (f"Goal: {task.goal}\nOutcome: {outcome}\nPlan:\n" + "\n".join(f"- {p}" for p in task.plan) +

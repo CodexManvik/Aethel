@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
@@ -16,8 +17,17 @@ ProviderId = str
 
 def _check_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
-    if value and not re.match(r"^https?://[^\s/]+", value):
+    if not value:
+        return value
+    if not re.match(r"^https?://[^\s/]+", value):
         raise ValueError("must start with http:// or https://, e.g. http://127.0.0.1:1234/v1")
+    try:
+        parts = urlsplit(value)
+        _ = parts.port  # reading it is what checks it
+    except ValueError:
+        raise ValueError("isn't a valid address: check the host and the port, e.g. http://127.0.0.1:1234/v1") from None
+    if not parts.hostname:
+        raise ValueError("has no host name, e.g. http://127.0.0.1:1234/v1")
     return value
 
 
@@ -346,6 +356,13 @@ class SettingsService:
                 except ValueError:
                     ep["base_url"] = ""
             data["endpoints"] = endpoints
+            images = data.get("images") if isinstance(data.get("images"), dict) else {}
+            for server in (images.get("openai"), images.get("comfyui")):
+                if isinstance(server, dict):
+                    try:
+                        _check_base_url(str(server.get("base_url", "")))
+                    except ValueError:
+                        server["base_url"] = ""
             known = set(BUILTIN_PROVIDERS) | {str(ep.get("id")) for ep in endpoints}
             if data.get("custom_base_url") or any(
                     isinstance(e, dict) and e.get("provider") == "custom" for es in (data.get("roles") or {}).values()
@@ -369,15 +386,15 @@ class SettingsService:
             return False
         try:
             legacy = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            local = {
+                "model_path": str(legacy.get("llm_model_path") or ""),
+                "context_size": max(0, int(legacy.get("context_size", 0) or 0)),
+                "threads": max(1, int(legacy.get("threads", 4) or 4)),
+                "gpu_layers": max(0, int(legacy.get("gpu_layers", 99))),
+            }
+            self.update({"local_llm": local})
+        except (OSError, ValueError, TypeError, AttributeError):  # never worth failing startup over
             return False
-        local = {
-            "model_path": str(legacy.get("llm_model_path") or ""),
-            "context_size": int(legacy.get("context_size", 0) or 0),
-            "threads": int(legacy.get("threads", 4) or 4),
-            "gpu_layers": int(legacy.get("gpu_layers", 99)),
-        }
-        self.update({"local_llm": local})
         self._put(self.LEGACY_MARKER, "true")
         return True
 

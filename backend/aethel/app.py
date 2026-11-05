@@ -60,6 +60,7 @@ def create_app(services: Services | None = None) -> FastAPI:
                     try:
                         await svc.http_client.aclose()
                         await svc.web_http.aclose()
+                        await svc.local_http.aclose()
                     finally:
                         svc.close()
 

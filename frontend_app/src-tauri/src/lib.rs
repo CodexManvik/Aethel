@@ -197,6 +197,30 @@ fn open_backend_logs() -> Result<(), String> {
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// A plain web address and nothing else: this string goes to the operating system.
+fn is_web_address(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://"))
+        && url.len() <= 2048
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '<' | '>' | '\\' | '^' | '`'))
+}
+
+/// A link in a reply opens in the user's own browser. Left alone, the WebView opens it in a bare popup of its own,
+/// with no address bar and the app's WebView profile.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !is_web_address(&url) {
+        return Err("That isn't a web address.".into());
+    }
+    #[cfg(windows)]
+    let result = quiet("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&url).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Some(exit description) once the backend process has exited (or never started).
 #[tauri::command]
 fn backend_exited(process: tauri::State<BackendProcess>) -> Option<String> {
@@ -416,7 +440,7 @@ pub fn run() {
         .manage(SetupProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_backend_info, secret_set, secret_delete, secret_get_all, secret_get_many, backend_log_tail, open_backend_logs,
-            backend_exited, restart_backend, setup_status, setup_log_tail
+            backend_exited, restart_backend, setup_status, setup_log_tail, open_external
         ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
@@ -473,6 +497,15 @@ mod tests {
         assert!(validate_provider("typesafe").is_ok());
         assert!(validate_provider("azure_speech").is_ok());
         assert!(validate_provider("../evil").is_err());
+    }
+
+    #[test]
+    fn only_plain_web_addresses_are_opened() {
+        assert!(is_web_address("https://example.com/a?b=c&d=e#f"));
+        assert!(is_web_address("HTTP://example.com"));
+        for bad in ["file:///C:/x", "ms-settings:", "javascript:alert(1)", "https://a b", "https://a\"b", "https://a\nb", "calc.exe"] {
+            assert!(!is_web_address(bad), "{bad}");
+        }
     }
 
     #[test]

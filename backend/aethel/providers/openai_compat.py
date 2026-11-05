@@ -104,6 +104,7 @@ class OpenAICompatProvider:
             finish = None
             usage: Usage | None = None
             pending: dict[int, dict] = {}  # tool calls arrive as deltas keyed by index
+            renumbered: dict[int, int] = {}
             last_index: int | None = None
             async for chunk in stream:
                 if getattr(chunk, "usage", None) is not None:
@@ -117,7 +118,11 @@ class OpenAICompatProvider:
                         yield TextDelta(delta.content)
                     for tc in delta.tool_calls or []:
                         if tc.index is not None:
-                            index = tc.index
+                            index = renumbered.get(tc.index, tc.index)
+                            taken = pending.get(index)
+                            if tc.id and taken and taken["id"] and taken["id"] != tc.id:
+                                # Some servers (Gemini's) number every parallel call 0: a new id is a new call.
+                                index = renumbered[tc.index] = max(pending) + 1
                         else:
                             starts_new = tc.id is not None or (
                                 tc.function is not None
@@ -154,6 +159,8 @@ class OpenAICompatProvider:
             ) from exc
         except (openai.APIConnectionError, httpx.TransportError) as exc:  # timeouts, drops mid-stream
             raise ProviderError(f"{self.label}: {exc.__class__.__name__}", retryable=True) from exc
+        except openai.APIError as exc:  # an error event inside the stream, e.g. OpenRouter's upstream failures
+            raise ProviderError(f"{self.label}: {str(exc)[:300]}", retryable=True) from exc
 
     async def list_models(self) -> list[str]:
         try:

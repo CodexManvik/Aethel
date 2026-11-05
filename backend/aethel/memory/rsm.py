@@ -6,8 +6,11 @@ Ported from v1 knowledge_store.py: Laplace-smoothed outcome tracking,
 reward-weighted retrieval, duplicate merging with reinforcement, and
 auto-deprecation below a 34% success rate after 3 runs."""
 import hashlib
+import logging
+import os
 import re
 import threading
+import time
 from datetime import date
 from pathlib import Path
 from typing import Callable
@@ -15,6 +18,7 @@ from typing import Callable
 import numpy as np
 import yaml
 
+log = logging.getLogger("aethel.rsm")
 Embed = Callable[[list[str]], np.ndarray]
 STATUSES = ("quarantined", "approved", "deprecated")
 DUPLICATE_SIM = 0.9
@@ -33,9 +37,10 @@ def slug(text: str) -> str:
 
 def _parse(path: Path) -> dict | None:
     try:
-        m = _FRONT_RE.match(path.read_text(encoding="utf-8"))
+        m = _FRONT_RE.match(path.read_text(encoding="utf-8-sig"))  # -sig: Notepad may have saved it with a BOM
         meta = yaml.safe_load(m.group(1)) if m else None
-    except (OSError, yaml.YAMLError):
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        log.warning("%s can't be read; skipping it", path.name)
         return None
     if not isinstance(meta, dict):
         return None
@@ -46,7 +51,17 @@ def _write(path: Path, meta: dict, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     front = yaml.safe_dump({k: v for k, v in meta.items() if k not in ("body", "path")}, sort_keys=False,
                            allow_unicode=True)
-    path.write_text(f"---\n{front}---\n\n{body.strip()}\n", encoding="utf-8")
+    # Aside first, then moved into place: these files are rewritten after every task, and a crash must not cut one short.
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(f"---\n{front}---\n\n{body.strip()}\n", encoding="utf-8")
+    for attempt in range(5):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: something is reading the old one this moment
+            if attempt == 4:
+                raise
+            time.sleep(0.02)
 
 
 def _section(body: str, name: str) -> list[str]:
@@ -71,9 +86,9 @@ def _skill_body(steps: list[str], pitfalls: list[str], macro_def: dict | None = 
 
 
 def _macro_def(body: str) -> dict | None:
-    m = _MACRO_RE.search(body)
+    found = _MACRO_RE.findall(body)  # the last one: _skill_body writes the real macro after the steps and pitfalls
     try:
-        value = yaml.safe_load(m.group(1)) if m else None
+        value = yaml.safe_load(found[-1]) if found else None
     except yaml.YAMLError:
         return None
     return value if isinstance(value, dict) and isinstance(value.get("steps"), list) else None
@@ -85,7 +100,7 @@ def _normalise_skill(doc: dict) -> dict:
     runs = int(doc.get("runs", succ + int(doc.get("times_failed", 0) or 0)) or 0)
     title = str(doc.get("title") or doc.get("intent") or doc.get("id"))
     when = _section(doc["body"], "When to use")
-    return {**doc, "type": "skill", "title": title, "intent": str(doc.get("intent") or (when[0] if when else title)),
+    return {**doc, "id": str(doc.get("id") or Path(doc["path"]).stem), "type": "skill", "title": title, "intent": str(doc.get("intent") or (when[0] if when else title)),
             "apps": list(doc.get("apps") or []), "params": dict(doc.get("params") or {}),
             "status": doc.get("status") if doc.get("status") in STATUSES else "quarantined",
             "runs": runs, "successes": succ, "duration_history": list(doc.get("duration_history") or []),
@@ -114,8 +129,15 @@ class KnowledgeStore:
 
     # ---- reading ----------------------------------------------------------------
     def skills(self, status: str | None = None) -> list[dict]:
-        docs = [_normalise_skill(d) for d in (_parse(p) for p in sorted((self.root / "skills").glob("*.md")))
-                if d is not None]
+        docs = []
+        for path in sorted((self.root / "skills").glob("*.md")):
+            parsed = _parse(path)
+            if parsed is None:
+                continue
+            try:
+                docs.append(_normalise_skill(parsed))
+            except (TypeError, ValueError, KeyError) as exc:  # hand-edited: one bad file must not hide the others
+                log.warning("skill %s can't be used: %r", path.name, exc)
         return [d for d in docs if status is None or d["status"] == status]
 
     def notes(self) -> list[dict]:
@@ -167,8 +189,9 @@ class KnowledgeStore:
     def upsert_skill(self, fields: dict, status: str) -> tuple[dict, bool]:
         """(skill, created). A near-duplicate of an existing skill reinforces it and
         merges its pitfalls instead of adding a second copy (v1 find_duplicate)."""
-        steps = [str(s) for s in fields.get("steps") or []]
-        pitfalls = [str(p) for p in fields.get("pitfalls") or []]
+        # One line each: this text came from a model that read outside content, and the file's structure is ours.
+        steps = [" ".join(str(s).split()) for s in fields.get("steps") or []]
+        pitfalls = [" ".join(str(p).split()) for p in fields.get("pitfalls") or []]
         draft = {"title": str(fields["title"]), "intent": str(fields.get("intent") or fields["title"]),
                  "apps": [str(a).lower() for a in fields.get("apps") or []], "steps": steps}
         with self._lock:
