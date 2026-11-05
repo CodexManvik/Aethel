@@ -82,7 +82,10 @@ def parse_persona(text: str, folder_id: str, known_voices: Collection[str] | Non
     body = text
     m = _FRONTMATTER.match(text)
     if m:
-        loaded = yaml.safe_load(m.group(1)) or {}
+        try:
+            loaded = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError as exc:  # a hand-edited file: said as a ValueError, which the store skips
+            raise ValueError(f"the frontmatter isn't valid YAML: {exc}") from exc
         if not isinstance(loaded, dict):
             raise ValueError("the frontmatter isn't a mapping")
         meta, body = loaded, text[m.end():]

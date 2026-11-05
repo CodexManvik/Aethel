@@ -39,9 +39,17 @@ def fs_tools(perms: Permissions, changes: ChangeLog) -> list[Tool]:
             return ToolResult(False, NEED_ABSOLUTE)
         if not p.is_dir():
             return ToolResult(False, f"Not a folder: {p}")
-        entries = sorted(p.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))[:MAX_LIST]
-        lines = [f"{'[dir] ' if e.is_dir() else ''}{e.name}" + ("" if e.is_dir() else f"  ({e.stat().st_size} bytes)")
-                 for e in entries]
+        def entry(e) -> tuple[bool, str, str]:
+            try:  # one file the system holds locked (C:\\pagefile.sys) must not cost the whole listing
+                is_dir = e.is_dir()
+                return not is_dir, e.name.lower(), f"[dir] {e.name}" if is_dir else f"{e.name}  ({e.stat().st_size} bytes)"
+            except OSError:
+                return True, e.name.lower(), f"{e.name}  (can't be read)"
+
+        listed = await anyio.to_thread.run_sync(lambda: sorted(entry(e) for e in p.iterdir()))
+        lines = [line for _, _, line in listed[:MAX_LIST]]
+        if len(listed) > MAX_LIST:
+            lines.append(f"[{len(listed) - MAX_LIST} more not shown]")
         return ToolResult(True, "\n".join(lines) or "(empty folder)", untrusted=True)
 
     async def fs_read(args: dict, ctx: ToolContext) -> ToolResult:

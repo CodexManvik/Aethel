@@ -191,7 +191,7 @@ async def import_style(pid: str, body: ImportIn, svc: Services = Depends(get_ser
     mine = of_speaker(lines, body.speaker)
     if not mine:
         raise HTTPException(status_code=422, detail="That speaker has no messages in this file.")
-    metrics = extract_style_metrics(lines, body.speaker)
+    metrics = await anyio.to_thread.run_sync(extract_style_metrics, lines, body.speaker)
     import_id = uuid.uuid4().hex
     _pending[pid] = (import_id, mine)
     return ImportOut(speakers=who, speaker=body.speaker, messages=len(mine), directive=directive(metrics, p.name),

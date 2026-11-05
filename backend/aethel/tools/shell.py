@@ -14,7 +14,7 @@ TIMEOUT_S = 60
 CREATE_SUSPENDED = 0x00000004
 MAX_OUTPUT = 8000
 _SECRET_NAMES = {"AETHEL_TOKEN", "AETHEL_PARENT_PID"}
-_SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
+_SECRET_SUFFIXES = ("_KEY", "_KEYS", "_TOKEN", "_SECRET", "_PASSWORD", "_PASSWD", "_PWD", "_PAT", "_CREDENTIALS")
 
 
 def scrubbed_env() -> dict[str, str]:
@@ -69,14 +69,17 @@ def shell_tool(perms: Permissions) -> Tool:
 
     async def run(args: dict, ctx: ToolContext) -> ToolResult:
         command = args["command"]
-        argv = ["cmd", "/c", command] if os.name == "nt" else ["/bin/sh", "-c", command]
-        # Suspended until it's in its job: a `start /b` child can't be spawned outside it.
-        extra: dict = ({"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-                                         | CREATE_SUSPENDED}
-                       if os.name == "nt" else {"start_new_session": True})
-        spawn = asyncio.ensure_future(asyncio.create_subprocess_exec(
-            *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, cwd=str(Path.home()), env=scrubbed_env(), **extra))
+        stdio: dict = {"stdin": asyncio.subprocess.DEVNULL, "stdout": asyncio.subprocess.PIPE,
+                       "stderr": asyncio.subprocess.PIPE, "cwd": str(Path.home()), "env": scrubbed_env()}
+        if os.name == "nt":
+            # The line goes to cmd.exe as written: an argv list would escape its quotes as \", which cmd can't read,
+            # so every quoted path failed. Suspended until it's in its job: a `start /b` child can't escape that.
+            start = asyncio.create_subprocess_shell(
+                command, creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED,
+                **stdio)
+        else:
+            start = asyncio.create_subprocess_exec("/bin/sh", "-c", command, start_new_session=True, **stdio)
+        spawn = asyncio.ensure_future(start)
         group = ProcessGroup()
         try:
             try:

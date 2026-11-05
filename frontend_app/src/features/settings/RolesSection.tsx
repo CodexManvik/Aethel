@@ -14,8 +14,8 @@ const NO_ENTRIES: RouteEntry[] = [];
 
 const ROLES: { id: string; label: string; hint: string }[] = [
   { id: "chat", label: "Conversation", hint: "Everyday talking. Fast models feel best here." },
-  { id: "agent", label: "Agent", hint: "Plans and carries out tasks (Phase 1)." },
-  { id: "vision", label: "Vision", hint: "Reads screenshots when an app can't be read directly (Phase 1)." },
+  { id: "agent", label: "Agent", hint: "Plans and carries out tasks." },
+  { id: "vision", label: "Vision", hint: "Reads screenshots when an app can't be read directly." },
   { id: "utility", label: "Background", hint: "Remembering facts and other housekeeping. Empty uses the Conversation models; a small fast one (e.g. Groq llama-3.1-8b-instant) keeps this off their free-tier quota." },
 ];
 

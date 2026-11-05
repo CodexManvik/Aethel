@@ -1,6 +1,10 @@
+import shutil
+
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from ...paths import aethel_home
 from ...services import Services
 from ...store.repos import Conversation, Message
 from ..deps import get_services, require_auth
@@ -49,8 +53,18 @@ def update_conversation(conv_id: str, body: UpdateIn, svc: Services = Depends(ge
 
 
 @router.delete("/{conv_id}", status_code=204)
-def delete_conversation(conv_id: str, svc: Services = Depends(get_services)) -> Response:
-    svc.episodic.remove_conversation(conv_id)  # its earlier exchanges must never be recalled again
+async def delete_conversation(conv_id: str, svc: Services = Depends(get_services)) -> Response:
+    """Gone means gone: a task still running in it stops, and what it left behind goes too (the rows of its messages
+    and tasks follow by cascade; these aren't rows of theirs)."""
+    _require(svc, conv_id)
+    task_ids = await svc.engine.stop_for_conversation(conv_id)
+
+    def clear() -> None:
+        svc.episodic.remove_conversation(conv_id)  # its earlier exchanges must never be recalled again
+        for task_id in task_ids:
+            svc.changes.forget_task(task_id)  # the copies of files it changed
+            shutil.rmtree(aethel_home() / "media" / "tasks" / task_id, ignore_errors=True)  # its screenshots
+    await anyio.to_thread.run_sync(clear)
     if not svc.conversations.delete(conv_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)

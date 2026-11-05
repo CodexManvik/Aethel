@@ -1,4 +1,3 @@
-import pytest
 import yaml
 from mcp import types as mt
 

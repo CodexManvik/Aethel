@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from aethel.providers.base import ChatMessage, ProviderError, StreamDone, TextDelta
-from aethel.providers.catalog import PROVIDERS, base_url_for
+from aethel.providers.catalog import BUILTINS, base_url_for
 from aethel.providers.openai_compat import OpenAICompatProvider
 from aethel.settings import AppSettings
 
@@ -83,7 +83,7 @@ def test_catalog_base_urls():
     assert base_url_for("gemini", s).startswith("https://generativelanguage.googleapis.com/")
     assert base_url_for("custom", s) == "http://my.box/v1"
     assert base_url_for("local", s).startswith("http://127.0.0.1:")
-    assert PROVIDERS["local"].needs_key is False
+    assert BUILTINS["local"].needs_key is False
 
 
 def test_images_travel_as_content_parts():

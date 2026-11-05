@@ -1,90 +1,28 @@
-# Models Folder
+# Models folder
 
-Drop your model files here and Aethel picks them up automatically at startup —
-no configuration needed. Everything runs 100% locally.
+You don't need anything here to use Aethel: cloud models work with just an API key, and **Settings** can point at model files anywhere on your PC. This folder is only the default place Aethel looks. In the installed app that place is `~/.aethel/models`.
 
-```
-models/
-├── llm/      Chat model (.gguf) — REQUIRED
-├── tts/      Voice output (Kokoro) — optional
-├── stt/      Voice input (Whisper) — auto-downloads
-└── image/    Selfie generation (Stable Diffusion) — optional
-```
-
-## llm/ — the chat model (required)
-
-Place any llama.cpp-compatible `.gguf` chat model here. If several are
-present, the largest file is used. Add the matching `mmproj-*.gguf` file
-alongside it to enable image understanding (vision).
-
-Recommended starting points (4 GB VRAM class):
-
-| Model | File | Notes |
+| Folder | What | How it gets here |
 |---|---|---|
-| Gemma 4 E4B Instruct | `gemma-4-E4B-it-Q4_K_M.gguf` | default choice |
-| Qwen3 4B Instruct | `Qwen3-4B-Instruct-Q4_K_M.gguf` | strong tool calling |
+| `llm/` | A chat model (`.gguf`) | Add one yourself, or choose a file in **Settings → Local model** |
+| `tts/` | Kokoro voices | **Settings → Voice** downloads them |
+| `stt/` | faster-whisper | Downloads the first time it's used |
+| `image/` | Z-Image Turbo | Add one yourself, or choose a folder in **Settings → Images** |
 
-Download from Hugging Face (search the model name + "GGUF"), or use the
-in-app setup flow.
+## llm/
 
-## tts/ — voice output (automatic)
+Any llama.cpp-compatible `.gguf` works. If there are several, the largest is used. Put a matching `mmproj-*.gguf` next to it for vision.
 
-The app speaks using [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)
-(local, CPU, no cloud). The two model files (~340 MB total) **download
-automatically in the background on first startup** — no action needed.
-Until the download finishes, voice replies fall back to Edge-TTS.
+`llama-server` isn't kept here: **Settings → Local model** can download it, or choose your own.
 
-To manage manually instead (`AUTO_DOWNLOAD_SPEECH_MODELS=false` in `.env`),
-place these two files here:
+## image/
 
-- `kokoro-v1.0.onnx`  — https://github.com/thewh1teagle/kokoro-onnx/releases
-- `voices-v1.0.bin`   — same releases page
+Z-Image is made of parts. Put whichever you have in the folder with no subfolders, and they're recognised by name:
 
-## stt/ — voice input (automatic)
-
-Speech-to-text uses faster-whisper. The model (default: `small`, ~460 MB)
-**downloads automatically in the background on first startup** into this
-folder. No action needed. Change the size with `STT_MODEL_SIZE` in `.env`
-(`tiny` | `base` | `small` | `medium`).
-
-## image/ — selfie generation (optional)
-
-Drop an image model here; the architecture is auto-detected:
-
-| Model | File type | VRAM | Notes |
-|---|---|---|---|
-| **SD 1.5** (e.g. Realistic Vision V6) | `.safetensors` | ~4 GB | best for 4 GB GPUs |
-| **Z-Image Turbo** | `.gguf` or `.safetensors` | 6–8 GB (GGUF) | 8 steps, no CFG |
-
-A `.gguf` file, or a filename containing `z-image`, is treated as Z-Image
-Turbo; any other `.safetensors` is treated as SD 1.5. Force it with
-`IMAGE_MODEL_ARCH=sd15|zimage` in `.env`.
-
-**VRAM handoff:** on a GPU shared with the LLM (≤8 GB), the app automatically
-suspends the LLM to free VRAM, generates the image, then resumes the LLM —
-your conversation is preserved across the swap. Disable with
-`IMAGE_GEN_VRAM_HANDOFF=false`.
-
-### Z-Image component files
-
-Z-Image is a multi-part model. Drop whichever parts you have into
-`models/image/` (flat, no subfolders needed) — they're identified by name:
-
-| Component | Recognized by | Formats |
+| Part | Recognised by | Formats |
 |---|---|---|
 | Transformer | name contains `z-image` | `.gguf` or `.safetensors` |
 | VAE | name contains `ae` or `vae` | `.safetensors` |
 | Text encoder | name contains `qwen` or `text_encoder` | `.gguf` or `.safetensors` |
 
-**GGUF text encoders are fully supported** — a GGUF Qwen3 text encoder is
-dequantized and rebuilt into a working model in-process (no llama.cpp needed),
-so you keep the small quantized file instead of the ~8 GB safetensors one.
-
-Any component you don't provide is downloaded once from the base repo
-(`Tongyi-MAI/Z-Image-Turbo`) and cached. The Qwen3 tokenizer (~10 MB) always
-comes from there unless you drop a `tokenizer/` folder in `models/image/`.
-
----
-
-**Where do llama.cpp binaries live?** `bin/llama/` in the project root —
-the install script downloads them for you. See the main README.
+Anything missing is downloaded once from `Tongyi-MAI/Z-Image-Turbo`. Local images also need their own packages, which the app installs from **Settings → Images**.

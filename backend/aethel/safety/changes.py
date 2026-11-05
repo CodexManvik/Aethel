@@ -29,6 +29,7 @@ class ChangeLog:
         p = Path(row["path"])
         try:
             if row["existed"]:
+                p.parent.mkdir(parents=True, exist_ok=True)  # the folder may have gone with what's being undone
                 p.write_bytes(row["before"])
             elif p.exists():
                 p.unlink()
@@ -40,6 +41,10 @@ class ChangeLog:
     def rollback_task(self, task_id: str) -> list[tuple[bool, str]]:
         rows = self.db.query("SELECT id FROM file_changes WHERE task_id = ? ORDER BY rowid DESC", (task_id,))
         return [self.rollback(r["id"]) for r in rows]
+
+    def forget_task(self, task_id: str) -> None:
+        """Drops the copies of the files a task changed (its conversation was deleted, so it can't be undone)."""
+        self.db.execute("DELETE FROM file_changes WHERE task_id = ?", (task_id,))
 
     def for_task(self, task_id: str) -> list[dict]:
         rows = self.db.query(

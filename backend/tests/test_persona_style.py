@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from aethel.context.recipes import style_section
-from aethel.personas.distill import (ExportError, Line, directive, extract_style_metrics, of_speaker, parse_csv,
+from aethel.personas.distill import (ExportError, Line, directive, extract_style_metrics, parse_csv,
                                      parse_discord, parse_export, parse_telegram, parse_whatsapp, speakers)
 from aethel.personas.lines import PersonaLines
 from aethel.personas.tone import DECAY, Tone, ToneEngine, label_for, lexicon_point, prompt_line

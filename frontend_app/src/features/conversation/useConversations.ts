@@ -20,8 +20,12 @@ export async function hydrateTasks(conversationId: string): Promise<void> {
   if (live) useUi.getState().openTaskPanel(live.task.id);
 }
 
+let opening = 0; // the latest conversation asked for: a slower answer for an earlier click must not replace it
+
 export async function openConversation(id: string): Promise<void> {
+  const mine = ++opening;
   const messages = await api<Message[]>(`/api/conversations/${id}/messages`);
+  if (mine !== opening) return;
   useSession.getState().setConversation(id, toUiMessages(messages));
   useUi.getState().closeTaskPanel();
   await hydrateTasks(id).catch(() => {});
@@ -49,7 +53,10 @@ export function useDeleteConversation() {
   return useMutation({
     mutationFn: (id: string) => api<void>(`/api/conversations/${id}`, { method: "DELETE" }),
     onSuccess: (_d, id) => {
-      if (useSession.getState().conversationId === id) useSession.getState().setConversation(null, []);
+      if (useSession.getState().conversationId === id) {
+        useSession.getState().setConversation(null, []);
+        useUi.getState().closeTaskPanel();
+      }
       void qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });

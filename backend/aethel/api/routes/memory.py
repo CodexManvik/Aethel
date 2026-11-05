@@ -179,7 +179,7 @@ def undo_fact_change(body: UndoIn, svc: Services = Depends(get_services)) -> lis
             svc.facts.add(c.scope, c.old_text, actor="user", source_message_id=msg.id,
                           conversation_id=msg.conversation_id)
         changes[body.index] = c.model_copy(update={"undone": True})
-        svc.messages.update(msg.id, meta={**msg.meta, "facts_changed": [x.model_dump() for x in changes]})
+        svc.messages.merge_meta(msg.id, lambda m: {**m, "facts_changed": [x.model_dump() for x in changes]})
         return changes
 
 

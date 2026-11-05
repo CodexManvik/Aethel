@@ -23,7 +23,6 @@ BUILTINS: dict[str, ProviderMeta] = {
     "openrouter": ProviderMeta("openrouter", "OpenRouter", True, "https://openrouter.ai/api/v1"),
     "local": ProviderMeta("local", "Local (llama.cpp)", False, LOCAL_BASE_URL),
 }
-PROVIDERS = BUILTINS  # kept for imports from before endpoints
 
 # Endpoints are often local servers (llama.cpp, LM Studio, Ollama) that take no key; the OpenAI client still needs a
 # non-empty one.

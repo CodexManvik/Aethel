@@ -12,7 +12,7 @@ mod runtime;
 use runtime::{Layout, SetupStatus};
 
 const KEYRING_SERVICE: &str = "com.aethel.app";
-const KNOWN_PROVIDERS: [&str; 6] = ["groq", "gemini", "openrouter", "custom", "typesafe", "azure_speech"];
+const KNOWN_PROVIDERS: [&str; 5] = ["groq", "gemini", "openrouter", "custom", "azure_speech"];
 
 #[derive(Clone, Serialize)]
 struct BackendInfo {
@@ -116,7 +116,7 @@ fn python_executable(repo: &Path) -> Result<(String, String), String> {
         tried.push(how);
     }
     Err(format!(
-        "No Python that can run Aethel was found. Tried: {}.\nInstall the packages with:\n    py -3.11 -m pip install -r requirements.txt\nor point AETHEL_PYTHON at a Python that has them.",
+        "No Python that can run Aethel was found. Tried: {}.\nInstall the packages with:\n    py -3.11 -m pip install -r backend\\requirements\\core.txt\nor point AETHEL_PYTHON at a Python that has them.",
         tried.join("; ")
     ))
 }
@@ -178,7 +178,7 @@ fn backend_log_path() -> PathBuf {
 /// The end of backend.log, for the boot screen when the backend won't start.
 #[tauri::command]
 fn backend_log_tail(lines: Option<usize>) -> String {
-    let text = fs::read_to_string(backend_log_path()).unwrap_or_else(|e| format!("(couldn't read the log: {e})"));
+    let text = runtime::read_log(&backend_log_path()).unwrap_or_else(|e| format!("(couldn't read the log: {e})"));
     let all: Vec<&str> = text.lines().collect();
     let n = lines.unwrap_or(60).min(all.len());
     format!("{}\n\n(full log: {})", all[all.len() - n..].join("\n"), backend_log_path().display())
@@ -194,6 +194,30 @@ fn open_backend_logs() -> Result<(), String> {
     let result = Command::new("open").arg("-R").arg(&path).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let result = Command::new("xdg-open").arg(path.parent().unwrap_or(&path)).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// A plain web address and nothing else: this string goes to the operating system.
+fn is_web_address(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://"))
+        && url.len() <= 2048
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '<' | '>' | '\\' | '^' | '`'))
+}
+
+/// A link in a reply opens in the user's own browser. Left alone, the WebView opens it in a bare popup of its own,
+/// with no address bar and the app's WebView profile.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !is_web_address(&url) {
+        return Err("That isn't a web address.".into());
+    }
+    #[cfg(windows)]
+    let result = quiet("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&url).spawn();
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
@@ -416,7 +440,7 @@ pub fn run() {
         .manage(SetupProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_backend_info, secret_set, secret_delete, secret_get_all, secret_get_many, backend_log_tail, open_backend_logs,
-            backend_exited, restart_backend, setup_status, setup_log_tail
+            backend_exited, restart_backend, setup_status, setup_log_tail, open_external
         ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
@@ -470,9 +494,17 @@ mod tests {
     #[test]
     fn only_known_providers_are_accepted() {
         assert!(validate_provider("groq").is_ok());
-        assert!(validate_provider("typesafe").is_ok());
         assert!(validate_provider("azure_speech").is_ok());
         assert!(validate_provider("../evil").is_err());
+    }
+
+    #[test]
+    fn only_plain_web_addresses_are_opened() {
+        assert!(is_web_address("https://example.com/a?b=c&d=e#f"));
+        assert!(is_web_address("HTTP://example.com"));
+        for bad in ["file:///C:/x", "ms-settings:", "javascript:alert(1)", "https://a b", "https://a\"b", "https://a\nb", "calc.exe"] {
+            assert!(!is_web_address(bad), "{bad}");
+        }
     }
 
     #[test]

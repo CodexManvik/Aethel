@@ -23,7 +23,7 @@ export async function pushStoredKeys(): Promise<void> {
   } catch {
     /* the built-in keys still go through */
   }
-  const keys = Object.fromEntries(Object.entries({ ...all, ...named }).filter(([p]) => p !== "typesafe"));
+  const keys = { ...all, ...named };
   if (Object.keys(keys).length) {
     await api("/api/keys", { method: "POST", body: JSON.stringify({ keys }) });
   }

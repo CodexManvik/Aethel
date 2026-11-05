@@ -5,7 +5,6 @@ from mcp import types as mt
 
 from aethel.tools import desktop
 from aethel.tools.desktop import App, Desktop, parse_snapshot
-from aethel.tools.registry import ToolRegistry
 
 pytestmark = pytest.mark.anyio
 

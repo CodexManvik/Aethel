@@ -60,8 +60,8 @@ It works with:
 
 Safety is built into the task system:
 
-- **Approvals:** anything outside your allowed folders or commands waits for you. Anything that sends, buys, deletes or closes always asks.
-- **Undo:** **Undo file changes** restores every file a finished task wrote.
+- **Approvals:** anything outside your allowed folders or commands waits for you. So does a click on anything that looks like it sends, buys, deletes or closes, judged by its name. Pressing Enter in a chat app isn't caught by that, so watch tasks that message people.
+- **Undo:** **Undo file changes** restores the files a finished task wrote with its file and Office tools. Changes made through shell commands or by driving an app can't be undone this way.
 - **Emergency stop:** **Ctrl+Alt+Esc** stops every task at once, from any app.
 - **Limited tools:** only vetted tools are offered. The shell, registry and process tools in those servers are never exposed, because they would bypass your permissions.
 - **Your rules:** allowed folders and commands live in `~/.aethel/permissions.yaml`.
@@ -191,7 +191,6 @@ backend/aethel/        FastAPI backend
   memory/ system1/     facts, recall, and the small local judge
   personas/ images/    personas, tone, photos and the face check
   voice/ providers/    calls and speech, model routing
-backend/*.py           the original prototype, due to be removed
 scripts/               start scripts and evaluation harnesses
 docs/                  specs, plans and third-party licences
 ```

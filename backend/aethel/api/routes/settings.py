@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import ValidationError
 
@@ -14,9 +16,12 @@ def get_settings(svc: Services = Depends(get_services)) -> AppSettings:
 
 
 @router.patch("")
-def patch_settings(patch: dict = Body(...), svc: Services = Depends(get_services)) -> AppSettings:
+async def patch_settings(patch: dict = Body(...), svc: Services = Depends(get_services)) -> AppSettings:
     try:
-        return svc.settings.update(patch)
+        updated = svc.settings.update(patch)
     except ValidationError as exc:
         # without the context: it can hold the ValueError itself, which isn't JSON (the message says it all)
         raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False)) from exc
+    if "system1" in patch and os.environ.get("AETHEL_SYSTEM1") != "0":
+        svc.system1.start()  # switched on just now: it wasn't loaded at startup, and a failed load gets another try
+    return updated

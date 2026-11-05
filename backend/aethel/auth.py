@@ -38,4 +38,5 @@ class AuthConfig:
     def check(self, presented: str | None) -> bool:
         if self.token is None:
             return self.dev
-        return presented is not None and secrets.compare_digest(presented, self.token)
+        # As bytes: compare_digest raises on a non-ASCII str, and this input comes straight from the request.
+        return presented is not None and secrets.compare_digest(presented.encode(), self.token.encode())

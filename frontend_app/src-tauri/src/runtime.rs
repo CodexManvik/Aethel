@@ -245,8 +245,13 @@ pub fn stop_tree(pid: u32) {
     }
 }
 
+/// Lossy: Python writes its log in the Windows code page, and one accented path mustn't blank the error screen.
+pub fn read_log(path: &Path) -> std::io::Result<String> {
+    Ok(String::from_utf8_lossy(&fs::read(path)?).into_owned())
+}
+
 pub fn log_tail(path: &Path, lines: usize) -> String {
-    let text = fs::read_to_string(path).unwrap_or_default();
+    let text = read_log(path).unwrap_or_default();
     let all: Vec<&str> = text.lines().collect();
     all[all.len().saturating_sub(lines)..].join("\n")
 }
@@ -338,6 +343,14 @@ mod tests {
         assert!(args.contains(&"--require-hashes".to_string()));
         let c = args.iter().position(|a| a == "--constraint").unwrap();
         assert_eq!(args[c + 1], l.lock().to_string_lossy());
+    }
+
+    #[test]
+    fn a_log_that_isnt_utf8_still_reads() {
+        let dir = temp("log");
+        let path = dir.join("backend.log");
+        fs::write(&path, b"first\ncaf\xe9 failed\n").unwrap();
+        assert!(log_tail(&path, 1).starts_with("caf"));
     }
 
     #[test]

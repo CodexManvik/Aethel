@@ -8,7 +8,6 @@ import pytest
 
 from aethel.keys import KeyStore
 from aethel.settings import AppSettings
-from aethel.voice import stt as stt_module
 from aethel.voice.azure import AzureSpeech, azure_from, valid_region
 from aethel.voice.stt import (AzureSTT, FallbackSTT, LocalWhisper, SpeechToTextError, Transcript, make_stt,
                               pcm16_to_wav)

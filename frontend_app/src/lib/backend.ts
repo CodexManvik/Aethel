@@ -48,6 +48,17 @@ export async function openBackendLogs(): Promise<void> {
   if (inTauri()) await tauriInvoke("open_backend_logs");
 }
 
+/** In the desktop app a link opens in the user's browser: left alone, the WebView opens a bare popup of its own. */
+export function openLinksInBrowser(): void {
+  if (!inTauri()) return;
+  document.addEventListener("click", (event) => {
+    const link = (event.target as Element | null)?.closest?.('a[target="_blank"]') as HTMLAnchorElement | null;
+    if (!link?.href) return;
+    event.preventDefault();
+    void tauriInvoke("open_external", { url: link.href });
+  });
+}
+
 export async function restartBackend(): Promise<void> {
   if (inTauri()) await tauriInvoke("restart_backend");
 }

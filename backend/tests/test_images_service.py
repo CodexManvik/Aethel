@@ -1,5 +1,4 @@
 import io
-import json
 
 import numpy as np
 import pytest
@@ -7,7 +6,6 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from aethel.app import create_app
-from aethel.hub import EventHub
 from aethel.images.backend import ImageError, ImageResult
 from aethel.images.compose import CONSISTENCY, compose
 from aethel.images.service import ImageService

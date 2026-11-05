@@ -4,7 +4,7 @@ import pytest
 from mcp import types as mt
 
 from aethel.tools import browser as br
-from aethel.tools.base import ToolContext, ToolResult
+from aethel.tools.base import ToolContext
 from aethel.tools.web import SourceList, unlisted_read
 from tests.test_browser import CODE, PAGE, SNAPSHOT, FakeHub, ask, b, run, see_the_page  # noqa: F401  (b is a fixture)
 

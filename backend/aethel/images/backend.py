@@ -11,7 +11,10 @@ ASPECT = {"portrait": "3:4", "square": "1:1", "landscape": "4:3"}
 def is_loopback(url: str) -> bool:
     """A server on this PC (127.0.0.0/8, ::1, localhost): talking to it never leaves the machine, so private mode
     may use it. A LAN address is another computer and doesn't count."""
-    host = (urlsplit(url).hostname or "").lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:  # not an address at all
+        return False
     if host == "localhost":
         return True
     try:

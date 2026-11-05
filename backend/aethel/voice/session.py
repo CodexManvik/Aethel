@@ -346,7 +346,8 @@ class VoiceSession:
             return None
         heard = -1 if turn.heard_upto is None else turn.heard_upto
         content = " ".join(turn.texts[: max(-1, heard) + 1])
-        self.svc.messages.update(saved.id, content=content, status="stopped", meta={**saved.meta, "interrupted": True})
+        self.svc.messages.update(saved.id, content=content, status="stopped")
+        self.svc.messages.merge_meta(saved.id, lambda m: {**m, "interrupted": True})  # a photo may be landing right now
         self.last_reply = content or None  # what Aethel remembers saying is what was heard
         try:
             self.svc.db.execute("UPDATE voice_turns SET interrupted = 1 WHERE id = ?", (turn.id,))

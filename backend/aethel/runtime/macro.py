@@ -10,6 +10,7 @@ from the next goal through the goal's template. A run that typed generated
 content (a poem, an essay) isn't compiled: macros are for navigation."""
 import hashlib
 import re
+from urllib.parse import quote_plus
 
 # Steps that only look: they're dropped from structures and macros (grounding snapshots itself).
 OBSERVE = {"win_snapshot", "win_wait_for", "win_displays", "win_locate",
@@ -104,33 +105,34 @@ def compile_macro(goal: str, steps, stable: str = "") -> dict | None:
     return {"template": template, "params": sorted(names.values()), "steps": out}
 
 
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().rstrip(".!?")).lower()
+def _tidy(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().rstrip(".!?"))
 
 
 def bind(template: str, goal: str) -> dict[str, str] | None:
     """Parameter values for a new goal, or None if it doesn't fit the template."""
     pattern, names = "", []
-    for piece in re.split(r"(\{p\d+\})", _norm(template)):
+    for piece in re.split(r"(\{p\d+\})", _tidy(template)):
         m = re.fullmatch(r"\{(p\d+)\}", piece)
         if m:
             names.append(m.group(1))
             pattern += f"(?P<{m.group(1)}>.+?)"
         else:
             pattern += re.escape(piece)
-    match = re.fullmatch(pattern, _norm(goal))
+    # Matched without regard to case, but the values keep the goal's: "John Smith" is typed as written.
+    match = re.fullmatch(pattern, _tidy(goal), re.IGNORECASE)
     if match is None:
         return None
     return {n: match.group(n).strip() for n in names}
 
 
 def fill(args: dict, values: dict[str, str]) -> dict:
-    """Macro step args with {pN} replaced by this run's values ({pN+}: spaces as '+', as in a URL)."""
+    """Macro step args with {pN} replaced by this run's values ({pN+}: encoded for a URL, spaces as '+')."""
     def one(m: re.Match) -> str:
         value = values.get(m.group(1))
         if value is None:
             return m.group(0)
-        return value.replace(" ", "+") if m.group(2) else value
+        return quote_plus(value) if m.group(2) else value
     return {k: (re.sub(r"\{(p\d+)(\+)?\}", one, v) if isinstance(v, str) else v) for k, v in args.items()}
 
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- Office no longer runs macros in files a task opens.
+- Network paths aren't contacted when a task's action is being checked, only after you approve it.
+- Text from a task can't plant a fake macro in a learned skill.
+- Shortcut checks no longer depend on how the keys are spelled.
+- Private mode no longer lists Gemini's models or downloads the face models, and traffic to a model on this PC skips system proxies.
+
+### Fixed
+- Shell commands with quoted paths work on Windows.
+- A bad port in an endpoint's address can't stop Aethel starting, and neither can odd settings from the old app.
+- Deleting a conversation also stops its tasks and removes their screenshots and file copies.
+- Macros keep your capitals and encode addresses properly, and a step that never ran no longer counts as done.
+- Text checks read Excel and PowerPoint files, and checking that a file exists no longer reads it.
+- A broken skill or persona file no longer hides the others.
+- Links open in your browser.
+- Plus smaller fixes to providers, undo, folder listings, the Office tools and conversation switching.
+
+### Removed
+- The original prototype backend, its install scripts and its requirements files. `backend/aethel` is the whole backend now.
+
 ## v2.0.0-beta.1 (2026-10-21), pre-release
 
 The first release of Aethel v2, a rebuild of the original prototype. It's a beta: the evaluation work and first-run onboarding (Phase 6) are still to come.
